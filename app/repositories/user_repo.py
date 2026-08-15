@@ -83,3 +83,50 @@ class UserRepository:
             cur.execute(
                 "UPDATE users SET role = %s WHERE id = %s", (role, user_id)
             )
+
+    @staticmethod
+    def set_password(user_id: int, password: str) -> None:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s",
+                (generate_password_hash(password), user_id),
+            )
+
+    @staticmethod
+    def create_reset_token(user_id: int, token_hash: str, expires_at: datetime) -> None:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                """
+                INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+                VALUES (%s, %s, %s)
+                """,
+                (user_id, token_hash, expires_at),
+            )
+
+    @staticmethod
+    def find_valid_reset_token(token_hash: str) -> dict | None:
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, user_id, token_hash, expires_at, used
+                FROM password_reset_tokens
+                WHERE token_hash = %s
+                """,
+                (token_hash,),
+            )
+            return cur.fetchone()
+
+    @staticmethod
+    def consume_reset_token(token_id: int) -> None:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "UPDATE password_reset_tokens SET used = TRUE WHERE id = %s",
+                (token_id,),
+            )
+
+    @staticmethod
+    def purge_reset_tokens(user_id: int) -> None:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,)
+            )
