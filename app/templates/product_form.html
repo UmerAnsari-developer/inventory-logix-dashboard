@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% set active_page = "inventory" %}
+{% block title %}Product{% endblock %}
+{% block breadcrumb %}Inventory / Product{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">{{ 'Edit product' if product else 'New product' }}</div>
+      <h1>{{ product.name if product else 'Create a product' }}</h1>
+      <p class="heading-note">SKU and name are required. EOQ parameters are optional</p>
+  </div>
+    <a class="btn btn-ghost" href="{{ url_for('ui.inventory') }}">&larr; Back</a>
+</div>
+  <form method="post" class="form-card" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <div class="form-grid">
+      <label><span>SKU *</span><input type="text" name="sku" value="{{ product.sku or '' }}" required maxlength="50" readonly></label>
+      <label><span>Name *</span><input type="text" name="name" value="{{ product.name or '' }}" required maxlength="150"></label>
+      <label><span>Category</span><input type="text" name="category" value="{{ product.category or '' }}"></label>
+      <label><span>Warehouse</span>
+        <select name="warehouse">
+{% for w in warehouses %}
+          <option value="{{ w }}">{{ w</option> }}
+{% endfor %}
+      </select>
+    </label>
+      <label><span>Supplier</span>
+        <select name="supplier_id">
+          <option value="">&mdash; none &mdash</option>
+{% for s in suppliers %}
+          <option value="{{ s.id }}">{{ s.name</option> }}
+{% endfor %}
+      </select>
+    </label>
+      <label><span>Current stock</span><input type="number" name="current_stock" min="0" value="{{ product.current_stock if product else 0 }}"></label>
+      <label><span>Reorder point</span><input type="number" name="reorder_point" min="0" value="{{ product.reorder_point if product else 0 }}"></label>
+      <label><span>Unit price</span><input type="number" step="0.01" min="0" name="unit_price" value="{{ product.unit_price or 0 }}" required></label>
+      <label><span>Demand rate / yr</span><input type="number" step="0.01" min="0" name="demand_rate" value="{{ product.demand_rate or '' }}"></label>
+      <label><span>Ordering cost</span><input type="number" step="0.01" min="0" name="ordering_cost" value="{{ product.ordering_cost or '' }}"></label>
+      <label><span>Holding cost</span><input type="number" step="0.01" min="0" name="holding_cost" value="{{ product.holding_cost or '' }}"></label>
+  </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">{{ 'Save changes' if product else 'Create product' }}</button>
+      <a class="btn btn-secondary" href="{{ url_for('ui.inventory') }}">Cancel</a>
+  </div>
+</form>
+</section>
+{% endblock %}

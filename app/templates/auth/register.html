@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Register{% endblock %}
+{% block auth_content %}
+<section class="auth-shell">
+  <div class="auth-card">
+    <a class="auth-back" href="{{ url_for('ui.dashboard') }}">&larr; Back to home</a>
+    <div class="auth-brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div>
+        <div class="brand-name">InventoryLogix</div>
+        <span class="brand-meta">Inventory command center</span>
+      </div>
+    </div>
+    <h1>Create your account</h1>
+    <p class="auth-tagline">Get instant access to live inventory, EOQ, and AI features</p>
+    <form method="post" action="{{ url_for('auth.register') }}" class="auth-form" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <label><span>Username</span><input type="text" name="username" value="{{ form.username or '' }}" required minlength="3" maxlength="60"></label>
+      <label><span>Email</span><input type="email" name="email" value="{{ form.email or '' }}" required></label>
+      <label><span>Password</span><input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+      <label><span>Role</span>
+        <select name="role">
+          <option value="viewer">Viewer</option>
+          <option value="manager">Manager</option>
+          <option value="admin">Admin</option>
+        </select>
+      </label>
+      <button type="submit" class="btn btn-primary auth-submit">Create account</button>
+    </form>
+    <p class="auth-helper">Already registered? <a href="{{ url_for('auth.login') }}">Sign in</a></p>
+  </div>
+</section>
+{% endblock %}

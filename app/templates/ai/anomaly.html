@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% set active_page = "anomaly" %}
+{% block title %}Anomaly Detection{% endblock %}
+{% block breadcrumb %}Analytics / Anomaly{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Analytics & AI</div>
+      <h1>Anomaly detection</h1>
+      <p class="heading-note">Isolation Forest + SPC z-score control chart</p>
+    </div>
+  </div>
+  {% if not anomaly_enabled %}
+  <div class="alert-strip">
+    <div class="alert-mark"></div>
+    <div class="alert-copy">
+      <div class="alert-title">Anomaly detection is disabled</div>
+      <div class="alert-subtitle">Enable it from Settings &middot; AI &amp; Prediction Settings</div>
+    </div>
+    <a href="{{ url_for('ui.settings') }}" class="btn btn-secondary">Open settings</a>
+  </div>
+  {% else %}
+  <div class="forecast-controls">
+    <label><span>Product</span>
+      <select id="anomalyProduct">
+        {% for p in products %}
+        <option value="{{ p.id }}">{{ p.sku }} &mdash; {{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label><span>Contamination</span>
+      <select id="anomalyContamination">
+        <option value="0.02">2%</option>
+        <option value="0.05" selected>5%</option>
+        <option value="0.10">10%</option>
+      </select>
+    </label>
+    <button class="btn btn-primary" id="runAnomaly" type="button">Detect anomalies</button>
+  </div>
+  {% endif %}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Detected anomalies</div></div>
+    <div class="table-scroll">
+      <table class="data-table" id="anomalyTable">
+        <thead><tr><th>Day</th><th>Value</th><th>Z-score</th><th>Confidence</th><th>Description</th></tr></thead>
+        <tbody><tr><td colspan="5"><div class="empty-state">Run detection to see results&hellip;</div></td></tr></tbody>
+      </table>
+    </div>
+  </article>
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">SPC control chart (&plusmn;3&sigma;)</div></div>
+    <div class="panel-content"><div id="spcChart" style="height:340px"></div></div>
+  </article>
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Anomaly portfolio</div></div>
+    <div class="table-scroll">
+      <table class="data-table" id="anomalyPortfolioTable">
+        <thead><tr><th>SKU</th><th>Product</th><th>Anomalies</th><th>Max z-score</th></tr></thead>
+        <tbody><tr><td colspan="4"><div class="empty-state">Loading&hellip;</div></td></tr></tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.StockflowAnomaly && {{ 'true' if anomaly_enabled else 'false' }}) window.StockflowAnomaly.init({
+    product: document.getElementById('anomalyProduct'),
+    contamination: document.getElementById('anomalyContamination'),
+    runButton: document.getElementById('runAnomaly'),
+    table: document.getElementById('anomalyTable'),
+    spcId: 'spcChart',
+    portfolioTable: document.getElementById('anomalyPortfolioTable'),
+    runUrl: "{{ url_for('ai.anomaly_run') }}",
+    portfolioUrl: "{{ url_for('ai.anomaly_portfolio') }}",
+  });
+});
+</script>
+{% endblock %}

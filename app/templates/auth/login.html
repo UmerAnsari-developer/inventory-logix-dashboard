@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block auth_content %}
+<section class="auth-shell">
+  <div class="auth-card">
+    <a class="auth-back" href="{{ url_for('ui.dashboard') }}">&larr; Back to home</a>
+    <div class="auth-brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div>
+        <div class="brand-name">InventoryLogix</div>
+        <span class="brand-meta">Inventory command center</span>
+      </div>
+    </div>
+    <h1>Welcome back</h1>
+    <p class="auth-tagline">Sign in to manage stock, run EOQ, and review AI forecasts</p>
+    <form method="post" action="{{ url_for('auth.login') }}" class="auth-form" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <label><span>Username</span><input type="text" name="username" value="{{ username or '' }}" required autofocus autocomplete="username"></label>
+      <label><span>Password</span><input type="password" name="password" required autocomplete="current-password"></label>
+      <label class="checkbox-row"><input type="checkbox" name="remember" required/> <span>Remember me</span></label>
+      <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
+    </form>
+    <p class="auth-helper">No account? <a href="{{ url_for('auth.register') }}">Create one</a></p>
+    <details class="auth-seed">
+      <summary>Seeded demo credentials</summary>
+      <ul>
+        <li><code>admin</code> / <code>Admin@123</code></li>
+        <li><code>manager</code> / <code>Manager@123</code></li>
+        <li><code>viewer</code> / <code>Viewer@123</code></li>
+      </ul>
+    </details>
+  </div>
+</section>
+{% endblock %}

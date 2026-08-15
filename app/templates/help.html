@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% set active_page = "help" %}
+{% block title %}Help{% endblock %}
+{% block breadcrumb %}Help{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading"><div><div class="eyebrow">Support</div><h1>Help</h1><p class="heading-note">Get started and get the most out of InventoryLogix</p></div></div>
+  <div class="help-grid">
+    <article class="panel">
+      <div class="panel-header"><div class="panel-title">Getting started</div><div class="panel-caption">Quick orientation</div></div>
+      <div class="panel-content">
+        <div class="help-list">
+          <div class="help-item">
+            <div class="help-item-mark">1</div>
+            <div><div class="setting-label">Overview</div><div class="setting-desc">Your stock position, sales and procurement KPIs at a glance.</div></div>
+          </div>
+          <div class="help-item">
+            <div class="help-item-mark">2</div>
+            <div><div class="setting-label">Inventory</div><div class="setting-desc">Search products or SKUs with the magnifier icon and record IN/OUT movements.</div></div>
+          </div>
+          <div class="help-item">
+            <div class="help-item-mark">3</div>
+            <div><div class="setting-label">Reports</div><div class="setting-desc">Year-wise, quarterly and monthly sales trends plus inventory health.</div></div>
+          </div>
+          <div class="help-item">
+            <div class="help-item-mark">4</div>
+            <div><div class="setting-label">AI modules</div><div class="setting-desc">Forecast demand and detect anomalies under Analytics &amp; AI.</div></div>
+          </div>
+        </div>
+      </div>
+    </article>
+    <article class="panel">
+      <div class="panel-header"><div class="panel-title">Frequently asked questions</div><div class="panel-caption">Common queries</div></div>
+      <div class="panel-content">
+        <div class="help-list">
+          <div class="help-item">
+            <div class="help-item-mark">Q</div>
+            <div><div class="setting-label">How do I log a stock movement?</div><div class="setting-desc">Open Inventory, pick a product and use the movement form to record an IN or OUT quantity.</div></div>
+          </div>
+          <div class="help-item">
+            <div class="help-item-mark">Q</div>
+            <div><div class="setting-label">What does the reorder queue mean?</div><div class="setting-desc">Products whose stock is at or below the reorder point with nothing on order.</div></div>
+          </div>
+          <div class="help-item">
+            <div class="help-item-mark">Q</div>
+            <div><div class="setting-label">How do I change my theme?</div><div class="setting-desc">Open the Settings menu and toggle Dark Mode — it applies instantly.</div></div>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+{% endblock %}

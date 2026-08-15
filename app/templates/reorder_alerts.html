@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% set active_page = "reorder" %}
+{% block title %}Reorder Queue{% endblock %}
+{% block breadcrumb %}Reorder queue{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div><div class="eyebrow">Action queue</div><h1>Reorder queue</h1><p class="heading-note">{{ alerts|length }} products below their reorder point</p></div>
+  </div>
+  <div class="alert-strip">
+    <div class="alert-mark"></div>
+    <div class="alert-copy">
+      <div class="alert-title">{{ critical_count }} critical &middot; {{ alerts|length - critical_count }} warning</div>
+      <div class="alert-subtitle">Items below reorder point and not currently on order</div>
+    </div>
+  </div>
+  {% if auto_reorder %}
+  <form method="post" action="{{ url_for('ui.auto_draft_pos') }}" class="alert-strip" style="margin-top:12px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <div class="alert-copy">
+      <div class="alert-title">Auto-reorder is enabled</div>
+      <div class="alert-subtitle">Draft purchase orders for all {{ critical_count }} critical items in one click</div>
+    </div>
+    <button class="btn btn-primary" type="submit">Auto-draft {{ critical_count }} POs</button>
+  </form>
+  {% endif %}
+  <div class="alert-list">
+    {% for a in alerts %}
+    <article class="alert-item {{ a.status }}">
+      <div class="product-cell">
+        <span class="product-icon">{{ a.initials }}</span>
+        <div>
+          <div class="product-name">{{ a.name }}</div>
+          <div class="product-meta">{{ a.sku }} &middot; {{ a.category or '-' }} &middot; supplier {{ a.supplier_name or 'n/a' }}</div>
+        </div>
+      </div>
+      <div class="alert-stats">
+        <div><span class="label">Current</span><span class="value danger">{{ a.current_stock }}</span></div>
+        <div><span class="label">ROP</span><span class="value">{{ a.reorder_point }}</span></div>
+        <div><span class="label">EOQ</span><span class="value">{{ a.eoq or '&mdash;' }}</span></div>
+      </div>
+      <form method="post" action="{{ url_for('ui.mark_ordered', product_id=a.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button class="btn btn-primary btn-sm" type="submit">Mark ordered</button>
+      </form>
+    </article>
+    {% else %}
+    <div class="empty-state">The reorder queue is clear</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

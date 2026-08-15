@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% set active_page = "eoq" %}
+{% block title %}EOQ{% endblock %}
+{% block breadcrumb %}EOQ calculator{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading"><div><div class="eyebrow">Optimisation</div><h1>Economic Order Quantity</h1><p class="heading-note">EOQ = sqrt(2DS / H)</p></div></div>
+  <div class="eoq-grid">
+    <article class="panel">
+      <div class="panel-header"><div class="panel-title">Live</div></div>
+      <div class="panel-content">
+        <form id="eoqForm" class="form-card">
+          <div class="form-grid">
+            <label><span>Demand (units / yr) *</span><input type="number" id="calcDemand" min="1" step="1" value="1200" required></label>
+            <label><span>Ordering cost *</span><input type="number" id="calcOrdering" min="0" step="0.01" value="45" required></label>
+            <label><span>Holding cost *</span><input type="number" id="calcHolding" min="0.01" step="0.01" value="6" required></label>
+            <label><span>Lead time (days)</span><input type="number" id="calcLead" min="0" value="14"></label>
+            <label><span>Safety stock</span><input type="number" id="calcSafety" min="0" value="20"></label>
+          </div>
+        </form>
+      </div>
+    </article>
+    <article class="panel">
+      <div class="panel-header"><div class="panel-title">Result</div></div>
+      <div class="panel-content">
+        <div class="result-card">
+          <div class="result-label">Economic Order Quantity</div>
+          <div class="result-value" id="eoqResult">&mdash;</div>
+          <div class="result-unit">units per order</div>
+        </div>
+        <div class="result-grid">
+          <div><div class="label">Orders / year</div><div class="value" id="ordersResult">&mdash;</div></div>
+          <div><div class="label">Reorder point</div><div class="value" id="ropResult">&mdash;</div></div>
+          <div><div class="label">Total annual cost</div><div class="value" id="totalResult">&mdash;</div></div>
+        </div>
+      </div>
+    </article>
+  </div>
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Cost curve</div></div>
+    <div class="panel-content"><canvas id="eoqChart" height="220"></canvas></div>
+  </article>
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">3D sensitivity surface</div><div class="panel-caption">Total cost x demand x ordering cost (drag to rotate)</div></div>
+    <div class="panel-content"><div id="eoq3dChart" style="height:380px"></div></div>
+  </article>
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Per-product EOQ</div></div>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>SKU</th><th>Product</th><th>Demand</th><th>S</th><th>H</th><th>EOQ</th><th>Annual cost</th></tr></thead>
+        <tbody>
+          {% for row in product_eoq %}
+          <tr>
+            <td><span class="sku">{{ row.sku }}</span></td>
+            <td>{{ row.name }}</td>
+            <td>{{ row.demand }}</td>
+            <td>{{ row.ordering }}</td>
+            <td>{{ row.holding }}</td>
+            <td>{{ row.eoq }}</td>
+            <td>{{ '{:,.2f}'.format(row.total_cost) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.StockflowEOQ) window.StockflowEOQ.init({
+    demand: document.getElementById('calcDemand'),
+    ordering: document.getElementById('calcOrdering'),
+    holding: document.getElementById('calcHolding'),
+    lead: document.getElementById('calcLead'),
+    safety: document.getElementById('calcSafety'),
+    out: {
+      eoq: document.getElementById('eoqResult'),
+      orders: document.getElementById('ordersResult'),
+      rop: document.getElementById('ropResult'),
+      total: document.getElementById('totalResult'),
+    },
+    chartId: 'eoqChart',
+    surfaceId: 'eoq3dChart',
+    sensitivityUrl: "{{ url_for('ai.eoq_sensitivity') }}",
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+myvenv/
+venv/
+.venv/
+env/
+
+# Environment / secrets
+.env
+.env.local
+*.env
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Tooling / editor
+.claude/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs & runtime
+*.log
+logs/
+*.sqlite
+*.db
+instance/
+
+# Internal docs
+SESSION_SUMMARY.md

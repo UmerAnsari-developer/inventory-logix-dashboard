@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% set active_page = "error" %}
+{% block title %}422 Unprocessable{% endblock %}
+{% block breadcrumb %}Unprocessable{% endblock %}
+{% block content %}
+<section class="error-shell">
+  <div class="error-card">
+    <div class="error-code">422</div>
+    <h1>Unprocessable</h1>
+    <p>Your input could not be processed.</p>
+    <a class="btn btn-primary" href="{{ url_for('ui.dashboard') }}">Back to dashboard</a>
+</div>
+</section>
+{% endblock %}

@@ -1,0 +1,1047 @@
+{% extends "base.html" %}
+{% set active_page = "reports" %}
+{% block title %}Reports{% endblock %}
+{% block breadcrumb %}Reports{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div><div class="eyebrow">Analytics</div><h1>Reports</h1><p class="heading-note">Full inventory analytics — stock health, value by warehouse &amp; category, movement activity and procurement insights.</p></div>
+    <a class="btn btn-secondary" href="{{ url_for('ui.inventory_export') }}">Export CSV</a>
+  </div>
+
+  <div class="report-tabs" role="tablist" aria-label="Report sections">
+    <button type="button" class="report-tab active" data-tab="overview" role="tab">Overview</button>
+    <button type="button" class="report-tab" data-tab="product" role="tab">Product Analysis</button>
+    <button type="button" class="report-tab" data-tab="warehouse" role="tab">Warehouse Analysis</button>
+    <button type="button" class="report-tab" data-tab="supplier" role="tab">Supplier &amp; Purchase</button>
+    <button type="button" class="report-tab" data-tab="period" role="tab">Sales Analysis</button>
+    <button type="button" class="report-tab" data-tab="reorder" role="tab">Inventory Analysis</button>
+  </div>
+
+  <div class="filter-bar" style="margin-bottom: 16px;">
+    <form method="get" id="reportFilters" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: end;">
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; color: var(--muted);">
+        <span>From month</span>
+        <input type="month" name="date_from" value="{{ date_from or '' }}" class="date-filter-input" style="min-width: 150px;">
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; color: var(--muted);">
+        <span>To month</span>
+        <input type="month" name="date_to" value="{{ date_to or '' }}" class="date-filter-input" style="min-width: 150px;">
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; color: var(--muted);">
+        <span>Warehouse</span>
+        <div class="multi-select-wrapper" style="position: relative; min-width: 180px;">
+          <button type="button" class="filter-button" id="warehouseButton" aria-expanded="false" aria-controls="warehouseMenu">All warehouses</button>
+          <div class="filter-menu" id="warehouseMenu">
+            <div class="filter-header">Select Warehouses</div>
+            <div class="filter-options">
+              <label class="filter-option">
+                <input type="checkbox" name="warehouse_all" value="" data-all="true" {% if not selected_warehouses %}checked{% endif %}>
+                <span>All warehouses</span>
+              </label>
+              {% for w in warehouses %}
+              <label class="filter-option">
+                <input type="checkbox" name="warehouse" value="{{ w }}" {% if w in selected_warehouses %}checked{% endif %}>
+                <span>{{ w }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+          <input type="hidden" name="warehouse_json" id="warehouseJson" value='{{ selected_warehouses|tojson }}'>
+        </div>
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; color: var(--muted);">
+        <span>Category</span>
+        <div class="multi-select-wrapper" style="position: relative; min-width: 180px;">
+          <button type="button" class="filter-button" id="categoryButton" aria-expanded="false" aria-controls="categoryMenu">All categories</button>
+          <div class="filter-menu" id="categoryMenu">
+            <div class="filter-header">Select Categories</div>
+            <div class="filter-options">
+              <label class="filter-option">
+                <input type="checkbox" name="category_all" value="" data-all="true" {% if not selected_categories %}checked{% endif %}>
+                <span>All categories</span>
+              </label>
+              {% for cat in categories %}
+              <label class="filter-option">
+                <input type="checkbox" name="category" value="{{ cat }}" {% if cat in selected_categories %}checked{% endif %}>
+                <span>{{ cat }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+          <input type="hidden" name="category_json" id="categoryJson" value='{{ selected_categories|tojson }}'>
+        </div>
+      </label>
+      <button type="submit" class="btn btn-primary" style="min-height: 38px;">Apply</button>
+      <a href="{{ url_for('ui.reports') }}" class="btn btn-secondary" style="min-height: 38px;">Reset</a>
+    </form>
+  </div>
+
+  <!-- ============================ 1 · OVERVIEW ============================ -->
+  <div class="report-section active" id="tab-overview" role="tabpanel">
+    <div class="kpi-group">
+      <div class="kpi-group-title">Stock position</div>
+      <div class="metric-grid">
+        <div class="metric-card"><div class="metric-label">Inventory value</div><div class="metric-value">₹ {{ '{:,.0f}'.format(total) }}</div><div class="metric-foot">across warehouses</div></div>
+        <div class="metric-card"><div class="metric-label">Units in stock</div><div class="metric-value">{{ '{:,.0f}'.format(total_units) }}</div><div class="metric-foot">total on-hand</div></div>
+        <div class="metric-card"><div class="metric-label">SKUs tracked</div><div class="metric-value">{{ sku_count }}</div><div class="metric-foot">product catalogue</div></div>
+        <div class="metric-card"><div class="metric-label">Stock health</div><div class="metric-value">{{ healthy }}</div><div class="metric-foot"><strong>{{ '%.0f' % (healthy * 100.0 / sku_count) if sku_count else 0 }}%</strong> healthy SKUs</div></div>
+      </div>
+    </div>
+
+    <div class="kpi-group">
+      <div class="kpi-group-title">Sales &amp; movement</div>
+      <div class="metric-grid">
+        <div class="metric-card"><div class="metric-label">Total units sold · YTD</div><div class="metric-value">{{ '{:,.0f}'.format(ytd.units_out) }}</div><div class="metric-foot">prev YTD {{ '{:,.0f}'.format(prev_ytd.units_out) }} · MTD {{ '{:,.0f}'.format(mtd.units_out) }}</div></div>
+        <div class="metric-card"><div class="metric-label">Units in · MTD</div><div class="metric-value">{{ '{:,.0f}'.format(mtd.units_in) }}</div><div class="metric-foot">out {{ '{:,.0f}'.format(mtd.units_out) }} · net {{ '{:,.0f}'.format(mtd.net) }}</div></div>
+        <div class="metric-card"><div class="metric-label">Value moved · MTD</div><div class="metric-value">₹ {{ '{:,.0f}'.format(mtd.value_in + mtd.value_out) }}</div><div class="metric-foot">YTD ₹ {{ '{:,.0f}'.format(ytd.value_in + ytd.value_out) }}</div></div>
+        <div class="metric-card"><div class="metric-label">YTD net movement</div><div class="metric-value">{{ '{:,.0f}'.format(ytd.net) }}</div><div class="metric-foot">units in − out</div></div>
+        <div class="metric-card"><div class="metric-label">YTD value moved</div><div class="metric-value">₹ {{ '{:,.0f}'.format(ytd.value_in + ytd.value_out) }}</div><div class="metric-foot">prev YTD ₹ {{ '{:,.0f}'.format(prev_ytd.value_in + prev_ytd.value_out) }}</div></div>
+        <div class="metric-card"><div class="metric-label">SKUs moved · YTD</div><div class="metric-value">{{ ytd.skus }}</div><div class="metric-foot">of {{ sku_count }} catalogue</div></div>
+      </div>
+    </div>
+
+    <div class="kpi-group">
+      <div class="kpi-group-title">Procurement &amp; supply</div>
+      <div class="metric-grid">
+        <div class="metric-card"><div class="metric-label">Below reorder point</div><div class="metric-value">{{ unders }}</div><div class="metric-foot">need replenishment</div></div>
+        <div class="metric-card"><div class="metric-label">Out of stock</div><div class="metric-value">{{ out_stock }}</div><div class="metric-foot">{{ '%.0f' % (out_stock * 100.0 / sku_count) if sku_count else 0 }}% of catalogue</div></div>
+        <div class="metric-card"><div class="metric-label">Suppliers</div><div class="metric-value">{{ supplier_count }}</div><div class="metric-foot">active vendors</div></div>
+        <div class="metric-card"><div class="metric-label">Open purchase orders</div><div class="metric-value">{{ open_po }}</div><div class="metric-foot">₹ {{ '{:,.0f}'.format(po_value) }} committed</div></div>
+        <div class="metric-card"><div class="metric-label">PO spend · YTD</div><div class="metric-value">₹ {{ '{:,.0f}'.format(ytd.po_value) }}</div><div class="metric-foot">prev YTD ₹ {{ '{:,.0f}'.format(prev_ytd.po_value) }}</div></div>
+      </div>
+    </div>
+
+    <div class="report-grid">
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Stock health breakdown</div><div class="panel-caption">SKUs by stock status</div></div>
+        <div class="panel-content"><div class="report-chart"><canvas id="statusChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per category</div></div>
+        <div class="panel-content"><div class="report-chart"><canvas id="overviewCategoryChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Movement activity</div><div class="panel-caption">Units in / out {{ movement_caption }}</div></div>
+        <div class="panel-content"><div class="report-chart"><canvas id="movementChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Inventory value by warehouse</div><div class="panel-caption">Capital per location</div></div>
+        <div class="panel-content"><div class="report-chart"><canvas id="overviewWarehouseChart"></canvas></div></div>
+      </article>
+      <article class="panel wide">
+        <div class="panel-header"><div class="panel-title">12-month movement trend</div><div class="panel-caption">Monthly stock in / out volume</div></div>
+        <div class="panel-content"><div class="report-chart"><canvas id="monthlyChart"></canvas></div></div>
+      </article>
+    </div>
+
+    <div class="report-grid">
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Top products by value</div><div class="panel-caption">Highest inventory investment</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>SKU</th><th>Product</th><th>Stock</th><th>Value</th></tr></thead>
+            <tbody>
+              {% for r in product_rows[:6] %}
+              <tr>
+                <td><span class="sku">{{ r.sku }}</span></td>
+                <td>{{ r.name }}</td>
+                <td>{{ '{:,.0f}'.format(r.current_stock or 0) }}</td>
+                <td><strong>₹ {{ '{:,.0f}'.format(r.value or 0) }}</strong></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4" class="empty-state">No products yet</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Open purchase orders</div><div class="panel-caption">Incoming supply, earliest ETA first</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>PO</th><th>Supplier</th><th>Status</th><th>ETA</th><th>Value</th></tr></thead>
+            <tbody>
+              {% for po in open_pos[:6] %}
+              <tr>
+                <td><span class="sku">{{ po.po_number }}</span></td>
+                <td>{{ po.supplier_name or '—' }}</td>
+                <td><span class="status {{ 'good' if po.status == 'received' else 'warning' if po.status == 'in_transit' else '' }}">{{ po.status|replace('_', ' ') }}</span></td>
+                <td>{{ po.eta_date.strftime('%d %b %Y') if po.eta_date else '—' }}</td>
+                <td>₹ {{ '{:,.0f}'.format(po.value or 0) }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="empty-state">No open purchase orders</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="panel wide">
+        <div class="panel-header"><div class="panel-title">Warehouse snapshot</div><div class="panel-caption">Stock position per location</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Warehouse</th><th>City</th><th>SKUs</th><th>Units</th><th>Value</th><th>Low</th><th>Critical</th></tr></thead>
+            <tbody>
+              {% for w in warehouse_analytics %}
+              <tr>
+                <td><strong>{{ w.warehouse }}</strong></td>
+                <td>{{ w.city or '—' }}</td>
+                <td>{{ w.sku_count }}</td>
+                <td>{{ '{:,.0f}'.format(w.total_units or 0) }}</td>
+                <td><strong>₹ {{ '{:,.0f}'.format(w.total_value or 0) }}</strong></td>
+                <td><span class="status warning">{{ w.low_count or 0 }}</span></td>
+                <td><span class="status critical">{{ w.critical_count or 0 }}</span></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="empty-state">No warehouse data yet</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <!-- ============================ 2 · PRODUCT ============================ -->
+  <div class="report-section" id="tab-product" role="tabpanel">
+    <div class="report-grid">
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per product category</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="categoryChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Product count by category</div><div class="panel-caption">Catalogue composition</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="categoryCountChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Top SKUs by value</div><div class="panel-caption">Highest inventory investment</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="topSkuChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Category value share</div><div class="panel-caption">Value and units per category</div></div>
+        <div class="panel-content">
+          <div class="category-list">
+            {% for item in breakdown %}
+            <div class="category-row">
+              <span class="category-name">{{ item.category }} <span class="category-number-sm">{{ item.units }} units</span></span>
+              <span class="bar-track"><span class="{{ item.bar_class }}" style="width:{{ item.bar_width }}%"></span></span>
+              <span class="category-number">₹ {{ '{:,.0f}'.format(item.value) }} · {{ item.pct }}%</span>
+            </div>
+            {% else %}
+            <p class="empty-state">No categories recorded yet</p>
+            {% endfor %}
+          </div>
+        </div>
+      </article>
+      <article class="panel wide">
+        <div class="panel-header"><div class="panel-title">Product catalogue by value</div><div class="panel-caption">Top 12 products by inventory investment</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>SKU</th><th>Product</th><th>Category</th><th>Warehouse</th><th>Stock</th><th>Unit price</th><th>Value</th></tr></thead>
+            <tbody>
+              {% for r in product_rows %}
+              <tr>
+                <td><span class="sku">{{ r.sku }}</span></td>
+                <td>{{ r.name }}</td>
+                <td>{{ r.category or '—' }}</td>
+                <td>{{ r.warehouse or '—' }}</td>
+                <td>{{ '{:,.0f}'.format(r.current_stock or 0) }}</td>
+                <td>₹ {{ '{:,.2f}'.format(r.unit_price or 0) }}</td>
+                <td><strong>₹ {{ '{:,.0f}'.format(r.value or 0) }}</strong></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="empty-state">No products yet</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <!-- ============================ 3 · WAREHOUSE ============================ -->
+  <div class="report-section" id="tab-warehouse" role="tabpanel">
+    <div class="report-grid">
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Inventory value by warehouse</div><div class="panel-caption">Capital per warehouse</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="warehouseChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Movement by warehouse</div><div class="panel-caption">Units in / out, last 30 days</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="warehouseMovChart"></canvas></div></div>
+      </article>
+      <article class="panel wide">
+        <div class="panel-header"><div class="panel-title">Warehouse snapshot</div><div class="panel-caption">Stock position per location</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Warehouse</th><th>City</th><th>SKUs</th><th>Units</th><th>Value</th><th>Low stock</th><th>Critical</th></tr></thead>
+            <tbody>
+              {% for w in warehouse_analytics %}
+              <tr>
+                <td><strong>{{ w.warehouse }}</strong> <span class="category-number-sm">{{ w.warehouse_code }}</span></td>
+                <td>{{ w.city or '—' }}</td>
+                <td>{{ w.sku_count }}</td>
+                <td>{{ '{:,.0f}'.format(w.total_units or 0) }}</td>
+                <td><strong>₹ {{ '{:,.0f}'.format(w.total_value or 0) }}</strong></td>
+                <td><span class="status warning">{{ w.low_count or 0 }}</span></td>
+                <td><span class="status critical">{{ w.critical_count or 0 }}</span></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="empty-state">No warehouse data yet</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="panel wide">
+        <div class="panel-header"><div class="panel-title">Movement activity by warehouse</div><div class="panel-caption">In / out / net units, last 30 days</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Warehouse</th><th>Units in</th><th>Units out</th><th>Net</th><th>In value</th><th>Out value</th></tr></thead>
+            <tbody>
+              {% for m in warehouse_movement %}
+              <tr>
+                <td><strong>{{ m.warehouse }}</strong></td>
+                <td><span class="status good">{{ '{:,.0f}'.format(m.in_qty or 0) }}</span></td>
+                <td><span class="status warning">{{ '{:,.0f}'.format(m.out_qty or 0) }}</span></td>
+                <td>{{ '{:,.0f}'.format(m.net_qty or 0) }}</td>
+                <td>₹ {{ '{:,.0f}'.format(m.in_value or 0) }}</td>
+                <td>₹ {{ '{:,.0f}'.format(m.out_value or 0) }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="empty-state">No movement recorded</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <!-- ============================ 4 · SUPPLIER & PURCHASE ============================ -->
+  <div class="report-section" id="tab-supplier" role="tabpanel">
+    <div class="metric-grid">
+      <div class="metric-card"><div class="metric-label">Suppliers</div><div class="metric-value">{{ supplier_count }}</div><div class="metric-foot">active vendors</div></div>
+      <div class="metric-card"><div class="metric-label">Open purchase orders</div><div class="metric-value">{{ open_po }}</div><div class="metric-foot">draft / approved / in transit</div></div>
+      <div class="metric-card"><div class="metric-label">Open PO value</div><div class="metric-value">₹ {{ '{:,.0f}'.format(po_value) }}</div><div class="metric-foot">committed spend</div></div>
+      <div class="metric-card"><div class="metric-label">YTD PO spend</div><div class="metric-value">₹ {{ '{:,.0f}'.format(ytd.po_value) }}</div><div class="metric-foot">year to date</div></div>
+    </div>
+    <div class="report-grid">
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">YTD spend by supplier</div><div class="panel-caption">Procurement value per vendor</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="supplierSpendChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Purchase order status</div><div class="panel-caption">PO pipeline by status</div></div>
+        <div class="panel-content"><div class="report-chart"><canvas id="poStatusChart"></canvas></div></div>
+      </article>
+      <article class="panel wide">
+        <div class="panel-header"><div class="panel-title">Supplier analytics</div><div class="panel-caption">Procurement performance by vendor</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Supplier</th><th>Location</th><th>Reliability</th><th>Lead time</th><th>YTD spend</th><th>Products</th></tr></thead>
+            <tbody>
+              {% for s in supplier_stats %}
+              <tr>
+                <td><strong>{{ s.name }}</strong></td>
+                <td>{{ s.location or '—' }}</td>
+                <td><span class="status {{ 'good' if (s.reliability or 0) >= 90 else 'warning' if (s.reliability or 0) >= 80 else 'critical' }}">{{ '%.0f' % (s.reliability or 0) }}%</span></td>
+                <td>{{ s.lead_days }} days</td>
+                <td>₹ {{ '{:,.0f}'.format(s.spend_amount or 0) }}</td>
+                <td>{{ s.product_count or 0 }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="empty-state">No suppliers yet</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="panel wide">
+        <div class="panel-header"><div class="panel-title">Open purchase orders</div><div class="panel-caption">Pending procurement lines by earliest ETA</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>PO</th><th>Supplier</th><th>Product</th><th>Status</th><th>Qty</th><th>ETA</th><th>Value</th></tr></thead>
+            <tbody>
+              {% for po in open_pos %}
+              <tr>
+                <td><span class="sku">{{ po.po_number }}</span></td>
+                <td>{{ po.supplier_name or '—' }}</td>
+                <td>{{ po.product_name or '—' }} <span class="category-number-sm">{{ po.sku or '' }}</span></td>
+                <td><span class="status {{ 'good' if po.status == 'received' else 'warning' if po.status == 'in_transit' else '' }}">{{ po.status|replace('_', ' ') }}</span></td>
+                <td>{{ po.quantity }}</td>
+                <td>{{ po.eta_date.strftime('%d %b %Y') if po.eta_date else '—' }}</td>
+                <td>₹ {{ '{:,.0f}'.format(po.value or 0) }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="empty-state">No open purchase orders</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <!-- ============================ 5 · SALES ANALYSIS ============================ -->
+  <div class="report-section" id="tab-period" role="tabpanel">
+    <div class="metric-grid">
+      <div class="metric-card"><div class="metric-label">Sales · this month</div><div class="metric-value">₹ {{ '{:,.0f}'.format(sales.mtd.revenue) }}</div><div class="metric-foot">prev month ₹ {{ '{:,.0f}'.format(sales.prev_mtd.revenue) }}</div></div>
+      <div class="metric-card"><div class="metric-label">Units sold · MTD</div><div class="metric-value">{{ '{:,.0f}'.format(sales.mtd.units) }}</div><div class="metric-foot">prev month {{ '{:,.0f}'.format(sales.prev_mtd.units) }}</div></div>
+      <div class="metric-card"><div class="metric-label">Orders · MTD</div><div class="metric-value">{{ '{:,.0f}'.format(sales.mtd.orders) }}</div><div class="metric-foot">prev month {{ '{:,.0f}'.format(sales.prev_mtd.orders) }}</div></div>
+      <div class="metric-card"><div class="metric-label">Sales · YTD</div><div class="metric-value">₹ {{ '{:,.0f}'.format(sales.ytd.revenue) }}</div><div class="metric-foot">prev YTD ₹ {{ '{:,.0f}'.format(sales.prev_ytd.revenue) }}</div></div>
+      <div class="metric-card"><div class="metric-label">Units sold · YTD</div><div class="metric-value">{{ '{:,.0f}'.format(sales.ytd.units) }}</div><div class="metric-foot">prev YTD {{ '{:,.0f}'.format(sales.prev_ytd.units) }}</div></div>
+      <div class="metric-card"><div class="metric-label">Avg order value · YTD</div><div class="metric-value">₹ {{ '{:,.0f}'.format(sales.ytd.revenue / sales.ytd.orders if sales.ytd.orders else 0) }}</div><div class="metric-foot">{{ sales.ytd.orders }} orders total</div></div>
+    </div>
+
+    <div class="report-grid">
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Year-wise sales</div><div class="panel-caption">Sales revenue per year, comparing 2024 vs 2025 vs 2026 (₹)</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesYearChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">YTD sales — 2024 vs 2025 vs 2026</div><div class="panel-caption">Cumulative sales revenue through {{ today.strftime('%b') }} (₹)</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesYtdChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">QTD sales — 2024 vs 2025 vs 2026</div><div class="panel-caption">Cumulative sales revenue per quarter through Q{{ (today.month - 1) // 3 + 1 }} (₹)</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesQuarterChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">This quarter vs previous quarter</div><div class="panel-caption">Sales revenue by category, current quarter vs last quarter (₹)</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesQuarterCompareChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Month-wise sales</div>
+          <div class="panel-caption">Monthly sales revenue, select a year (₹)</div>
+          <select id="salesYearSelect" class="report-select" style="margin-top:6px;" aria-label="Select sales year">
+            {% for y in sales_years %}
+            <option value="{{ y }}">{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesMonthlyChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">This month vs previous month</div><div class="panel-caption">Sales revenue by category, current month vs last month (₹)</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesMonthCompareChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Sales by warehouse</div><div class="panel-caption">Sales revenue per location</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesWarehouseChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Top selling products</div><div class="panel-caption">SKUs by sales revenue</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="topSellersChart"></canvas></div></div>
+      </article>
+    </div>
+  </div>
+
+  <!-- ============================ 6 · INVENTORY ANALYSIS ============================ -->
+  <div class="report-section" id="tab-reorder" role="tabpanel">
+    <div class="metric-grid">
+      <div class="metric-card"><div class="metric-label">Inventory value</div><div class="metric-value">₹ {{ '{:,.0f}'.format(total) }}</div><div class="metric-foot">across warehouses</div></div>
+      <div class="metric-card"><div class="metric-label">Units in stock</div><div class="metric-value">{{ '{:,.0f}'.format(total_units) }}</div><div class="metric-foot">total on-hand</div></div>
+      <div class="metric-card"><div class="metric-label">SKUs tracked</div><div class="metric-value">{{ sku_count }}</div><div class="metric-foot">product catalogue</div></div>
+      <div class="metric-card"><div class="metric-label">Stock health</div><div class="metric-value">{{ healthy }}</div><div class="metric-foot"><strong>{{ '%.0f' % (healthy * 100.0 / sku_count) if sku_count else 0 }}%</strong> healthy SKUs</div></div>
+      <div class="metric-card"><div class="metric-label">Below reorder point</div><div class="metric-value">{{ unders }}</div><div class="metric-foot">need replenishment</div></div>
+      <div class="metric-card"><div class="metric-label">Out of stock</div><div class="metric-value">{{ out_stock }}</div><div class="metric-foot">zero on-hand</div></div>
+      <div class="metric-card"><div class="metric-label">Open purchase orders</div><div class="metric-value">{{ open_po }}</div><div class="metric-foot">incoming supply</div></div>
+      <div class="metric-card"><div class="metric-label">Thinnest SKU</div><div class="metric-value" style="font-size: 1.05rem;">{{ thinnest.sku if thinnest else 'n/a' }}</div><div class="metric-foot">{{ thinnest.current_stock if thinnest else 0 }} / ROP {{ thinnest.reorder_point if thinnest else 0 }}</div></div>
+    </div>
+
+    <div class="report-grid">
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Stock health breakdown</div><div class="panel-caption">SKUs by stock status</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invStatusChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per category</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invCategoryChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Inventory value by warehouse</div><div class="panel-caption">Capital per location</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invWarehouseChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">12-month movement trend</div><div class="panel-caption">Monthly stock in / out volume</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invMonthlyChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Top SKUs by inventory value</div><div class="panel-caption">Products with most capital held in stock</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invTopSkusChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Below ROP by category</div><div class="panel-caption">SKUs at or below reorder point</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="reorderCategoryChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Stock coverage</div><div class="panel-caption">Stock ÷ reorder point for pressured SKUs</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="coverageChart"></canvas></div></div>
+      </article>
+      <article class="panel wide">
+        <div class="panel-header"><div class="panel-title">Reorder pressure</div><div class="panel-caption">SKUs at or below reorder point — thinnest: {{ thinnest.sku if thinnest else 'n/a' }} ({{ thinnest.current_stock if thinnest else 0 }} / ROP {{ thinnest.reorder_point if thinnest else 0 }})</div></div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>SKU</th><th>Product</th><th>Category</th><th>Warehouse</th><th>Stock</th><th>ROP</th><th>Coverage</th></tr></thead>
+            <tbody>
+              {% for r in reorder_pressure %}
+              <tr>
+                <td><span class="sku">{{ r.sku }}</span></td>
+                <td>{{ r.name }}</td>
+                <td>{{ r.category or '—' }}</td>
+                <td>{{ r.warehouse or '—' }}</td>
+                <td><span class="{{ 'status critical' if (r.on_order or 0) <= 0 else 'status warning' }}">{{ r.current_stock }}</span></td>
+                <td>{{ r.reorder_point }}</td>
+                <td>{{ '%.0f' % ((r.coverage or 0) * 100) }}%</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="empty-state">No SKUs below reorder point</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script id="report-data" type="application/json">{{ report_data|tojson }}</script>
+<script id="reorder-coverage" type="application/json">{{ reorder_coverage|tojson }}</script>
+<script>
+(function () {
+  if (!window.REPORT_DATA) window.REPORT_DATA = JSON.parse(document.getElementById('report-data').textContent);
+  window.REORDER_COVERAGE = JSON.parse(document.getElementById('reorder-coverage').textContent || '[]');
+  function waitForLibs() {
+    return new Promise(function (resolve) {
+      if (window.Chart && window.ChartDataLabels) { resolve(); return; }
+      var t = setInterval(function () {
+        if (window.Chart && window.ChartDataLabels) { clearInterval(t); resolve(); }
+      }, 100);
+    });
+  }
+
+  // Multi-select dropdown functionality (checkboxes)
+  function initMultiSelect() {
+    document.querySelectorAll('.multi-select-wrapper').forEach(function(wrapper) {
+      var button = wrapper.querySelector('.filter-button');
+      var menu = wrapper.querySelector('.filter-menu');
+      var boxes = menu.querySelectorAll('input[type="checkbox"]');
+      var jsonInput = wrapper.querySelector('input[type="hidden"]');
+
+      var selected = [];
+      try { selected = JSON.parse(jsonInput.value) || []; } catch (e) { selected = []; }
+      boxes.forEach(function(box, i) {
+        if (i === 0) {
+          box.checked = selected.length === 0;
+        } else {
+          box.checked = selected.indexOf(box.value) !== -1;
+        }
+      });
+      syncButtonLabel(wrapper, boxes);
+
+      button.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var isOpen = menu.classList.toggle('open');
+        button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        document.querySelectorAll('.filter-menu').forEach(function(m) {
+          if (m !== menu) m.classList.remove('open');
+        });
+      });
+
+      menu.addEventListener('click', function(e) {
+        e.stopPropagation();
+      });
+
+      boxes.forEach(function(box, idx) {
+        box.addEventListener('change', function() {
+          if (idx > 0 && box.checked) {
+            boxes[0].checked = false;
+          }
+          updateMultiSelect(wrapper, boxes);
+        });
+      });
+    });
+
+    document.addEventListener('click', function() {
+      document.querySelectorAll('.filter-menu').forEach(function(m) {
+        m.classList.remove('open');
+      });
+      document.querySelectorAll('.filter-button').forEach(function(b) {
+        b.setAttribute('aria-expanded', 'false');
+      });
+    });
+  }
+
+  function syncButtonLabel(wrapper, boxes) {
+    var allBox = boxes[0];
+    var otherBoxes = Array.prototype.slice.call(boxes, 1);
+    var button = wrapper.querySelector('.filter-button');
+    var selected = otherBoxes.filter(function(b) { return b.checked; });
+    var allLabel = allBox.parentElement.querySelector('span').textContent.trim();
+    if (allBox.checked || selected.length === 0) {
+      button.textContent = allLabel;
+    } else if (selected.length <= 2) {
+      button.textContent = selected.map(function(b) {
+        return b.parentElement.querySelector('span').textContent.trim();
+      }).join(', ');
+    } else {
+      button.textContent = selected.length + ' selected';
+    }
+  }
+
+  function updateMultiSelect(wrapper, boxes) {
+    var allBox = boxes[0];
+    var otherBoxes = Array.prototype.slice.call(boxes, 1);
+    var jsonInput = wrapper.querySelector('input[type="hidden"]');
+    var selected = otherBoxes.filter(function(b) { return b.checked; });
+    var selectedValues = selected.map(function(b) { return b.value; });
+
+    if (allBox.checked) {
+      otherBoxes.forEach(function(b) { b.checked = false; });
+      selected = [];
+      selectedValues = [];
+    } else if (selected.length === 0 || selected.length === otherBoxes.length) {
+      allBox.checked = true;
+      selected = [];
+      selectedValues = [];
+    }
+
+    syncButtonLabel(wrapper, boxes);
+    jsonInput.value = allBox.checked ? JSON.stringify([]) : JSON.stringify(selectedValues);
+  }
+
+  // Tab navigation + lazy chart construction
+  var charts = {};
+  var built = {};
+  var font = { family: 'Inter, sans-serif', size: 11 };
+
+  function fmtNum(v) {
+    if (v === null || v === undefined) return '';
+    var a = Math.abs(v);
+    if (a >= 10000000) return (v / 10000000).toFixed(1) + 'Cr';
+    if (a >= 100000) return (v / 100000).toFixed(1) + 'L';
+    if (a >= 1000) return (v / 1000).toFixed(1) + 'k';
+    return String(v);
+  }
+  function fmtMoney(v) {
+    if (v === null || v === undefined) return '';
+    return '₹' + fmtNum(v);
+  }
+  function dl(opts) {
+    var base = {
+      color: '#1f2937',
+      font: { family: 'Inter, sans-serif', size: 10, weight: '600' },
+      anchor: 'end',
+      align: 'end',
+      clamp: true,
+      display: 'auto',
+      formatter: fmtNum,
+    };
+    return Object.assign(base, opts || {});
+  }
+  function dlPie(opts) {
+    return dl(Object.assign({
+      anchor: 'center',
+      align: 'center',
+      offset: 0,
+      clamp: false,
+      color: function (ctx) {
+        var colors = ctx.dataset.backgroundColor;
+        return (colors && colors[ctx.dataIndex]) || '#1f2937';
+      },
+      backgroundColor: 'rgba(255,255,255,0.92)',
+      borderColor: 'rgba(255,255,255,0.92)',
+      borderWidth: 1,
+      borderRadius: 4,
+      padding: { top: 1, right: 3, bottom: 1, left: 3 },
+      font: function (ctx) {
+        var data = ctx.dataset.data || [];
+        var n = data.length;
+        return { family: 'Inter, sans-serif', size: n > 8 ? 8 : n > 5 ? 9 : 11, weight: '700' };
+      },
+      display: function (ctx) {
+        var data = ctx.dataset.data || [];
+        var v = data[ctx.dataIndex];
+        return v > 0;
+      },
+    }, opts || {}));
+  }
+  function makeChart(id, cfg) {
+    var el = document.getElementById(id);
+    if (!el || !window.Chart) return;
+    cfg.options = cfg.options || {};
+    cfg.options.plugins = cfg.options.plugins || {};
+    cfg.options.plugins.datalabels = dl(cfg.options.plugins.datalabels);
+    charts[id] = new window.Chart(el, cfg);
+  }
+  var PALETTE = ['#3d997c', '#e3a43c', '#c34c4c', '#2563eb', '#7c3aed', '#1f2937', '#0d9488', '#f97316'];
+
+  function buildOverview(D) {
+    makeChart('statusChart', {
+      type: 'doughnut',
+      data: { labels: D.status.labels, datasets: [{ data: D.status.values, backgroundColor: ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtNum }) } },
+    });
+    makeChart('overviewCategoryChart', {
+      type: 'doughnut',
+      data: { labels: D.category.labels, datasets: [{ data: D.category.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtMoney }) } },
+    });
+    makeChart('movementChart', {
+      type: 'line',
+      data: {
+        labels: D.movement.labels,
+        datasets: [
+          { label: 'Stock in', data: D.movement.in, borderColor: '#3d997c', backgroundColor: 'rgba(61,153,124,0.15)', fill: true, tension: 0.3, pointRadius: 1.5, borderWidth: 2 },
+          { label: 'Stock out', data: D.movement.out, borderColor: '#c34c4c', backgroundColor: 'rgba(195,76,76,0.08)', fill: false, tension: 0.3, pointRadius: 1.5, borderWidth: 2 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { display: function (ctx) { return ctx.dataIndex % 3 === 0; }, font: { size: 8, weight: '600' } } },
+        scales: { x: { ticks: { maxTicksLimit: 8, font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
+      },
+    });
+    makeChart('overviewWarehouseChart', {
+      type: 'bar',
+      data: { labels: D.warehouse.labels, datasets: [{ label: 'Inventory value', data: D.warehouse.values, backgroundColor: '#2563eb', borderRadius: 8, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', font: { size: 9, weight: '600' } } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('monthlyChart', {
+      type: 'line',
+      data: {
+        labels: D.monthly.labels,
+        datasets: [
+          { label: 'In', data: D.monthly.in, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.12)', fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2 },
+          { label: 'Out', data: D.monthly.out, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.10)', fill: false, tension: 0.3, pointRadius: 2, borderWidth: 2 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { font: { size: 9, weight: '600' } } },
+        scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
+      },
+    });
+  }
+
+  function buildProduct(D) {
+    makeChart('categoryChart', {
+      type: 'bar',
+      data: { labels: D.category.labels, datasets: [{ label: 'Value', data: D.category.values, backgroundColor: '#2563eb', borderRadius: 8, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('categoryCountChart', {
+      type: 'doughnut',
+      data: { labels: D.categoryCount.labels, datasets: [{ data: D.categoryCount.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtNum }) } },
+    });
+    makeChart('topSkuChart', {
+      type: 'bar',
+      data: { labels: D.topSkus.labels, datasets: [{ label: 'Value', data: D.topSkus.values, backgroundColor: '#0d9488', borderRadius: 8, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end' } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+  }
+
+  function buildWarehouse(D) {
+    makeChart('warehouseChart', {
+      type: 'bar',
+      data: { labels: D.warehouse.labels, datasets: [{ label: 'Inventory value', data: D.warehouse.values, backgroundColor: '#2563eb', borderRadius: 8, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end' } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('warehouseMovChart', {
+      type: 'bar',
+      data: {
+        labels: D.warehouseMovement.labels,
+        datasets: [
+          { label: 'In', data: D.warehouseMovement.in, backgroundColor: '#3d997c', borderRadius: 6, borderSkipped: false },
+          { label: 'Out', data: D.warehouseMovement.out, backgroundColor: '#c34c4c', borderRadius: 6, borderSkipped: false },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { anchor: 'end', align: 'end', font: { size: 9, weight: '600' } } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+  }
+
+  function buildSupplier(D) {
+    makeChart('supplierSpendChart', {
+      type: 'bar',
+      data: { labels: D.supplierSpend.labels, datasets: [{ label: 'YTD spend', data: D.supplierSpend.values, backgroundColor: '#0d9488', borderRadius: 8, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end' } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('poStatusChart', {
+      type: 'doughnut',
+      data: { labels: D.poStatus.labels, datasets: [{ data: D.poStatus.values, backgroundColor: ['#3d997c', '#2563eb', '#e3a43c', '#7c3aed', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtNum }) } },
+    });
+  }
+
+  function buildPeriod(D) {
+    makeChart('salesYearChart', {
+      type: 'bar',
+      data: {
+        labels: D.salesYear.labels,
+        datasets: [
+          { label: 'Sales revenue', data: D.salesYear.out, backgroundColor: '#3d997c', borderRadius: 6, borderSkipped: false },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          datalabels: { formatter: fmtMoney, font: { size: 10, weight: '600' } },
+        },
+        scales: {
+          x: { ticks: { font: font } },
+          y: { beginAtZero: true, ticks: { font: font } },
+        },
+      },
+    });
+    var ytdColors = ['#f97316', '#2563eb', '#3d997c'];
+    var ytdFills = ['rgba(249,115,22,0.10)', 'rgba(37,99,235,0.12)', 'rgba(61,153,124,0.12)'];
+    var ytdDatasets = D.salesYtdCompare.series.map(function (s, i) {
+      return {
+        label: String(s.year),
+        data: s.data,
+        borderColor: ytdColors[i % ytdColors.length],
+        backgroundColor: ytdFills[i % ytdFills.length],
+        fill: false, tension: 0.3, pointRadius: 3, borderWidth: 2,
+      };
+    });
+    makeChart('salesYtdChart', {
+      type: 'line',
+      data: { labels: D.salesYtdCompare.labels, datasets: ytdDatasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, font: { size: 9, weight: '600' } } },
+        scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
+      },
+    });
+    // Month-wise sales with a year selector.
+    function renderSalesMonthly() {
+      var sel = document.getElementById('salesYearSelect');
+      var year = sel ? Number(sel.value) : D.salesYears[D.salesYears.length - 1];
+      var m = D.salesMonthsByYear[year] || { labels: [], value: [], units: [] };
+      if (charts['salesMonthlyChart']) { charts['salesMonthlyChart'].destroy(); delete charts['salesMonthlyChart']; }
+      makeChart('salesMonthlyChart', {
+        type: 'bar',
+        data: {
+          labels: m.labels,
+          datasets: [{ label: 'Sales revenue (' + year + ')', data: m.value, backgroundColor: '#2563eb', borderRadius: 6, borderSkipped: false }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, font: { size: 9, weight: '600' } } },
+          scales: { x: { ticks: { font: font } }, y: { beginAtZero: true, ticks: { font: font } } },
+        },
+      });
+    }
+    var ySel = document.getElementById('salesYearSelect');
+    if (ySel) ySel.addEventListener('change', renderSalesMonthly);
+    renderSalesMonthly();
+    var qtdDatasets = D.salesQtdCompare.series.map(function (s, i) {
+      return {
+        label: String(s.year),
+        data: s.data,
+        borderColor: ytdColors[i % ytdColors.length],
+        backgroundColor: ytdFills[i % ytdFills.length],
+        fill: false, tension: 0.3, pointRadius: 3, borderWidth: 2,
+      };
+    });
+    makeChart('salesQuarterChart', {
+      type: 'line',
+      data: { labels: D.salesQtdCompare.labels, datasets: qtdDatasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, font: { size: 9, weight: '600' } } },
+        scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
+      },
+    });
+    makeChart('salesQuarterCompareChart', {
+      type: 'bar',
+      data: {
+        labels: D.salesQuarterCompare.labels,
+        datasets: [
+          { label: 'This quarter', data: D.salesQuarterCompare.current, backgroundColor: '#3d997c', borderRadius: 6, borderSkipped: false },
+          { label: 'Previous quarter', data: D.salesQuarterCompare.previous, backgroundColor: '#e3a43c', borderRadius: 6, borderSkipped: false },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', font: { size: 9, weight: '600' } } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('salesMonthCompareChart', {
+      type: 'bar',
+      data: {
+        labels: D.salesMonthCompare.labels,
+        datasets: [
+          { label: 'This month', data: D.salesMonthCompare.current, backgroundColor: '#3d997c', borderRadius: 6, borderSkipped: false },
+          { label: 'Previous month', data: D.salesMonthCompare.previous, backgroundColor: '#e3a43c', borderRadius: 6, borderSkipped: false },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', font: { size: 9, weight: '600' } } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('salesWarehouseChart', {
+      type: 'bar',
+      data: {
+        labels: D.salesWarehouse.labels,
+        datasets: [{ label: 'Sales revenue', data: D.salesWarehouse.values, backgroundColor: '#0d9488', borderRadius: 6, borderSkipped: false }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', font: { size: 9, weight: '600' } } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('topSellersChart', {
+      type: 'bar',
+      data: {
+        labels: D.topSellers.labels,
+        datasets: [{ label: 'Sales revenue', data: D.topSellers.values, backgroundColor: '#2563eb', borderRadius: 6, borderSkipped: false }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', font: { size: 9, weight: '600' } } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+  }
+
+  function buildReorder(D) {
+    makeChart('invStatusChart', {
+      type: 'doughnut',
+      data: { labels: D.status.labels, datasets: [{ data: D.status.values, backgroundColor: ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtNum }) } },
+    });
+    makeChart('invCategoryChart', {
+      type: 'doughnut',
+      data: { labels: D.category.labels, datasets: [{ data: D.category.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtMoney }) } },
+    });
+    makeChart('invWarehouseChart', {
+      type: 'bar',
+      data: { labels: D.warehouse.labels, datasets: [{ label: 'Inventory value', data: D.warehouse.values, backgroundColor: '#2563eb', borderRadius: 8, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end' } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('invMonthlyChart', {
+      type: 'line',
+      data: {
+        labels: D.monthly.labels,
+        datasets: [
+          { label: 'In', data: D.monthly.in, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.12)', fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2 },
+          { label: 'Out', data: D.monthly.out, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.10)', fill: false, tension: 0.3, pointRadius: 2, borderWidth: 2 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { font: { size: 9, weight: '600' } } },
+        scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
+      },
+    });
+    makeChart('reorderCategoryChart', {
+      type: 'bar',
+      data: { labels: D.reorderCategory.labels, datasets: [{ label: 'Below ROP', data: D.reorderCategory.below, backgroundColor: '#e3a43c', borderRadius: 8, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end' } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('invTopSkusChart', {
+      type: 'bar',
+      data: { labels: D.topSkus.labels, datasets: [{ label: 'Inventory value', data: D.topSkus.values, backgroundColor: '#0d9488', borderRadius: 6, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', font: { size: 9, weight: '600' } } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    // Stock coverage for pressured SKUs is rendered as a horizontal bar chart.
+    var cov = (window.REORDER_COVERAGE || []);
+    if (cov.length) {
+      makeChart('coverageChart', {
+        type: 'bar',
+        data: { labels: cov.map(function(c) { return c.sku; }), datasets: [{ label: 'Coverage %', data: cov.map(function(c) { return c.coverage; }), backgroundColor: '#c34c4c', borderRadius: 8, borderSkipped: false }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+          plugins: { legend: { display: false }, datalabels: { formatter: function (v) { return v + '%'; }, anchor: 'end', align: 'end', color: '#c34c4c', font: { size: 9, weight: '600' } } },
+          scales: { x: { beginAtZero: true, max: 100, ticks: { font: font, callback: function(v) { return v + '%'; } } }, y: { ticks: { font: font } } },
+        },
+      });
+    } else {
+      var ce = document.getElementById('coverageChart');
+      if (ce) ce.closest('.panel-content').innerHTML = '<p class="empty-state">No SKUs below reorder point</p>';
+    }
+  }
+
+  function activate(name) {
+    document.querySelectorAll('.report-tab').forEach(function(t) {
+      t.classList.toggle('active', t.dataset.tab === name);
+    });
+    document.querySelectorAll('.report-section').forEach(function(s) {
+      s.classList.toggle('active', s.id === 'tab-' + name);
+    });
+    if (built[name]) {
+      Object.keys(charts).forEach(function(k) { if (charts[k]) charts[k].resize(); });
+      return;
+    }
+    built[name] = true;
+    var D = window.REPORT_DATA;
+    if (name === 'overview') buildOverview(D);
+    if (name === 'product') buildProduct(D);
+    if (name === 'warehouse') buildWarehouse(D);
+    if (name === 'supplier') buildSupplier(D);
+    if (name === 'period') buildPeriod(D);
+    if (name === 'reorder') buildReorder(D);
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    initMultiSelect();
+    var tabs = document.querySelectorAll('.report-tab');
+    tabs.forEach(function(t) {
+      t.addEventListener('click', function() { activate(t.dataset.tab); });
+    });
+    waitForLibs().then(function () {
+      window.Chart.register(window.ChartDataLabels);
+      activate('overview');
+    });
+  });
+})();
+</script>
+{% endblock %}

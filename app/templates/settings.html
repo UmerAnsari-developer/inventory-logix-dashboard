@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% set active_page = "settings" %}
+{% block title %}Settings{% endblock %}
+{% block breadcrumb %}Settings{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading"><div><div class="eyebrow">Account</div><h1>Settings</h1><p class="heading-note">Preferences are saved per account and applied instantly</p></div></div>
+  <div class="settings-grid">
+    <article class="panel">
+      <div class="panel-header"><div class="panel-title">General Settings</div><div class="panel-caption">System preferences</div></div>
+      <div class="panel-content">
+        <div class="setting-group">
+          <h4>System Preferences</h4>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Dark Mode</div>
+              <div class="setting-desc">Switch between light and dark themes</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="settings-dark-toggle"><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Live Data Updates</div>
+              <div class="setting-desc">Refresh dashboard KPIs every 30 seconds</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="settings-live-toggle" data-setting="live_data"><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Sound Notifications</div>
+              <div class="setting-desc">Play alert sound on critical events</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="settings-sound-toggle" data-setting="sound_alerts"><span class="slider"></span></label>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header"><div class="panel-title">AI &amp; Prediction Settings</div><div class="panel-caption">Machine learning defaults</div></div>
+      <div class="panel-content">
+        <div class="setting-group">
+          <h4>Machine Learning</h4>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Enable AI Recommendations</div>
+              <div class="setting-desc">Show smart suggestions on dashboard</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="settings-ai-reco-toggle" data-setting="ai_recommendations"><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Anomaly Detection</div>
+              <div class="setting-desc">Auto-detect unusual consumption patterns</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="settings-anomaly-toggle" data-setting="anomaly_detection"><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Auto-Reorder (Critical items only)</div>
+              <div class="setting-desc">Automatically draft POs for critical stock</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="settings-auto-reorder-toggle" data-setting="auto_reorder"><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Forecast Model</div>
+              <div class="setting-desc">Default model for demand predictions</div>
+            </div>
+            <select class="settings-select" id="settings-forecast-model" data-setting="forecast_model">
+              <option value="prophet">Prophet (seasonality)</option>
+              <option value="arima">ARIMA (trend)</option>
+              <option value="ensemble">Ensemble (both)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header"><div class="panel-title">Alert Thresholds</div><div class="panel-caption">Reorder and anomaly rules</div></div>
+      <div class="panel-content">
+        <div class="setting-group">
+          <h4>Reorder Rules</h4>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Low Stock Threshold (%)</div>
+              <div class="setting-desc">Warn when stock drops below this % of reorder point</div>
+            </div>
+            <input type="number" min="1" max="100" id="settings-low-stock" data-setting="low_stock_threshold" class="settings-input" style="width:80px;">
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Critical Threshold (%)</div>
+              <div class="setting-desc">Trigger critical alert below this % of reorder point</div>
+            </div>
+            <input type="number" min="0" max="99" id="settings-critical" data-setting="critical_threshold" class="settings-input" style="width:80px;">
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Anomaly Z-Score Threshold</div>
+              <div class="setting-desc">Flag consumption beyond &plusmn;Z&sigma; multiplier</div>
+            </div>
+            <input type="number" min="1" max="10" step="0.5" id="settings-zscore" data-setting="z_score_threshold" class="settings-input" style="width:80px;">
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <div class="panel-header"><div class="panel-title">Integrations</div><div class="panel-caption">External systems</div></div>
+      <div class="panel-content">
+        <div class="setting-group">
+          <h4>External Systems</h4>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Slack Notifications</div>
+              <div class="setting-desc">Send alerts to #warehouse-ops channel</div>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="settings-slack-connect" data-setting="slack_connected">Connect</button>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Email Alerts</div>
+              <div class="setting-desc">manager@company.com</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="settings-email-toggle" data-setting="email_alerts"><span class="slider"></span></label>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var settings = {{ settings_data|tojson }};
+  var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+  var csrf = csrfMeta ? csrfMeta.getAttribute('content') : '';
+
+  function save(key, value) {
+    var payload = {};
+    payload[key] = value;
+    return fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      if (!r.ok) throw new Error('save failed');
+      return r.json();
+    }).then(function (d) {
+      settings = d.data || settings;
+      if (window.showToast) window.showToast('Setting saved', 'success');
+    }).catch(function () {
+      if (window.showToast) window.showToast('Could not save setting', 'error');
+    });
+  }
+
+  function initToggle(input, key) {
+    if (!input) return;
+    input.checked = settings[key] === 'on';
+    input.addEventListener('change', function () {
+      input.disabled = true;
+      save(key, input.checked ? 'on' : 'off').then(function () { input.disabled = false; });
+    });
+  }
+
+  function currentTheme() {
+    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  }
+
+  // Dark mode — apply + persist (DB + localStorage)
+  var darkToggle = document.getElementById('settings-dark-toggle');
+  if (darkToggle) {
+    darkToggle.checked = settings.dark_mode === 'on' ||
+      (settings.dark_mode !== 'off' && currentTheme() === 'dark');
+    darkToggle.addEventListener('change', function () {
+      var theme = darkToggle.checked ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+      try { localStorage.setItem('stockflow-theme', theme); } catch (e) {}
+      darkToggle.disabled = true;
+      save('dark_mode', theme).then(function () { darkToggle.disabled = false; });
+    });
+  }
+
+  initToggle(document.getElementById('settings-live-toggle'), 'live_data');
+  initToggle(document.getElementById('settings-sound-toggle'), 'sound_alerts');
+  initToggle(document.getElementById('settings-ai-reco-toggle'), 'ai_recommendations');
+  initToggle(document.getElementById('settings-anomaly-toggle'), 'anomaly_detection');
+  initToggle(document.getElementById('settings-auto-reorder-toggle'), 'auto_reorder');
+  initToggle(document.getElementById('settings-email-toggle'), 'email_alerts');
+
+  var modelSel = document.getElementById('settings-forecast-model');
+  if (modelSel) {
+    modelSel.value = settings.forecast_model || 'prophet';
+    modelSel.addEventListener('change', function () {
+      modelSel.disabled = true;
+      save('forecast_model', modelSel.value).then(function () { modelSel.disabled = false; });
+    });
+  }
+
+  ['settings-low-stock', 'settings-critical', 'settings-zscore'].forEach(function (id) {
+    var input = document.getElementById(id);
+    if (!input) return;
+    input.value = settings[input.dataset.setting] !== undefined ? settings[input.dataset.setting] : input.value;
+    input.addEventListener('change', function () {
+      var v = parseFloat(input.value);
+      if (isNaN(v)) {
+        if (window.showToast) window.showToast('Enter a valid number', 'error');
+        input.value = settings[input.dataset.setting];
+        return;
+      }
+      input.disabled = true;
+      save(input.dataset.setting, String(v)).then(function () { input.disabled = false; });
+    });
+  });
+
+  var slackBtn = document.getElementById('settings-slack-connect');
+  function updateSlack() {
+    if (!slackBtn) return;
+    var connected = settings.slack_connected === 'on';
+    slackBtn.textContent = connected ? 'Disconnect' : 'Connect';
+    slackBtn.classList.toggle('toggled', connected);
+  }
+  if (slackBtn) {
+    updateSlack();
+    slackBtn.addEventListener('click', function () {
+      var next = settings.slack_connected === 'on' ? 'off' : 'on';
+      slackBtn.disabled = true;
+      save('slack_connected', next).then(function () {
+        slackBtn.disabled = false;
+        updateSlack();
+      });
+    });
+  }
+})();
+</script>
+{% endblock %}

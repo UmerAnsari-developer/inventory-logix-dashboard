@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% set active_page = "dashboard" %}
+{% block title %}Overview{% endblock %}
+{% block breadcrumb %}Overview{% endblock %}
+{% block content %}
+{% if app_settings.get('ai_recommendations') != 'off' %}
+<section class="ai-banner">
+  <span class="ai-icon">AI</span>
+  <div>
+    <strong>AI Recommendation</strong>
+    <span id="aiRecommendation">Analysing live data</span>
+    <span class="ai-confidence" id="aiConfidence"></span>
+  </div>
+  <a class="ai-banner-btn" href="{{ url_for('ai.forecast_page') }}">View forecast</a>
+</section>
+{% endif %}
+
+<section class="alert-strip">
+  <div class="alert-mark"></div>
+  <div class="alert-copy">
+    <div class="alert-title">{{ reorder_count }} products need attention today</div>
+    <div class="alert-subtitle">{{ critical_count }} are below their reorder point. Review the queue before the next dispatch cycle</div>
+  </div>
+  <a href="{{ url_for('ui.reorder_alerts') }}" class="btn btn-secondary">Review reorder queue &rarr</a>
+</section>
+
+<section class="metric-grid">
+  <div class="metric-card"><div class="metric-label">Inventory value <span class="metric-index">A1</span></div><div class="metric-value" id="liveInventoryValue">{{ '{:,.0f}'.format(inventory_value) }}</div><div class="metric-foot"><strong>+6.2%</strong> vs last month</div></div>
+  <div class="metric-card"><div class="metric-label">Reorder risk <span class="metric-index">A2</span></div><div class="metric-value" id="liveReorderRisk">{{ '%02d'|format(reorder_count) }}</div><div class="metric-foot"><span class="warning" id="liveCriticalCount">{{ critical_count }} critical</span> &middot; <span id="liveWarningCount">{{ warning_count }} monitor</span></div></div>
+  <div class="metric-card"><div class="metric-label">Units moved today <span class="metric-index">A3</span></div><div class="metric-value" id="liveUnitsToday">{{ '{:,}'.format(units_today) }}</div><div class="metric-foot"><strong>+14.8%</strong> vs daily average</div></div>
+  <div class="metric-card"><div class="metric-label">Stock health <span class="metric-index">A4</span></div><div class="metric-value" id="liveHealthPct">{{ health_pct }}<span style="font-size:1.1rem">%</span></div><div class="metric-foot"><strong>{{ 'Good' if health_pct >= 80 else 'Monitor' }}</strong> &middot; target is 80%</div></div>
+  {% if app_settings.get('ai_recommendations') != 'off' %}
+  <div class="metric-card ai-card"><div class="metric-label">AI savings (YTD) <span class="metric-index">AI</span></div><div class="metric-value" id="aiSavingsKpi">&mdash;</div><div class="metric-foot"><strong>vs manual ordering</strong></div></div>
+  {% endif %}
+</section>
+
+<section class="ai-forecast-strip panel">
+  <div class="panel-header">
+    <div>
+      <div class="panel-title">AI demand forecast &mdash; next 90 days</div>
+      <div class="panel-caption">Live Prophet model trained on the last 180 days of movement history</div>
+    </div>
+    <span class="badge ai">AI &middot; PROPHET</span>
+  </div>
+  <div class="ai-forecast-chart" id="dashboardForecastChart"></div>
+</section>
+
+<section class="dashboard-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Stock movement</div>
+        <div class="panel-caption">Units moved in and out of WH-Pune &middot; last 14 days</div>
+      </div>
+      <div class="chart-legend"><span class="legend-key"><span class="legend-dot" style="background:var(--green)"></span>Units moved</span></div>
+    </div>
+    <div class="panel-content">
+      <div class="chart-wrap">
+        {% set max_val = chart.max %}
+        <svg class="chart" viewBox="0 0 556 210" role="img" aria-label="Stock movements over the last fourteen days">
+          <defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3d997c" stop-opacity=".28"/><stop offset="1" stop-color="#3d997c" stop-opacity="0"/></linearGradient></defs>
+          <line class="chart-grid-line" x1="18" y1="40" x2="538" y2="40"/>
+          <line class="chart-grid-line" x1="18" y1="86" x2="538" y2="86"/>
+          <line class="chart-grid-line" x1="18" y1="132" x2="538" y2="132"/>
+          <line class="chart-grid-line" x1="18" y1="176" x2="538" y2="176"/>
+          <text class="chart-label" x="0" y="44">{{ max_val }}</text>
+          <text class="chart-label" x="0" y="90">{{ (max_val * 2 // 3) }}</text>
+          <text class="chart-label" x="0" y="136">{{ (max_val // 3) }}</text>
+          <text class="chart-label" x="5" y="180">0</text>
+          <polygon class="chart-area" points="{{ chart.area }}"/>
+          <polyline class="chart-line" points="{{ chart.points }}"/>
+          {% for x, y in chart.circles %}
+          <circle class="chart-point" cx="{{ x }}" cy="{{ y }}" r="3.5"/>
+          {% endfor %}
+          <text class="chart-label" x="15" y="202">{{ d0 }}</text>
+          <text class="chart-label" x="180" y="202">{{ d1 }}</text>
+          <text class="chart-label" x="340" y="202">{{ d2 }}</text>
+          <text class="chart-label" x="487" y="202">{{ d3 }}</text>
+        </svg>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Inventory mix</div>
+        <div class="panel-caption">Active SKUs by warehouse category</div>
+      </div>
+    </div>
+    <div class="panel-content">
+      <div class="category-list">
+        {% for item in category_counts %}
+        <div class="category-row">
+          <span class="category-name">{{ item.category }}</span>
+          <span class="bar-track"><span class="bar-fill {{ item.tone }}" style="width:{{ item.pct }}%"></span></span>
+          <span class="category-number">{{ '%02d'|format(item.count) }} SKUs</span>
+        </div>
+        {% else %}
+        <p class="empty-state">No categories recorded yet</p>
+        {% endfor %}
+      </div>
+    </div>
+  </article>
+
+  <article class="panel queue-panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Reorder queue</div>
+        <div class="panel-caption">The shortest path from stock signal to purchase decision</div>
+      </div>
+      <a href="{{ url_for('ui.reorder_alerts') }}" class="btn btn-ghost">View all &rarr</a>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>SKU</th><th>Product</th><th>Current</th><th>Stock runway</th><th>ROP</th><th>EOQ</th><th>State</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          {% for product in queue %}
+          <tr>
+            <td><span class="sku">{{ product.sku }}</span></td>
+            <td>
+              <div class="product-cell">
+                <span class="product-icon">{{ product.initials }}</span>
+                <div>
+                  <div class="product-name">{{ product.name }}</div>
+                  <div class="product-meta">{{ product.category or "-" }} &middot; {{ product.supplier_name }}</div>
+                </div>
+              </div>
+            </td>
+            <td><span class="number">{{ product.current_stock }}</span></td>
+            <td>
+              <div class="stock-runway">
+                <div class="runway-track"></div>
+                <span class="runway-current" style="left:calc({{ product.runway_ratio }}% - 6px)"></span>
+                <span class="runway-marker" style="left:{{ product.rop_ratio }}%"></span>
+                <span class="runway-label" style="left:0">0</span>
+                <span class="runway-label rop">ROP {{ product.reorder_point }}</span>
+              </div>
+            </td>
+            <td><span class="number">{{ product.reorder_point }}</span></td>
+            <td><span class="number">{{ product.eoq or "-" }}</span></td>
+            <td><span class="status {{ product.status }}">{{ product.status_label }}</span></td>
+            <td>
+              <a href="{{ url_for('ui.movement_form', product_id=product.id) }}" class="btn btn-secondary btn-sm">Record movement</a>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8"><div class="empty-state">The reorder queue is clear</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (window.StockflowDashboardForecast) {
+    var product = {{ (forecast_product|tojson) if forecast_product else 'null' }};
+    var el = document.getElementById('dashboardForecastChart');
+    if (product && el) {
+      window.StockflowDashboardForecast.init({
+        product: product,
+        model: {{ forecast_model|tojson }},
+        chartId: 'dashboardForecastChart',
+        runUrl: "{{ url_for('ai.forecast_run') }}",
+      });
+    }
+  }
+
+  var live = window.appSettings && window.appSettings.live_data === 'on';
+  if (live) {
+    function fmt(n) { return Number(n || 0).toLocaleString('en-IN'); }
+    function pollLive() {
+      fetch('/api/dashboard/live', { headers: { 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d || !d.data) return;
+          var k = d.data;
+          var inv = document.getElementById('liveInventoryValue');
+          var risk = document.getElementById('liveReorderRisk');
+          var units = document.getElementById('liveUnitsToday');
+          var health = document.getElementById('liveHealthPct');
+          var crit = document.getElementById('liveCriticalCount');
+          var warn = document.getElementById('liveWarningCount');
+          if (inv) inv.textContent = fmt(k.inventory_value);
+          if (risk) risk.textContent = ('0' + k.reorder_count).slice(-2);
+          if (units) units.textContent = fmt(k.units_today);
+          if (crit) crit.textContent = k.critical_count + ' critical';
+          if (warn) warn.textContent = k.warning_count + ' monitor';
+          if (health) health.firstChild.textContent = k.health_pct + ' ';
+        })
+        .catch(function () {});
+    }
+    setInterval(pollLive, 30000);
+  }
+});
+</script>
+{% endblock %}

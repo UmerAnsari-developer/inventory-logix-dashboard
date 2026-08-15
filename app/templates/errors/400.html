@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% set active_page = "error" %}
+{% block title %}400 Bad request{% endblock %}
+{% block breadcrumb %}Bad request{% endblock %}
+{% block content %}
+<section class="error-shell">
+  <div class="error-card">
+    <div class="error-code">400</div>
+    <h1>Bad request</h1>
+    <p>Check the URL or form data and try again.</p>
+    <a class="btn btn-primary" href="{{ url_for('ui.dashboard') }}">Back to dashboard</a>
+</div>
+</section>
+{% endblock %}

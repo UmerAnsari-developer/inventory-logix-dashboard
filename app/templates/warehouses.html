@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% set active_page = "warehouses" %}
+{% block title %}Warehouses{% endblock %}
+{% block breadcrumb %}Warehouses{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading"><div><div class="eyebrow">Capacity</div><h1>Warehouses</h1></div></div>
+  <div class="warehouse-grid">
+    {% for w in warehouses %}
+    <article class="warehouse-card-detail">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h3 style="margin: 0;">{{ w.warehouse }}</h3>
+        {% if w.warehouse == active_warehouse %}
+        <span class="status good" style="font-size: 0.7rem; padding: 2px 8px;">Active</span>
+        {% endif %}
+      </div>
+      <div class="metric-value">{{ w.sku_count }} SKUs</div>
+      <div class="metric-foot">{{ w.total_units }} units &middot; {{ '{:,.0f}'.format(w.total_value) }}</div>
+      <div class="warehouse-bars">
+        <div class="bar-row"><span>In stock</span><span>{{ w.sku_count - (w.low_count or 0) - (w.critical_count or 0) }}</span></div>
+        <div class="bar-row"><span>Low</span><span>{{ w.low_count or 0 }}</span></div>
+        <div class="bar-row"><span>Critical</span><span>{{ w.critical_count or 0 }}</span></div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

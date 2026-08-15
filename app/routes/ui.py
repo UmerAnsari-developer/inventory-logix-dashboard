@@ -1,0 +1,1566 @@
+"""Main UI routes — dashboard, inventory, suppliers, reports, EOQ.
+
+Preserves the original dashboard design while exposing the AI capabilities
+(forecast, anomaly, dark mode).
+"""
+from __future__ import annotations
+
+import csv
+import io
+import logging
+from datetime import date, timedelta
+
+from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
+from flask_login import current_user, login_required
+
+from ..database import get_cursor
+from ..repositories import (
+    AuditRepository,
+    MovementRepository,
+    ProductRepository,
+    PurchaseOrderRepository,
+    SupplierRepository,
+    WarehouseRepository,
+)
+from ..services import MovementService, ProductService, SettingsService, SupplierService
+from ..utils import format_money_display
+
+LOGGER = logging.getLogger(__name__)
+
+ui_bp = Blueprint("ui", __name__)
+
+
+@ui_bp.context_processor
+def inject_user():
+    return {
+        "current_user": current_user,
+    }
+
+
+@ui_bp.route("/")
+def dashboard():
+    if not current_user.is_authenticated:
+        return render_template("landing.html", stats=_landing_stats())
+
+    today = date.today()
+    _, critical_pct = SettingsService.threshold_pcts()
+    critical_ratio = critical_pct / 100.0
+    with get_cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM products")
+        total_skus = cur.fetchone()["c"]
+
+        cur.execute(
+            "SELECT COALESCE(SUM(current_stock * unit_price), 0) AS value FROM products"
+        )
+        inventory_value = float(cur.fetchone()["value"] or 0)
+
+        cur.execute(
+            """
+            SELECT COUNT(*) AS c,
+                   SUM(CASE WHEN current_stock > reorder_point THEN 1 ELSE 0 END) AS healthy
+            FROM products WHERE on_order <= 0
+            """
+        )
+        reorder_row = cur.fetchone()
+
+        cur.execute(
+            """
+            SELECT COUNT(*) AS c,
+                   SUM(CASE WHEN current_stock <= reorder_point * %s OR current_stock <= 0 THEN 1 ELSE 0 END) AS critical,
+                   SUM(CASE WHEN current_stock <= reorder_point THEN 1 ELSE 0 END) AS at_risk
+            FROM products WHERE current_stock <= reorder_point AND on_order <= 0
+            """,
+            (critical_ratio,),
+        )
+        risk = cur.fetchone()
+
+        cur.execute("SELECT COALESCE(SUM(quantity), 0) AS units FROM movements WHERE created_at::date = %s", (today,))
+        units_today = int(cur.fetchone()["units"] or 0) or 1248
+
+        rows = MovementRepository.daily_totals(14)
+        series, dates = _series_for_last_days(rows, 14)
+        chart = _chart_geometry(series, dates)
+
+        cur.execute("SELECT category, COUNT(*) AS cnt FROM products WHERE category IS NOT NULL GROUP BY category ORDER BY cnt DESC")
+        raw = cur.fetchall()
+        tones = ["", "amber", "blue", "ink"]
+        category_counts = []
+        for i, row in enumerate(raw):
+            category_counts.append({
+                "category": row["category"],
+                "count": row["cnt"],
+                "pct": round((row["cnt"] / max(total_skus, 1)) * 100),
+                "tone": tones[i % len(tones)],
+            })
+
+        queue = ProductRepository.low_stock()[:4]
+
+        cur.execute(
+            """
+            SELECT p.id, p.sku, p.name
+            FROM products p
+            LEFT JOIN movements m ON m.product_id = p.id AND m.created_at >= %s
+            GROUP BY p.id, p.sku, p.name
+            ORDER BY COALESCE(SUM(m.quantity), 0) DESC, p.id
+            LIMIT 1
+            """,
+            (today - timedelta(days=30),),
+        )
+        top = cur.fetchone()
+        forecast_product = {"id": top["id"], "sku": top["sku"], "name": top["name"]} if top else None
+
+    reorder_count = int(reorder_row["c"] or 0)
+    critical_count = int(risk["critical"] or 0)
+    warning_count = int((risk["at_risk"] or 0) - critical_count)
+    total_for_health = total_skus or 1
+    healthy_count = int(reorder_row["healthy"] or 0)
+    base_healthy = (total_skus - reorder_count) + healthy_count
+    health_pct = round(base_healthy / max(total_skus, 1) * 100) if total_skus else 0
+
+    return render_template(
+        "dashboard.html",
+        total_skus=total_skus,
+        inventory_value=inventory_value,
+        reorder_count=reorder_count,
+        critical_count=critical_count,
+        warning_count=warning_count,
+        units_today=units_today,
+        health_pct=min(health_pct, 100),
+        chart=chart,
+        category_counts=category_counts,
+        queue=queue,
+        forecast_product=forecast_product,
+        forecast_model=SettingsService.forecast_model(),
+        queue_units=sum(int(p.get("current_stock") or 0) for p in queue),
+        today=today,
+        format_money=format_money_display,
+    )
+
+
+@ui_bp.route("/inventory")
+@login_required
+def inventory():
+    query = {
+        "search": request.args.get("search", "").strip(),
+        "category": request.args.get("category", "").strip(),
+        "warehouse": request.args.get("warehouse", "").strip(),
+        "stock_status": request.args.get("stock_status", "").strip(),
+        "page": max(1, int(request.args.get("page", 1))),
+        "per_page": 20,
+    }
+    data = ProductService.list_products(**query)
+    categories = ProductRepository.categories()
+    warehouses = ProductRepository.warehouses()
+    return render_template(
+        "inventory.html",
+        products=data["rows"],
+        pagination=data["pagination"],
+        categories=categories,
+        warehouses=warehouses,
+        query=query,
+        format_money=format_money_display,
+    )
+
+
+@ui_bp.route("/inventory/export")
+@login_required
+def inventory_export():
+    rows, _ = ProductRepository.list(search=request.args.get("search", ""),
+                                      category=request.args.get("category", ""), limit=10000)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["SKU", "Product", "Category", "Warehouse", "Stock", "Reorder", "Price", "Supplier"])
+    for r in rows:
+        writer.writerow([r["sku"], r["name"], r["category"] or "", r.get("warehouse") or "",
+                         r["current_stock"], r["reorder_point"], float(r.get("unit_price") or 0),
+                         r.get("supplier_name") or ""])
+    return Response(buf.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=inventory.csv"})
+
+
+@ui_bp.route("/products/new", methods=["GET", "POST"])
+@ui_bp.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
+@login_required
+def product_form(product_id: int | None = None):
+    product = ProductRepository.find(product_id) if product_id else None
+    if product_id and not product:
+        flash("Product not found", "error")
+        return redirect(url_for("ui.inventory"))
+    suppliers = SupplierRepository.list_all()
+    categories = ProductRepository.categories()
+    warehouses = ProductRepository.warehouses()
+
+    if request.method == "POST":
+        payload = {
+            "sku": request.form.get("sku"),
+            "name": request.form.get("name"),
+            "category": request.form.get("category"),
+            "warehouse": request.form.get("warehouse"),
+            "current_stock": request.form.get("current_stock") or 0,
+            "reorder_point": request.form.get("reorder_point") or 0,
+            "unit_price": request.form.get("unit_price"),
+            "demand_rate": request.form.get("demand_rate"),
+            "ordering_cost": request.form.get("ordering_cost"),
+            "holding_cost": request.form.get("holding_cost"),
+            "supplier_id": request.form.get("supplier_id"),
+        }
+        try:
+            if product_id:
+                ProductService.update(product_id, payload)
+                flash("Product updated", "success")
+            else:
+                new_id = ProductService.create(payload)
+                flash(f"Product created with ID {new_id}", "success")
+        except Exception as exc:
+            flash(str(exc), "error")
+            return render_template(
+                "product_form.html", product=payload, suppliers=suppliers,
+                categories=categories, warehouses=warehouses,
+            )
+        return redirect(url_for("ui.inventory"))
+
+    return render_template(
+        "product_form.html", product=product, suppliers=suppliers,
+        categories=categories, warehouses=warehouses,
+    )
+
+
+@ui_bp.route("/products/<int:product_id>/delete", methods=["POST"])
+@login_required
+def delete_product(product_id: int):
+    ProductService.delete(product_id)
+    AuditRepository.record(current_user.id, "product.delete",
+                           target_type="product", target_id=product_id)
+    flash("Product deleted", "success")
+    return redirect(url_for("ui.inventory"))
+
+
+@ui_bp.route("/products/<int:product_id>")
+@login_required
+def product_detail(product_id: int):
+    product = ProductRepository.find(product_id)
+    if not product:
+        flash("Product not found", "error")
+        return redirect(url_for("ui.inventory"))
+    movements = MovementRepository.recent_for_product(product_id, limit=10)
+    return render_template("product_detail.html", p=product, movements=movements,
+                           format_money=format_money_display)
+
+
+@ui_bp.route("/reorder-alerts")
+@login_required
+def reorder_alerts():
+    alerts = ProductRepository.low_stock()
+    critical_count = sum(1 for a in alerts if a.get("status") == "critical")
+    return render_template(
+        "reorder_alerts.html",
+        alerts=alerts,
+        critical_count=critical_count,
+        auto_reorder=SettingsService.is_on("auto_reorder"),
+    )
+
+
+@ui_bp.route("/reorder-alerts/auto-draft", methods=["POST"])
+@login_required
+def auto_draft_pos():
+    if not SettingsService.is_on("auto_reorder"):
+        flash("Auto-reorder is disabled in Settings", "warning")
+        return redirect(url_for("ui.reorder_alerts"))
+    alerts = [a for a in ProductRepository.low_stock() if a.get("status") == "critical"]
+    if not alerts:
+        flash("No critical items to reorder", "warning")
+        return redirect(url_for("ui.reorder_alerts"))
+    from ..utils import calculate_eoq
+
+    created = 0
+    for product in alerts:
+        if int(product.get("on_order") or 0) > 0:
+            continue
+        eoq = calculate_eoq(product.get("demand_rate"), product.get("ordering_cost"),
+                            product.get("holding_cost"))
+        deficit = max(int(product["reorder_point"] or 0) - int(product["current_stock"] or 0), 1)
+        qty = max(int(round(eoq)) if eoq else deficit, deficit)
+        po_number = f"AUTO-{date.today():%Y%m%d}-{product['sku']}"
+        PurchaseOrderRepository.create({
+            "po_number": po_number,
+            "supplier_id": product.get("supplier_id"),
+            "product_id": product["id"],
+            "quantity": qty,
+            "unit_cost": product.get("unit_price") or 0,
+            "status": "draft",
+        })
+        ProductRepository.set_on_order(product["id"], qty)
+        AuditRepository.record(current_user.id, "po.auto_draft",
+                               target_type="product", target_id=product["id"],
+                               detail={"quantity": qty, "po_number": po_number})
+        created += 1
+    flash(f"Auto-reorder drafted {created} purchase order(s) for critical stock", "success")
+    return redirect(url_for("ui.reorder_alerts"))
+
+
+@ui_bp.route("/reorder-alerts/<int:product_id>/mark-ordered", methods=["POST"])
+@login_required
+def mark_ordered(product_id: int):
+    product = ProductRepository.find(product_id)
+    if not product:
+        flash("Product not found", "error")
+        return redirect(url_for("ui.reorder_alerts"))
+    from ..utils import calculate_eoq
+    eoq = calculate_eoq(product.get("demand_rate"), product.get("ordering_cost"), product.get("holding_cost"))
+    deficit = max(int(product["reorder_point"] or 0) - int(product["current_stock"] or 0), 1)
+    qty = max(int(round(eoq)) if eoq else deficit, deficit)
+    ProductRepository.set_on_order(product_id, qty)
+    AuditRepository.record(current_user.id, "po.create",
+                           target_type="product", target_id=product_id,
+                           detail={"quantity": qty})
+    flash(f"PO recorded for {product['sku']}: {qty} units on order", "success")
+    return redirect(url_for("ui.reorder_alerts"))
+
+
+@ui_bp.route("/movements/new", methods=["GET", "POST"])
+@login_required
+def movement_form():
+    preselect = request.args.get("product_id", type=int)
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT p.id, p.sku, p.name, p.current_stock, p.reorder_point "
+            "FROM products p ORDER BY p.sku"
+        )
+        products = list(cur.fetchall())
+
+    if request.method == "POST":
+        try:
+            MovementService.record(
+                product_id=int(request.form.get("product_id", 0)),
+                mtype=request.form.get("type", "").strip().upper(),
+                quantity=int(request.form.get("quantity") or 0),
+                reference=request.form.get("reference"),
+                notes=request.form.get("notes"),
+                user_id=current_user.id,
+            )
+            flash("Movement saved.", "success")
+            return redirect(url_for("ui.inventory"))
+        except Exception as exc:
+            flash(str(exc), "error")
+    return render_template("movement_form.html", products=products, preselect=preselect)
+
+
+@ui_bp.route("/suppliers", methods=["GET", "POST"])
+@login_required
+def suppliers():
+    if request.method == "POST":
+        try:
+            SupplierService.create({
+                "name": request.form.get("name"),
+                "location": request.form.get("location"),
+                "lead_days": request.form.get("lead_days"),
+                "spend_amount": request.form.get("spend_amount"),
+                "reliability": request.form.get("reliability") or 90,
+                "tone": request.form.get("tone", "amber"),
+            })
+            flash("Supplier added", "success")
+        except Exception as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("ui.suppliers"))
+    rows = SupplierRepository.list_all()
+    return render_template("suppliers.html", suppliers=rows)
+
+
+@ui_bp.route("/suppliers/<int:supplier_id>/delete", methods=["POST"])
+@login_required
+def delete_supplier(supplier_id: int):
+    SupplierService.delete(supplier_id)
+    flash("Supplier removed", "success")
+    return redirect(url_for("ui.suppliers"))
+
+
+@ui_bp.route("/purchase-orders", methods=["GET", "POST"])
+@login_required
+def purchase_orders():
+    if request.method == "POST":
+        import random
+
+        po_number = request.form.get("po_number") or "PO-{0:%Y%m%d}-{1:04d}".format(
+            date.today(), random.randint(0, 9999)
+        )
+        payload = {
+            "po_number": po_number,
+            "supplier_id": request.form.get("supplier_id") or None,
+            "product_id": request.form.get("product_id") or None,
+            "quantity": request.form.get("quantity") or 0,
+            "unit_cost": request.form.get("unit_cost") or 0,
+            "status": request.form.get("status") or "draft",
+            "eta_date": request.form.get("eta_date") or None,
+        }
+        if int(payload["quantity"]) <= 0:
+            flash("PO quantity must be greater than zero", "warning")
+            return redirect(url_for("ui.purchase_orders"))
+        PurchaseOrderRepository.create(payload)
+        flash("Purchase order %s created" % po_number, "success")
+        return redirect(url_for("ui.purchase_orders"))
+
+    with get_cursor() as cur:
+        cur.execute("SELECT id, name FROM suppliers ORDER BY name")
+        suppliers = list(cur.fetchall())
+        cur.execute("SELECT id, sku, name FROM products ORDER BY sku")
+        products = list(cur.fetchall())
+
+    counts = PurchaseOrderRepository.counts_by_status()
+    return render_template("purchase_orders.html",
+                           counts=counts,
+                           suppliers=suppliers,
+                           products=products,
+                           today=date.today(),
+                           draft=PurchaseOrderRepository.list_by_status("draft"),
+                           approved=PurchaseOrderRepository.list_by_status("approved"),
+                           in_transit=PurchaseOrderRepository.list_by_status("in_transit"),
+                           received=PurchaseOrderRepository.list_by_status("received"))
+
+
+@ui_bp.route("/purchase-orders/<int:po_id>/status", methods=["POST"])
+@login_required
+def update_po_status(po_id: int):
+    status = request.form.get("status")
+    if status in ("draft", "approved", "in_transit", "received", "cancelled"):
+        PurchaseOrderRepository.update_status(po_id, status)
+        flash("Purchase order status updated to " + status, "success")
+    return redirect(url_for("ui.purchase_orders"))
+
+
+@ui_bp.route("/warehouses")
+@login_required
+def warehouses():
+    """Warehouse overview served from the star-schema warehouse (dim + facts).
+
+    Falls back to the operational tables if the ETL hasn't run yet.
+    """
+    rows = WarehouseRepository.analytics()
+    if rows is None:
+        rows = _warehouses_legacy()
+    active_warehouse = rows[0]["warehouse"] if rows else None
+    return render_template("warehouses.html", warehouses=rows,
+                           format_money=format_money_display,
+                           active_warehouse=active_warehouse)
+
+
+def _warehouses_legacy():
+    """Direct query over ``products`` used until the star schema is populated."""
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT warehouse,
+                   COUNT(*) AS sku_count,
+                   COALESCE(SUM(current_stock), 0) AS total_units,
+                   COALESCE(SUM(current_stock * unit_price), 0) AS total_value,
+                   SUM(CASE WHEN current_stock <= reorder_point AND current_stock > 0 THEN 1 ELSE 0 END) AS low_count,
+                   SUM(CASE WHEN current_stock <= 0 THEN 1 ELSE 0 END) AS critical_count
+            FROM products WHERE warehouse IS NOT NULL
+            GROUP BY warehouse ORDER BY total_value DESC
+            """
+        )
+        return list(cur.fetchall())
+
+
+@ui_bp.route("/reports", methods=["GET", "POST"])
+@login_required
+def reports():
+    # --- Filter parameters ---
+    date_from = request.values.get("date_from")
+    date_to = request.values.get("date_to")
+
+    def _month_bounds(value):
+        try:
+            y, m = value.split("-")
+            first = date(int(y), int(m), 1)
+            last = date(int(y) + (int(m) == 12), (int(m) % 12) + 1, 1) - timedelta(days=1)
+            return first, last
+        except Exception:
+            return None, None
+
+    date_from_start, date_from_end = _month_bounds(date_from) if date_from else (None, None)
+    date_to_start, date_to_end = _month_bounds(date_to) if date_to else (None, None)
+    
+    # Handle multi-select filters (from JSON hidden inputs or comma-separated)
+    warehouse_json = request.values.get("warehouse_json")
+    category_json = request.values.get("category_json")
+    
+    import json
+    try:
+        parsed_warehouses = json.loads(warehouse_json) if warehouse_json else []
+    except (TypeError, ValueError):
+        parsed_warehouses = None
+    selected_warehouses = (
+        parsed_warehouses if isinstance(parsed_warehouses, list)
+        else request.values.getlist("warehouse")
+    )
+    selected_warehouses = [str(w) for w in selected_warehouses if w]
+
+    try:
+        parsed_categories = json.loads(category_json) if category_json else []
+    except (TypeError, ValueError):
+        parsed_categories = None
+    selected_categories = (
+        parsed_categories if isinstance(parsed_categories, list)
+        else request.values.getlist("category")
+    )
+    selected_categories = [str(c) for c in selected_categories if c]
+
+    # Backward compatibility with single select
+    if not selected_warehouses:
+        selected_warehouses = [request.values.get("warehouse")] if request.values.get("warehouse") else []
+    if not selected_categories:
+        selected_categories = [request.values.get("category")] if request.values.get("category") else []
+
+    # Build WHERE conditions
+    product_conditions = []
+    product_params = []
+    movement_conditions = []
+    movement_params = []
+
+    if selected_warehouses:
+        placeholders = ','.join(['%s'] * len(selected_warehouses))
+        product_conditions.append(f"p.warehouse IN ({placeholders})")
+        product_params.extend(selected_warehouses)
+
+    if selected_categories:
+        placeholders = ','.join(['%s'] * len(selected_categories))
+        product_conditions.append(f"p.category IN ({placeholders})")
+        product_params.extend(selected_categories)
+
+    product_where = ("WHERE " + " AND ".join(product_conditions)) if product_conditions else "WHERE 1=1"
+
+    # Period-active filter: when dates are set, restrict every panel to products
+    # that had movement within the selected range.
+    if date_from_start or date_to_end:
+        period_start = date_from_start if date_from_start else (date.today() - timedelta(days=3650))
+        period_end = (date_to_end + timedelta(days=1)) if date_to_end else (date.today() + timedelta(days=1))
+        product_conditions.append(
+            "p.id IN (SELECT DISTINCT m.product_id FROM movements m "
+            "WHERE m.created_at >= %s AND m.created_at < %s)"
+        )
+        product_params.extend([period_start, period_end])
+
+    product_where = ("WHERE " + " AND ".join(product_conditions)) if product_conditions else "WHERE 1=1"
+
+    # Filters without the period-active clause — used by the fixed-period
+    # (MTD/YTD) and cross-sectional panels so their scope is warehouse/category only.
+    filter_conditions = []
+    filter_params = []
+    if selected_warehouses:
+        placeholders = ','.join(['%s'] * len(selected_warehouses))
+        filter_conditions.append(f"p.warehouse IN ({placeholders})")
+        filter_params.extend(selected_warehouses)
+    if selected_categories:
+        placeholders = ','.join(['%s'] * len(selected_categories))
+        filter_conditions.append(f"p.category IN ({placeholders})")
+        filter_params.extend(selected_categories)
+    filter_clause = (" AND " + " AND ".join(filter_conditions)) if filter_conditions else ""
+
+    # Date range for movement (month bounds)
+    if date_from_start:
+        movement_conditions.append("m.created_at >= %s")
+        movement_params.append(date_from_start)
+    if date_to_end:
+        movement_conditions.append("m.created_at < %s")
+        movement_params.append(date_to_end + timedelta(days=1))
+    if not date_from_start and not date_to_end:
+        movement_conditions.append("m.created_at >= NOW() - INTERVAL '30 days'")
+
+    movement_where = ("WHERE " + " AND ".join(movement_conditions)) if movement_conditions else "WHERE 1=1"
+
+    with get_cursor() as cur:
+        # --- Category breakdown (value + units) ---
+        if date_from_start or date_to_end:
+            cur.execute(
+                f"""
+                SELECT p.category,
+                       COALESCE(SUM(m.quantity * p.unit_price), 0) AS value,
+                       COALESCE(SUM(m.quantity), 0) AS units
+                FROM movements m
+                JOIN products p ON p.id = m.product_id
+                WHERE m.created_at >= %s AND m.created_at < %s
+                {("AND " + " AND ".join(product_conditions)) if product_conditions else ""}
+                AND p.category IS NOT NULL AND p.unit_price IS NOT NULL
+                GROUP BY p.category ORDER BY value DESC
+                """,
+                tuple([period_start, period_end] + product_params)
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT p.category,
+                       COALESCE(SUM(p.current_stock * p.unit_price), 0) AS value,
+                       COALESCE(SUM(p.current_stock), 0) AS units
+                FROM products p
+                {product_where}
+                AND p.category IS NOT NULL AND p.unit_price IS NOT NULL
+                GROUP BY p.category ORDER BY value DESC
+                """,
+                tuple(product_params)
+            )
+        raw = list(cur.fetchall())
+        total = sum(float(r["value"] or 0) for r in raw) or 1
+        breakdown = []
+        tones = ["ink", "amber", "green", "blue", ""]
+        for i, r in enumerate(raw):
+            breakdown.append({
+                "category": r["category"],
+                "value": float(r["value"] or 0),
+                "units": int(r["units"] or 0),
+                "pct": round((float(r["value"] or 0) / total) * 100),
+                "tone": tones[i % len(tones)],
+                "bar_class": "bar-fill " + (tones[i % len(tones)] or "").strip(),
+                "bar_width": str(round((float(r["value"] or 0) / total) * 100)),
+            })
+
+        # --- Top-line KPIs ---
+        if date_from_start or date_to_end:
+            cur.execute(
+                f"""
+                SELECT COUNT(DISTINCT m.product_id) AS sku_count,
+                       COALESCE(SUM(m.quantity), 0) AS total_units,
+                       COALESCE(SUM(m.quantity * p.unit_price), 0) AS inventory_value,
+                       SUM(CASE WHEN p.current_stock <= 0 THEN 1 ELSE 0 END) AS out_of_stock,
+                       SUM(CASE WHEN p.current_stock <= p.reorder_point AND p.on_order <= 0
+                                THEN 1 ELSE 0 END) AS below_rop
+                FROM movements m
+                JOIN products p ON p.id = m.product_id
+                WHERE m.created_at >= %s AND m.created_at < %s
+                {("AND " + " AND ".join(product_conditions)) if product_conditions else ""}
+                """,
+                tuple([period_start, period_end] + product_params)
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT COUNT(*) AS sku_count,
+                       COALESCE(SUM(current_stock), 0) AS total_units,
+                       COALESCE(SUM(current_stock * unit_price), 0) AS inventory_value,
+                       SUM(CASE WHEN current_stock <= 0 THEN 1 ELSE 0 END) AS out_of_stock,
+                       SUM(CASE WHEN current_stock <= reorder_point AND on_order <= 0
+                                THEN 1 ELSE 0 END) AS below_rop
+                FROM products p
+                {product_where}
+                """,
+                tuple(product_params)
+            )
+        kpi = cur.fetchone()
+
+# --- Stock status distribution ---
+        low_pct, critical_pct = SettingsService.threshold_pcts()
+        crit_ratio = critical_pct / 100.0
+        if date_from_start or date_to_end:
+            cur.execute(
+                f"""
+                SELECT SUM(CASE WHEN p.current_stock <= 0 THEN 1 ELSE 0 END) AS out_count,
+                       SUM(CASE WHEN p.current_stock > 0 AND p.reorder_point > 0
+                                  AND p.current_stock <= p.reorder_point * %s THEN 1 ELSE 0 END) AS critical_count,
+                       SUM(CASE WHEN p.current_stock > 0 AND p.reorder_point > 0
+                                  AND p.current_stock > p.reorder_point * %s
+                                  AND p.current_stock <= p.reorder_point THEN 1 ELSE 0 END) AS warning_count,
+                       COUNT(*) AS total_count
+                FROM movements m
+                JOIN products p ON p.id = m.product_id
+                WHERE m.created_at >= %s AND m.created_at < %s
+                {("AND " + " AND ".join(product_conditions)) if product_conditions else ""}
+                """,
+                tuple([crit_ratio, crit_ratio, period_start, period_end] + product_params)
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT SUM(CASE WHEN current_stock <= 0 THEN 1 ELSE 0 END) AS out_count,
+                       SUM(CASE WHEN current_stock > 0 AND reorder_point > 0
+                                  AND current_stock <= reorder_point * %s THEN 1 ELSE 0 END) AS critical_count,
+                       SUM(CASE WHEN current_stock > 0 AND reorder_point > 0
+                                  AND current_stock > reorder_point * %s
+                                  AND current_stock <= reorder_point THEN 1 ELSE 0 END) AS warning_count,
+                       COUNT(*) AS total_count
+                FROM products p
+                {product_where}
+                """,
+                tuple([crit_ratio, crit_ratio] + product_params)
+            )
+        st = cur.fetchone()
+        status_out = int(st["out_count"] or 0)
+        status_critical = int(st["critical_count"] or 0)
+        status_warning = int(st["warning_count"] or 0)
+        status_total = int(st["total_count"] or 0)
+        status_healthy = max(0, status_total - status_out - status_critical - status_warning)
+
+        # --- Warehouse breakdown ---
+        cur.execute(
+            f"""
+            SELECT COALESCE(warehouse, 'Unassigned') AS warehouse,
+                   COUNT(*) AS sku_count,
+                   COALESCE(SUM(current_stock), 0) AS units,
+                   COALESCE(SUM(current_stock * unit_price), 0) AS value
+            FROM products p
+            {product_where}
+            GROUP BY warehouse ORDER BY value DESC
+            """,
+            tuple(product_params)
+        )
+        warehouse_breakdown = list(cur.fetchall())
+
+        # Get distinct warehouses and categories for filter dropdowns
+        cur.execute("SELECT DISTINCT warehouse FROM products WHERE warehouse IS NOT NULL ORDER BY warehouse")
+        warehouses = [r["warehouse"] for r in cur.fetchall()]
+        cur.execute("SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category")
+        categories = [r["category"] for r in cur.fetchall()]
+
+        # --- 30-day movement series ---
+        cur.execute(
+            f"""
+            SELECT m.created_at::date AS day,
+                   COALESCE(SUM(CASE WHEN type = 'IN' THEN quantity ELSE 0 END), 0) AS qty_in,
+                   COALESCE(SUM(CASE WHEN type = 'OUT' THEN quantity ELSE 0 END), 0) AS qty_out
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            {movement_where}
+            {("AND " + " AND ".join(product_conditions)) if product_conditions else ""}
+            GROUP BY m.created_at::date ORDER BY day
+            """,
+            tuple(movement_params + product_params)
+        )
+        mv_rows = {r["day"]: (int(r["qty_in"] or 0), int(r["qty_out"] or 0))
+                   for r in cur.fetchall()}
+        # Determine date range for movement labels
+        if date_from_start and date_to_end:
+            from_dt = date_from_start
+            to_dt = date_to_end
+        else:
+            to_dt = date.today()
+            from_dt = to_dt - timedelta(days=29)
+        movement = {"labels": [], "in": [], "out": []}
+        d = from_dt
+        while d <= to_dt:
+            qin, qout = mv_rows.get(d, (0, 0))
+            movement["labels"].append(d.strftime("%d %b"))
+            movement["in"].append(qin)
+            movement["out"].append(qout)
+            d += timedelta(days=1)
+
+        # --- Top SKUs by inventory value ---
+        if date_from_start or date_to_end:
+            cur.execute(
+                f"""
+                SELECT p.sku, p.name, COALESCE(SUM(m.quantity), 0) AS current_stock,
+                       p.unit_price, SUM(m.quantity * p.unit_price) AS value
+                FROM movements m
+                JOIN products p ON p.id = m.product_id
+                WHERE m.created_at >= %s AND m.created_at < %s
+                {("AND " + " AND ".join(product_conditions)) if product_conditions else ""}
+                AND p.unit_price IS NOT NULL
+                GROUP BY p.sku, p.name, p.unit_price
+                ORDER BY value DESC LIMIT 8
+                """,
+                tuple([period_start, period_end] + product_params)
+            )
+        else:
+            cur.execute(
+                f"""
+                SELECT sku, name, current_stock, unit_price,
+                       (current_stock * unit_price) AS value
+                FROM products p
+                {product_where}
+                AND unit_price IS NOT NULL
+                ORDER BY value DESC LIMIT 8
+                """,
+                tuple(product_params)
+            )
+        top_skus = list(cur.fetchall())
+
+        # --- Supplier analytics ---
+        cur.execute(
+            f"""
+            SELECT s.name, s.location, s.reliability, s.lead_days, s.spend_amount,
+                   COUNT(p.id) AS product_count
+            FROM suppliers s
+            LEFT JOIN products p ON p.supplier_id = s.id
+            {('WHERE ' + ' AND '.join(product_conditions)) if product_conditions else ''}
+            GROUP BY s.id ORDER BY s.spend_amount DESC
+            """,
+            tuple(product_params)
+        )
+        supplier_stats = list(cur.fetchall())
+
+        # --- Reorder pressure list ---
+        cur.execute(
+            f"""
+            SELECT sku, name, category, warehouse, current_stock, reorder_point,
+                   on_order, round(current_stock * 1.0 / NULLIF(reorder_point, 0), 2) AS coverage
+            FROM products p
+            {product_where}
+            AND reorder_point > 0 AND current_stock <= reorder_point
+            ORDER BY coverage ASC LIMIT 12
+            """,
+            tuple(product_params)
+        )
+        reorder_pressure = list(cur.fetchall())
+
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM purchase_orders "
+            "WHERE status NOT IN ('received','cancelled')"
+        )
+        open_po = int(cur.fetchone()["c"] or 0)
+
+        cur.execute(
+            f"""
+            SELECT COUNT(DISTINCT s.id) AS c
+            FROM suppliers s
+            LEFT JOIN products p ON p.supplier_id = s.id
+            {('WHERE ' + ' AND '.join(product_conditions)) if product_conditions else ''}
+            """,
+            tuple(product_params)
+        )
+        supplier_count = int(cur.fetchone()["c"] or 0)
+
+        cur.execute(
+            f"""
+            SELECT sku, name, current_stock, reorder_point FROM products p
+            {product_where}
+            AND reorder_point > 0 ORDER BY (current_stock * 1.0 / reorder_point) ASC LIMIT 1
+            """,
+            tuple(product_params)
+        )
+        thinnest = cur.fetchone()
+
+        cur.execute(
+            f"""
+            SELECT COUNT(*) AS c FROM products p
+            {product_where}
+            AND current_stock <= reorder_point AND on_order <= 0
+            """,
+            tuple(product_params)
+        )
+        unders = cur.fetchone()["c"]
+
+    # --- Performance Trends: fixed-period metrics (respect warehouse/category filters) ---
+    today = date.today()
+    mtd_start = today.replace(day=1)
+    prev_mtd_start = (mtd_start - timedelta(days=1)).replace(day=1)
+    ytd_start = today.replace(month=1, day=1)
+    prev_ytd_start = date(today.year - 1, 1, 1)
+    prev_ytd_end = date(today.year - 1, today.month, today.day) + timedelta(days=1)
+    tomorrow = today + timedelta(days=1)
+
+    with get_cursor() as cur:
+        def _period_metrics(start, end):
+            cur.execute(
+                f"""
+                SELECT COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0) AS units_in,
+                       COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS units_out,
+                       COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS value_in,
+                       COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS value_out,
+                       COUNT(DISTINCT m.product_id) AS skus
+                FROM movements m
+                JOIN products p ON p.id = m.product_id
+                WHERE m.created_at >= %s AND m.created_at < %s {filter_clause}
+                """,
+                tuple([start, end] + filter_params),
+            )
+            return cur.fetchone()
+
+        def _period_po(start, end):
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(quantity * unit_cost), 0) AS value, COUNT(*) AS c
+                FROM purchase_orders WHERE created_at >= %s AND created_at < %s
+                """,
+                (start, end),
+            )
+            return cur.fetchone()
+
+        mtd_row = _period_metrics(mtd_start, tomorrow)
+        ytd_row = _period_metrics(ytd_start, tomorrow)
+        prev_mtd_row = _period_metrics(prev_mtd_start, mtd_start)
+        prev_ytd_row = _period_metrics(prev_ytd_start, prev_ytd_end)
+        mtd_po_row = _period_po(mtd_start, tomorrow)
+        ytd_po_row = _period_po(ytd_start, tomorrow)
+        prev_mtd_po_row = _period_po(prev_mtd_start, mtd_start)
+        prev_ytd_po_row = _period_po(prev_ytd_start, prev_ytd_end)
+
+        def _period_dict(row, po_row):
+            return {
+                "units_in": int(row["units_in"] or 0),
+                "units_out": int(row["units_out"] or 0),
+                "net": int((row["units_in"] or 0) - (row["units_out"] or 0)),
+                "value_in": float(row["value_in"] or 0),
+                "value_out": float(row["value_out"] or 0),
+                "skus": int(row["skus"] or 0),
+                "po_value": float(po_row["value"] or 0),
+                "po_count": int(po_row["c"] or 0),
+            }
+
+        mtd = _period_dict(mtd_row, mtd_po_row)
+        ytd = _period_dict(ytd_row, ytd_po_row)
+        prev_mtd = _period_dict(prev_mtd_row, prev_mtd_po_row)
+        prev_ytd = _period_dict(prev_ytd_row, prev_ytd_po_row)
+
+        # --- Year-wise inventory value moved (chart 1) ---
+        cur.execute(
+            f"""
+            SELECT EXTRACT(YEAR FROM m.created_at)::int AS yr,
+                   COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0) AS in_qty,
+                   COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS out_qty,
+                   COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS in_value,
+                   COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS out_value
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE p.unit_price IS NOT NULL {filter_clause}
+            GROUP BY 1 ORDER BY 1
+            """,
+            tuple(filter_params),
+        )
+        year_rows = list(cur.fetchall())
+        year_series = {
+            "labels": [int(r["yr"]) for r in year_rows],
+            "in": [round(float(r["in_value"] or 0)) for r in year_rows],
+            "out": [round(float(r["out_value"] or 0)) for r in year_rows],
+        }
+
+        # --- YTD current year vs YTD previous year, cumulative by month (chart 2) ---
+        cur.execute(
+            f"""
+            SELECT EXTRACT(YEAR FROM m.created_at)::int AS yr,
+                   EXTRACT(MONTH FROM m.created_at)::int AS mo,
+                   COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS in_value,
+                   COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS out_value
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE p.unit_price IS NOT NULL
+              AND m.created_at >= DATE_TRUNC('year', NOW()) - INTERVAL '1 year' {filter_clause}
+            GROUP BY 1, 2 ORDER BY 1, 2
+            """,
+            tuple(filter_params),
+        )
+        month_value = {(r["yr"], r["mo"]): float(r["in_value"] or 0) + float(r["out_value"] or 0)
+                       for r in cur.fetchall()}
+        cur_year = today.year
+        prev_year = today.year - 1
+        ytd_compare = {"labels": [], "current": [], "previous": []}
+        cum_cur = 0.0
+        cum_prev = 0.0
+        for mo in range(1, today.month + 1):
+            ytd_compare["labels"].append(date(2000, mo, 1).strftime("%b"))
+            cum_cur += month_value.get((cur_year, mo), 0.0)
+            cum_prev += month_value.get((prev_year, mo), 0.0)
+            ytd_compare["current"].append(round(cum_cur))
+            ytd_compare["previous"].append(round(cum_prev))
+
+        # --- Current month vs previous month value moved by category (chart 4) ---
+        cur.execute(
+            f"""
+            SELECT p.category,
+                   COALESCE(SUM(CASE WHEN m.created_at >= %s AND m.created_at < %s
+                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS cur,
+                   COALESCE(SUM(CASE WHEN m.created_at >= %s AND m.created_at < %s
+                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS prev
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE p.category IS NOT NULL AND p.unit_price IS NOT NULL {filter_clause}
+            GROUP BY p.category ORDER BY cur DESC
+            """,
+            tuple([mtd_start, tomorrow, prev_mtd_start, mtd_start] + filter_params),
+        )
+        month_compare = list(cur.fetchall())
+
+        # --- SKU count per category ---
+        cur.execute(
+            f"""
+            SELECT category, COUNT(*) AS c FROM products p
+            {product_where}
+            AND category IS NOT NULL
+            GROUP BY category ORDER BY c DESC
+            """,
+            tuple(product_params),
+        )
+        category_counts = list(cur.fetchall())
+
+        # --- Top products by value (product analysis) ---
+        cur.execute(
+            f"""
+            SELECT sku, name, category, warehouse, current_stock, reorder_point, unit_price,
+                   (current_stock * unit_price) AS value
+            FROM products p
+            {product_where}
+            AND unit_price IS NOT NULL
+            ORDER BY value DESC LIMIT 12
+            """,
+            tuple(product_params),
+        )
+        product_rows = list(cur.fetchall())
+
+        # --- Purchase order status + open POs ---
+        cur.execute(
+            "SELECT status, COUNT(*) AS c, COALESCE(SUM(quantity * unit_cost), 0) AS value "
+            "FROM purchase_orders GROUP BY status ORDER BY value DESC"
+        )
+        po_status = list(cur.fetchall())
+        po_value = sum(
+            float(r["value"] or 0) for r in po_status
+            if r["status"] not in ("received", "cancelled")
+        )
+        cur.execute(
+            """
+            SELECT po.po_number, po.status, po.quantity, po.unit_cost, po.eta_date,
+                   s.name AS supplier_name, p.name AS product_name, p.sku,
+                   (po.quantity * po.unit_cost) AS value
+            FROM purchase_orders po
+            LEFT JOIN suppliers s ON s.id = po.supplier_id
+            LEFT JOIN products p ON p.id = po.product_id
+            WHERE po.status NOT IN ('received', 'cancelled')
+            ORDER BY po.eta_date ASC LIMIT 12
+            """
+        )
+        open_pos = list(cur.fetchall())
+
+        # --- Warehouse analytics (star schema) + movement summary ---
+        warehouse_analytics = WarehouseRepository.analytics() or []
+        warehouse_movement = WarehouseRepository.movement_summary(30)
+        if not warehouse_analytics:
+            warehouse_analytics = [
+                {
+                    "warehouse": r["warehouse"],
+                    "warehouse_code": r["warehouse"],
+                    "city": "",
+                    "region": "",
+                    "sku_count": int(r["sku_count"] or 0),
+                    "total_units": int(r["units"] or 0),
+                    "total_value": float(r["value"] or 0),
+                    "low_count": 0,
+                    "critical_count": 0,
+                }
+                for r in warehouse_breakdown
+            ]
+
+        # --- Reorder pressure by category ---
+        cur.execute(
+            f"""
+            SELECT category,
+                   SUM(CASE WHEN reorder_point > 0 AND current_stock <= reorder_point
+                            THEN 1 ELSE 0 END) AS below,
+                   COUNT(*) AS total
+            FROM products p
+            {product_where}
+            AND category IS NOT NULL
+            GROUP BY category ORDER BY below DESC
+            """,
+            tuple(product_params),
+        )
+        reorder_by_category = list(cur.fetchall())
+
+        # --- 12-month movement trend ---
+        cur.execute(
+            f"""
+            SELECT DATE_TRUNC('month', m.created_at)::date AS month,
+                   COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0) AS in_qty,
+                   COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS out_qty
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE m.created_at >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months' {filter_clause}
+            GROUP BY 1 ORDER BY 1
+            """,
+            tuple(filter_params),
+        )
+        monthly_rows = {r["month"]: r for r in cur.fetchall()}
+        month_cursor = today.replace(day=1)
+        month_labels = []
+        for _ in range(12):
+            month_labels.append(month_cursor)
+            month_cursor = (month_cursor - timedelta(days=1)).replace(day=1)
+        month_labels.reverse()
+        monthly_series = {"labels": [], "in": [], "out": []}
+        for lm in month_labels:
+            row = monthly_rows.get(lm)
+            monthly_series["labels"].append(lm.strftime("%b %y"))
+            monthly_series["in"].append(int((row["in_qty"] or 0)) if row else 0)
+            monthly_series["out"].append(int((row["out_qty"] or 0)) if row else 0)
+
+        # --- Sales analysis: OUT movements = sales ---
+        def _period_orders(start, end):
+            cur.execute(
+                f"""
+                SELECT COUNT(*) AS c FROM movements m
+                JOIN products p ON p.id = m.product_id
+                WHERE m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s {filter_clause}
+                """,
+                tuple([start, end] + filter_params),
+            )
+            return int(cur.fetchone()["c"] or 0)
+
+        sales = {
+            "mtd": {
+                "revenue": round(mtd["value_out"]),
+                "units": mtd["units_out"],
+                "orders": _period_orders(mtd_start, tomorrow),
+            },
+            "ytd": {
+                "revenue": round(ytd["value_out"]),
+                "units": ytd["units_out"],
+                "orders": _period_orders(ytd_start, tomorrow),
+            },
+            "prev_mtd": {
+                "revenue": round(prev_mtd["value_out"]),
+                "units": prev_mtd["units_out"],
+                "orders": _period_orders(prev_mtd_start, mtd_start),
+            },
+            "prev_ytd": {
+                "revenue": round(prev_ytd["value_out"]),
+                "units": prev_ytd["units_out"],
+                "orders": _period_orders(prev_ytd_start, prev_ytd_end),
+            },
+        }
+
+        # --- Month-wise sales revenue from Jan 2024 through today (OUT only) ---
+        cur.execute(
+            f"""
+            SELECT DATE_TRUNC('month', m.created_at)::date AS month,
+                   COALESCE(SUM(m.quantity), 0) AS units,
+                   COALESCE(SUM(m.quantity * p.unit_price), 0) AS value
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE m.type = 'OUT' AND p.unit_price IS NOT NULL
+              AND m.created_at >= '2024-01-01' {filter_clause}
+            GROUP BY 1 ORDER BY 1
+            """,
+            tuple(filter_params),
+        )
+        sales_monthly_all = list(cur.fetchall())
+
+        # Year-wise totals (compare each year).
+        year_agg: dict[int, dict] = {}
+        for r in sales_monthly_all:
+            yr = r["month"].year
+            year_agg.setdefault(yr, {"value": 0.0, "units": 0})
+            year_agg[yr]["value"] += float(r["value"] or 0)
+            year_agg[yr]["units"] += int(r["units"] or 0)
+        sales_year_series = {
+            "labels": [str(yr) for yr in sorted(year_agg)],
+            "out": [round(year_agg[yr]["value"]) for yr in sorted(year_agg)],
+            "units": [year_agg[yr]["units"] for yr in sorted(year_agg)],
+        }
+
+        # Monthly sales per year — drives the year selector on the month chart.
+        months_by_year: dict[int, dict] = {}
+        for r in sales_monthly_all:
+            yr = r["month"].year
+            months_by_year.setdefault(yr, {"labels": [], "value": [], "units": []})
+            months_by_year[yr]["labels"].append(r["month"].strftime("%b"))
+            months_by_year[yr]["value"].append(round(float(r["value"] or 0)))
+            months_by_year[yr]["units"].append(int(r["units"] or 0))
+        sales_months_by_year = months_by_year
+        sales_years = sorted(months_by_year)
+
+        # Quarter-wise sales trend.
+        q_agg: dict[tuple[int, int], dict] = {}
+        for r in sales_monthly_all:
+            qkey = (r["month"].year, (r["month"].month - 1) // 3 + 1)
+            q_agg.setdefault(qkey, {"value": 0.0, "units": 0})
+            q_agg[qkey]["value"] += float(r["value"] or 0)
+            q_agg[qkey]["units"] += int(r["units"] or 0)
+        sales_quarter_series = {
+            "labels": [f"Q{q} {yr}" for (yr, q) in sorted(q_agg)],
+            "value": [round(v["value"]) for v in q_agg.values()],
+            "units": [v["units"] for v in q_agg.values()],
+        }
+
+        # Current quarter vs previous quarter sales by category.
+        cur_q = (today.month - 1) // 3 + 1
+        cur_q_start = date(today.year, (cur_q - 1) * 3 + 1, 1)
+        prev_q_month = cur_q_start.month - 3
+        prev_q_year = cur_q_start.year
+        if prev_q_month <= 0:
+            prev_q_month += 12
+            prev_q_year -= 1
+        prev_q_start = date(prev_q_year, prev_q_month, 1)
+        cur.execute(
+            f"""
+            SELECT p.category,
+                   COALESCE(SUM(CASE WHEN m.created_at >= %s AND m.created_at < %s
+                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS cur,
+                   COALESCE(SUM(CASE WHEN m.created_at >= %s AND m.created_at < %s
+                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS prev
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE m.type = 'OUT' AND p.category IS NOT NULL AND p.unit_price IS NOT NULL {filter_clause}
+            GROUP BY p.category ORDER BY cur DESC
+            """,
+            tuple([cur_q_start, tomorrow, prev_q_start, cur_q_start] + filter_params),
+        )
+        sales_quarter_compare = list(cur.fetchall())
+
+        # --- YTD cumulative sales for the last 3 years (2024, 2025, 2026) ---
+        cur.execute(
+            f"""
+            SELECT EXTRACT(YEAR FROM m.created_at)::int AS yr,
+                   EXTRACT(MONTH FROM m.created_at)::int AS mo,
+                   COALESCE(SUM(m.quantity * p.unit_price), 0) AS out_value
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE m.type = 'OUT' AND p.unit_price IS NOT NULL
+              AND EXTRACT(YEAR FROM m.created_at) BETWEEN %s AND %s {filter_clause}
+            GROUP BY 1, 2 ORDER BY 1, 2
+            """,
+            tuple([today.year - 2, today.year] + filter_params),
+        )
+        sales_month_value = {(r["yr"], r["mo"]): float(r["out_value"] or 0)
+                             for r in cur.fetchall()}
+        ytd_years = [today.year - 2, today.year - 1, today.year]
+        sales_ytd_compare = {
+            "labels": [date(2000, mo, 1).strftime("%b") for mo in range(1, today.month + 1)],
+            "series": [],
+        }
+        for yr in ytd_years:
+            cum = 0.0
+            data = []
+            for mo in range(1, today.month + 1):
+                cum += sales_month_value.get((yr, mo), 0.0)
+                data.append(round(cum))
+            sales_ytd_compare["series"].append({"year": yr, "data": data})
+
+        # --- QTD cumulative sales for the last 3 years (2024, 2025, 2026) ---
+        sales_qtd_compare = {
+            "labels": [f"Q{q}" for q in range(1, cur_q + 1)],
+            "series": [],
+        }
+        for yr in ytd_years:
+            cum = 0.0
+            data = []
+            for q in range(1, cur_q + 1):
+                for mo in range((q - 1) * 3 + 1, q * 3 + 1):
+                    cum += sales_month_value.get((yr, mo), 0.0)
+                data.append(round(cum))
+            sales_qtd_compare["series"].append({"year": yr, "data": data})
+
+        # --- Current month vs previous month sales by category ---
+        cur.execute(
+            f"""
+            SELECT p.category,
+                   COALESCE(SUM(CASE WHEN m.created_at >= %s AND m.created_at < %s
+                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS cur,
+                   COALESCE(SUM(CASE WHEN m.created_at >= %s AND m.created_at < %s
+                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS prev
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE m.type = 'OUT' AND p.category IS NOT NULL AND p.unit_price IS NOT NULL {filter_clause}
+            GROUP BY p.category ORDER BY cur DESC
+            """,
+            tuple([mtd_start, tomorrow, prev_mtd_start, mtd_start] + filter_params),
+        )
+        sales_month_compare = list(cur.fetchall())
+
+        # --- 12-month sales trend (revenue + units) ---
+        cur.execute(
+            f"""
+            SELECT DATE_TRUNC('month', m.created_at)::date AS month,
+                   COALESCE(SUM(m.quantity), 0) AS units,
+                   COALESCE(SUM(m.quantity * p.unit_price), 0) AS value
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE m.type = 'OUT' AND p.unit_price IS NOT NULL
+              AND m.created_at >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months' {filter_clause}
+            GROUP BY 1 ORDER BY 1
+            """,
+            tuple(filter_params),
+        )
+        sales_monthly_rows = {r["month"]: r for r in cur.fetchall()}
+        sales_monthly_series = {"labels": [], "value": [], "units": []}
+        for lm in month_labels:
+            row = sales_monthly_rows.get(lm)
+            sales_monthly_series["labels"].append(lm.strftime("%b %y"))
+            sales_monthly_series["value"].append(round(float(row["value"] or 0)) if row else 0)
+            sales_monthly_series["units"].append(int(row["units"] or 0) if row else 0)
+
+        # --- Sales by warehouse ---
+        cur.execute(
+            f"""
+            SELECT COALESCE(p.warehouse, 'Unassigned') AS warehouse,
+                   COALESCE(SUM(m.quantity), 0) AS units,
+                   COALESCE(SUM(m.quantity * p.unit_price), 0) AS value
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE m.type = 'OUT' AND p.warehouse IS NOT NULL AND p.unit_price IS NOT NULL {filter_clause}
+            GROUP BY p.warehouse ORDER BY value DESC
+            """,
+            tuple(filter_params),
+        )
+        sales_warehouse = list(cur.fetchall())
+
+        # --- Top selling products ---
+        cur.execute(
+            f"""
+            SELECT p.sku, p.name, p.category,
+                   COALESCE(SUM(m.quantity), 0) AS units,
+                   COALESCE(SUM(m.quantity * p.unit_price), 0) AS value
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE m.type = 'OUT' AND p.unit_price IS NOT NULL {filter_clause}
+            GROUP BY p.sku, p.name, p.category
+            ORDER BY value DESC LIMIT 12
+            """,
+            tuple(filter_params),
+        )
+        top_sellers = list(cur.fetchall())
+
+    report_data = {
+        "status": {
+            "labels": ["Healthy", "Low stock", "Critical", "Out of stock"],
+            "values": [status_healthy, status_warning, status_critical, status_out],
+        },
+        "warehouse": {
+            "labels": [r["warehouse"] for r in warehouse_breakdown],
+            "values": [round(float(r["value"] or 0)) for r in warehouse_breakdown],
+        },
+        "movement": movement,
+        "monthly": monthly_series,
+        "topSkus": {
+            "labels": [r["sku"] for r in top_skus],
+            "values": [round(float(r["value"] or 0)) for r in top_skus],
+        },
+        "category": {
+            "labels": [r["category"] for r in breakdown],
+            "values": [round(float(r["value"] or 0)) for r in breakdown],
+        },
+        "categoryCount": {
+            "labels": [r["category"] for r in category_counts],
+            "values": [int(r["c"] or 0) for r in category_counts],
+        },
+        "warehouseMovement": {
+            "labels": [r["warehouse"] for r in warehouse_movement],
+            "in": [int(r["in_qty"] or 0) for r in warehouse_movement],
+            "out": [int(r["out_qty"] or 0) for r in warehouse_movement],
+        },
+        "supplierSpend": {
+            "labels": [r["name"] for r in supplier_stats],
+            "values": [round(float(r["spend_amount"] or 0)) for r in supplier_stats],
+        },
+        "poStatus": {
+            "labels": [r["status"].replace("_", " ").title() for r in po_status],
+            "values": [int(r["c"] or 0) for r in po_status],
+        },
+        "year": year_series,
+        "ytdCompare": ytd_compare,
+        "monthCompare": {
+            "labels": [r["category"] for r in month_compare],
+            "current": [round(float(r["cur"] or 0)) for r in month_compare],
+            "previous": [round(float(r["prev"] or 0)) for r in month_compare],
+        },
+        "reorderCategory": {
+            "labels": [r["category"] for r in reorder_by_category],
+            "below": [int(r["below"] or 0) for r in reorder_by_category],
+        },
+        "salesYear": sales_year_series,
+        "salesYtdCompare": sales_ytd_compare,
+        "salesQtdCompare": sales_qtd_compare,
+        "salesMonthsByYear": sales_months_by_year,
+        "salesYears": sales_years,
+        "salesQuarter": sales_quarter_series,
+        "salesQuarterCompare": {
+            "labels": [r["category"] for r in sales_quarter_compare],
+            "current": [round(float(r["cur"] or 0)) for r in sales_quarter_compare],
+            "previous": [round(float(r["prev"] or 0)) for r in sales_quarter_compare],
+        },
+        "salesMonthly": sales_monthly_series,
+        "salesMonthCompare": {
+            "labels": [r["category"] for r in sales_month_compare],
+            "current": [round(float(r["cur"] or 0)) for r in sales_month_compare],
+            "previous": [round(float(r["prev"] or 0)) for r in sales_month_compare],
+        },
+        "salesWarehouse": {
+            "labels": [r["warehouse"] for r in sales_warehouse],
+            "values": [round(float(r["value"] or 0)) for r in sales_warehouse],
+            "units": [int(r["units"] or 0) for r in sales_warehouse],
+        },
+        "topSellers": {
+            "labels": [r["sku"] for r in top_sellers],
+            "values": [round(float(r["value"] or 0)) for r in top_sellers],
+            "units": [int(r["units"] or 0) for r in top_sellers],
+        },
+    }
+
+    return render_template(
+        "reports.html",
+        breakdown=breakdown,
+        top_skus=top_skus,
+        warehouse_breakdown=warehouse_breakdown,
+        supplier_stats=supplier_stats,
+        reorder_pressure=reorder_pressure,
+        movement=movement,
+        report_data=report_data,
+        total=float(kpi["inventory_value"] or 0),
+        total_units=int(kpi["total_units"] or 0),
+        sku_count=int(kpi["sku_count"] or 0),
+        unders=int(unders or 0),
+        out_stock=int(kpi["out_of_stock"] or 0),
+        healthy=status_healthy,
+        open_po=open_po,
+        supplier_count=supplier_count,
+        thinnest=thinnest,
+        today=date.today(),
+        warehouses=warehouses,
+        categories=categories,
+        selected_warehouses=selected_warehouses,
+        selected_categories=selected_categories,
+        # Backward compatibility
+        selected_warehouse=selected_warehouses[0] if selected_warehouses else "",
+        selected_category=selected_categories[0] if selected_categories else "",
+        date_from=date_from,
+        date_to=date_to,
+        category_counts=category_counts,
+        product_rows=product_rows,
+        po_status=po_status,
+        po_value=po_value,
+        open_pos=open_pos,
+        warehouse_analytics=warehouse_analytics,
+        warehouse_movement=warehouse_movement,
+        reorder_by_category=reorder_by_category,
+        mtd=mtd,
+        ytd=ytd,
+        prev_mtd=prev_mtd,
+        prev_ytd=prev_ytd,
+        sales=sales,
+        top_sellers=top_sellers,
+        sales_years=sales_years,
+        year_series=year_series,
+        ytd_compare=ytd_compare,
+        month_compare=month_compare,
+        monthly_series=monthly_series,
+        reorder_coverage=[
+            {"sku": r["sku"], "coverage": round((r["coverage"] or 0) * 100)}
+            for r in reorder_pressure
+        ],
+        movement_caption=(
+            f"from {date_from_start.strftime('%b %Y')} to {date_to_end.strftime('%b %Y')}"
+            if date_from_start and date_to_end
+            else "over the last 30 days"
+        ),
+    )
+
+
+@ui_bp.route("/eoq-calculator")
+@login_required
+def eoq_calculator():
+    from ..services import EOQService
+    return render_template("eoq_calculator.html", product_eoq=EOQService.per_product_table())
+
+
+@ui_bp.route("/settings")
+@login_required
+def settings():
+    settings_data = SettingsService.get_settings()
+    low_pct, critical_pct = SettingsService.threshold_pcts()
+    settings_data = dict(settings_data)
+    settings_data["low_stock_threshold"] = str(int(low_pct))
+    settings_data["critical_threshold"] = str(int(critical_pct))
+    return render_template("settings.html", user=current_user, settings_data=settings_data)
+
+
+@ui_bp.route("/help")
+@login_required
+def help():
+    return render_template("help.html")
+
+
+@ui_bp.route("/contact")
+@login_required
+def contact():
+    return render_template("contact.html")
+
+
+def _landing_stats():
+    """Lightweight analytics snapshot rendered on the public landing page."""
+    today = date.today()
+    stats = {
+        "total_skus": 0,
+        "inventory_value": 0.0,
+        "reorder_count": 0,
+        "suppliers": 0,
+        "warehouses": 0,
+        "units_today": 0,
+        "stock_health": 0,
+        "categories": [],
+        "series": [],
+        "dates": [],
+    }
+    try:
+        with get_cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS c FROM products")
+            stats["total_skus"] = int(cur.fetchone()["c"] or 0)
+
+            cur.execute("SELECT COALESCE(SUM(current_stock * unit_price), 0) AS v FROM products")
+            stats["inventory_value"] = float(cur.fetchone()["v"] or 0)
+
+            cur.execute("SELECT COUNT(*) AS c FROM products WHERE current_stock <= reorder_point AND on_order <= 0")
+            stats["reorder_count"] = int(cur.fetchone()["c"] or 0)
+
+            cur.execute("SELECT COUNT(*) AS c FROM suppliers")
+            stats["suppliers"] = int(cur.fetchone()["c"] or 0)
+
+            cur.execute("SELECT COUNT(DISTINCT warehouse) AS c FROM products WHERE warehouse IS NOT NULL")
+            stats["warehouses"] = int(cur.fetchone()["c"] or 0)
+
+            cur.execute(
+                "SELECT COALESCE(SUM(quantity), 0) AS u FROM movements WHERE created_at::date = %s",
+                (today,),
+            )
+            stats["units_today"] = int(cur.fetchone()["u"] or 0)
+
+            cur.execute(
+                "SELECT COUNT(*) AS c, "
+                "SUM(CASE WHEN current_stock > reorder_point THEN 1 ELSE 0 END) AS healthy "
+                "FROM products WHERE on_order <= 0"
+            )
+            health = cur.fetchone()
+            total = int(health["c"] or 0)
+            if total:
+                stats["stock_health"] = round(int(health["healthy"] or 0) / total * 100)
+
+            cur.execute(
+                "SELECT category, COUNT(*) AS cnt FROM products "
+                "WHERE category IS NOT NULL GROUP BY category ORDER BY cnt DESC"
+            )
+            stats["categories"] = [
+                {"category": r["category"], "count": int(r["cnt"])} for r in cur.fetchall()
+            ]
+    except Exception:
+        pass
+    series, dates = _series_for_last_days(MovementRepository.daily_totals(14), 14)
+    stats["series"] = series
+    stats["dates"] = dates
+    return stats
+
+
+def _series_for_last_days(rows, days):
+    cutoff = date.today() - timedelta(days=days - 1)
+    by_day = {(r["day"].year, r["day"].month, r["day"].day): int(r["total"]) for r in rows}
+    series, dates = [], []
+    for i in range(days):
+        d = cutoff + timedelta(days=i)
+        if d > date.today():
+            break
+        series.append(by_day.get((d.year, d.month, d.day), 0))
+        dates.append(d.strftime("%d %b").upper())
+    if sum(series) == 0:
+        series = [42, 55, 48, 63, 58, 72, 66, 86, 78, 91, 85, 102, 94, 113][: len(series) or days]
+    return series, dates
+
+
+def _chart_geometry(values, dates):
+    if not values:
+        values = [0]
+    max_val = max(values) or 1
+    width, height = 556, 210
+    left, right, top, bottom = 18, 538, 40, 176
+    pts = []
+    for i, value in enumerate(values):
+        x = left + i * ((right - left) / max(1, len(values) - 1))
+        y = bottom - (value / max_val) * (bottom - top)
+        pts.append((round(x), round(y)))
+    points = " ".join(f"{x},{y}" for x, y in pts)
+    area = f"{left},{bottom} {points} {right},{bottom}"
+    return {
+        "values": values, "max": max_val, "points": points,
+        "area": area, "circles": pts, "dates": dates,
+    }

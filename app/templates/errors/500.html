@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% set active_page = "error" %}
+{% block title %}500 Server error{% endblock %}
+{% block breadcrumb %}Server error{% endblock %}
+{% block content %}
+<section class="error-shell">
+  <div class="error-card">
+    <div class="error-code">500</div>
+    <h1>Server error</h1>
+    <p>Something went wrong on our side.</p>
+    <a class="btn btn-primary" href="{{ url_for('ui.dashboard') }}">Back to dashboard</a>
+</div>
+</section>
+{% endblock %}

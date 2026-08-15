@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% set active_page = "suppliers" %}
+{% block title %}Suppliers{% endblock %}
+{% block breadcrumb %}Suppliers{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading"><div><div class="eyebrow">Procurement</div><h1>Suppliers</h1></div></div>
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Add supplier</div></div>
+    <div class="panel-content">
+      <form method="post" class="supplier-add-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <div class="form-grid">
+          <label><span>Name *</span><input type="text" name="name" required></label>
+          <label><span>Location</span><input type="text" name="location"></label>
+          <label><span>Lead time (days) *</span><input type="number" name="lead_days" min="0" required></label>
+          <label><span>YTD spend *</span><input type="number" step="0.01" name="spend_amount" min="0" required></label>
+          <label><span>Reliability (0-100)</span><input type="number" name="reliability" min="0" max="100" step="0.1" value="90"></label>
+          <label><span>Tone</span>
+            <select name="tone">
+              <option value="amber">amber</option>
+              <option value="green">green</option>
+              <option value="blue">blue</option>
+              <option value="ink">ink</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Add supplier</button>
+        </div>
+      </form>
+    </div>
+  </article>
+  <div class="supplier-grid">
+    {% for s in suppliers %}
+    <article class="supplier-card">
+      <div class="supplier-header">
+        <div class="supplier-mark">{{ s.initials or s.name[:2]|upper }}</div>
+        <div><div class="supplier-name">{{ s.name }}</div><div class="supplier-location">{{ s.location or 'Location n/a' }}</div></div>
+      </div>
+      <dl>
+        <dt>Lead time</dt><dd>{{ s.lead_text }}</dd>
+        <dt>YTD spend</dt><dd>{{ s.spend_display }}</dd>
+        <dt>Active SKUs</dt><dd>{{ s.active_skus }}</dd>
+        <dt>Reliability</dt><dd>{{ '%.0f' % (s.reliability or 90) }}%</dd>
+      </dl>
+      <form method="post" action="{{ url_for('ui.delete_supplier', supplier_id=s.id) }}" onsubmit="return confirm('Remove this supplier?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button class="btn btn-ghost btn-sm" type="submit">Remove</button>
+      </form>
+    </article>
+    {% else %}
+    <div class="empty-state">No suppliers yet</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

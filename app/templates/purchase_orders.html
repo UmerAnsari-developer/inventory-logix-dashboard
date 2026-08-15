@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% set active_page = "orders" %}
+{% block title %}Purchase Orders{% endblock %}
+{% block breadcrumb %}Purchase orders{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading"><div><div class="eyebrow">Procurement</div><h1>Purchase orders</h1></div></div>
+
+  <article class="panel" style="margin-bottom: 24px;">
+    <div class="panel-header"><div class="panel-title">Create purchase order</div><div class="panel-caption">Raise a new PO against a supplier and product</div></div>
+    <div class="panel-content">
+      <form method="post" class="supplier-add-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <div class="form-grid">
+          <label><span>Supplier</span>
+            <select name="supplier_id">
+              <option value="">— select supplier —</option>
+              {% for s in suppliers %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+            </select></label>
+          <label><span>Product</span>
+            <select name="product_id">
+              <option value="">— select product —</option>
+              {% for p in products %}<option value="{{ p.id }}">{{ p.sku }} · {{ p.name }}</option>{% endfor %}
+            </select></label>
+          <label><span>Quantity *</span><input type="number" name="quantity" min="1" value="10" required></label>
+          <label><span>Unit cost</span><input type="number" step="0.01" name="unit_cost" min="0" value="0"></label>
+          <label><span>Status</span>
+            <select name="status">
+              <option value="draft" selected>Draft</option>
+              <option value="approved">Approved</option>
+              <option value="in_transit">In transit</option>
+              <option value="received">Received</option>
+            </select></label>
+          <label><span>ETA date</span><input type="date" name="eta_date" value="{{ today }}"></label>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">Create purchase order</button>
+        </div>
+      </form>
+    </div>
+  </article>
+
+  <div class="kanban-grid">
+    {% for label, status in [('Draft','draft'),('Approved','approved'),('In transit','in_transit'),('Received','received')] %}
+    <article class="kanban-column">
+      <header><h3>{{ label }}</h3><span class="count">{{ counts.get(status, 0) }}</span></header>
+      <div class="kanban-list">
+        {% for po in (draft if status == 'draft' else approved if status == 'approved' else in_transit if status == 'in_transit' else received) %}
+        <div class="kanban-card">
+          <div class="kanban-title">{{ po.po_number }}</div>
+          <div class="kanban-meta">{{ po.product_name or po.sku or '' }}</div>
+          <div class="kanban-meta">{{ po.supplier_name or 'No supplier' }}</div>
+          <div class="kanban-meta">Qty {{ po.quantity }} &middot; ₹ {{ '{:,.2f}'.format(po.unit_cost or 0) if po.unit_cost else '0.00' }}</div>
+          <div class="kanban-meta">ETA {{ po.eta_date }}</div>
+          <form method="post" action="{{ url_for('ui.update_po_status', po_id=po.id) }}" class="po-status-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <select name="status" onchange="this.form.submit()">
+              {% for st in ['draft','approved','in_transit','received','cancelled'] %}
+              <option value="{{ st }}" {{ 'selected' if po.status == st }}>{{ st|replace('_',' ')|title }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

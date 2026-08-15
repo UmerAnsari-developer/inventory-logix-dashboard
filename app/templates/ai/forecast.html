@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% set active_page = "forecast" %}
+{% block title %}AI Forecast{% endblock %}
+{% block breadcrumb %}Analytics / Forecast{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Analytics & AI</div>
+      <h1>AI demand forecast</h1>
+      <p class="heading-note">Train a Prophet, ARIMA or ensemble model against 180 days of movement history</p>
+    </div>
+  </div>
+  <div class="forecast-controls">
+    <label><span>Product</span>
+      <select id="forecastProduct">
+        {% for p in products %}
+        <option value="{{ p.id }}">{{ p.sku }} &mdash; {{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label><span>Horizon</span>
+      <select id="forecastHorizon">
+        <option value="30">30 days</option>
+        <option value="60">60 days</option>
+        <option value="90" selected>90 days</option>
+        <option value="180">180 days</option>
+        <option value="365">365 days</option>
+      </select>
+    </label>
+    <label><span>Model</span>
+      <select id="forecastModel">
+        <option value="prophet" {{ 'selected' if default_model == 'prophet' else '' }}>Prophet (seasonality)</option>
+        <option value="arima" {{ 'selected' if default_model == 'arima' else '' }}>ARIMA (trend)</option>
+        <option value="ensemble" {{ 'selected' if default_model == 'ensemble' else '' }}>Ensemble (both)</option>
+      </select>
+    </label>
+    <button class="btn btn-primary" id="runForecast" type="button">Run forecast</button>
+  </div>
+  <article class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Demand forecast &mdash; history + projection</div>
+      <span class="badge ai" id="forecastModelBadge">PROPHET</span>
+    </div>
+    <div class="panel-content"><div id="forecastChart" style="height:420px"></div></div>
+  </article>
+  <div class="metric-grid">
+    <div class="metric-card"><div class="metric-label">Model accuracy</div><div class="metric-value" id="forecastAccuracy">&mdash;</div></div>
+    <div class="metric-card"><div class="metric-label">Predicted demand</div><div class="metric-value" id="forecastTotal">&mdash;</div></div>
+    <div class="metric-card"><div class="metric-label">Confidence band</div><div class="metric-value" id="forecastBand">&mdash;</div></div>
+    <div class="metric-card"><div class="metric-label">Generated in</div><div class="metric-value" id="forecastRuntime">&mdash;</div></div>
+  </div>
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Portfolio forecast snapshot</div></div>
+    <div class="table-scroll">
+      <table class="data-table" id="portfolioTable">
+        <thead><tr><th>SKU</th><th>Product</th><th>Baseline</th><th>Predicted</th><th>Delta</th><th>Accuracy</th></tr></thead>
+        <tbody><tr><td colspan="6"><div class="empty-state">Loading portfolio forecasts&hellip;</div></td></tr></tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.StockflowForecast) window.StockflowForecast.init({
+    product: document.getElementById('forecastProduct'),
+    horizon: document.getElementById('forecastHorizon'),
+    model: document.getElementById('forecastModel'),
+    runButton: document.getElementById('runForecast'),
+    chartId: 'forecastChart',
+    badge: document.getElementById('forecastModelBadge'),
+    metrics: {
+      accuracy: document.getElementById('forecastAccuracy'),
+      total: document.getElementById('forecastTotal'),
+      band: document.getElementById('forecastBand'),
+      runtime: document.getElementById('forecastRuntime'),
+    },
+    table: document.getElementById('portfolioTable'),
+    runUrl: "{{ url_for('ai.forecast_run') }}",
+    portfolioUrl: "{{ url_for('ai.forecast_portfolio') }}",
+  });
+});
+</script>
+{% endblock %}
