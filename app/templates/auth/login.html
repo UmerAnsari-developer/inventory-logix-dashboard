@@ -20,6 +20,9 @@
       <label class="checkbox-row"><input type="checkbox" name="remember" required/> <span>Remember me</span></label>
       <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
     </form>
+    <p class="auth-helper">
+      <a href="{{ url_for('auth.forgot_password') }}">Forgot password</a>
+   </p>
     <p class="auth-helper">No account? <a href="{{ url_for('auth.register') }}">Create one</a></p>
   </div>
 </section>

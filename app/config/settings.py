@@ -37,6 +37,16 @@ class Config:
     RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
     RATELIMIT_DEFAULT = "200 per minute"
 
+    # SMTP — used to deliver password-reset emails. When no SMTP host is set
+    # the reset link is surfaced in the UI instead (development fallback).
+    SMTP_HOST = os.environ.get("SMTP_HOST", "")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+    MAIL_FROM = os.environ.get("MAIL_FROM", "no-reply@inventorylogix.local")
+    MAIL_USE_TLS = _bool(os.environ.get("MAIL_USE_TLS"), True)
+    PASSWORD_RESET_TTL_MINUTES = int(os.environ.get("PASSWORD_RESET_TTL_MINUTES", "30"))
+
     # Feature flags
     AI_FORECAST_ENABLED = _bool(os.environ.get("AI_FORECAST_ENABLED"), True)
     ANOMALY_DETECTION_ENABLED = _bool(os.environ.get("ANOMALY_DETECTION_ENABLED"), True)
