@@ -89,14 +89,12 @@
       </div>
     </div>
     <div class="panel-content">
-      <div class="category-mix-scroll">
+      <div class="cat-bars">
         {% for item in category_counts %}
-        <div class="category-col">
-          <span class="category-name">{{ item.category }}</span>
-          <div class="cat-bar-track">
-            <div class="cat-bar-fill {{ item.tone }}" style="height:{{ item.pct }}%"></div>
-          </div>
-          <span class="category-number">{{ '%02d'|format(item.count) }} SKUs</span>
+        <div class="cat-row">
+          <span class="cat-name">{{ item.category }}</span>
+          <div class="cat-track"><div class="cat-fill {{ item.tone }}" style="width:{{ item.pct }}%"></div></div>
+          <span class="cat-val">{{ '%02d'|format(item.count) }} SKUs</span>
         </div>
         {% else %}
         <p class="empty-state">No categories recorded yet</p>
