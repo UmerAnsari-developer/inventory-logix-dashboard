@@ -135,6 +135,22 @@ Demo credentials:
 | manager | Manager@123 | manager |
 | viewer  | Viewer@123  | viewer  |
 
+### 5. Reset a password
+
+Anyone can request a reset from the **Forgot password** link on the login page
+(`/auth/forgot-password`). Two paths:
+
+- **SMTP configured** (see `.env.example`) — a branded HTML email with the
+  InventoryLogix logo and a single-use reset link is sent to the account's
+  email address. Links expire after `PASSWORD_RESET_TTL_MINUTES` (default 30).
+- **No SMTP** — the reset link is shown directly on the confirmation page
+  under a "Dev mode (no SMTP)" notice, so you can click through without email.
+
+Reset links are single-use and are invalidated after first use. For Gmail you
+must create an **App Password** (Google Account → Security → 2-Step
+Verification → App passwords) and use it as `SMTP_PASSWORD`; your regular
+Gmail password will not work.
+
 ---
 
 ## REST API
