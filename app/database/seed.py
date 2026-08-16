@@ -213,23 +213,24 @@ def _movement_row(product: dict, mtype: str, qty: int, day: date, rng: random.Ra
 def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> list[date]:
     """Evenly distributed movement days from Jan 2024 -> today.
 
-    Every calendar year gets EXACTLY the same number of base movement days
-    so year-over-year sales charts are perfectly competitive. Current year
-    gets days up to today. A small recent burst is added for forecasting.
+    Each year gets a similar but not identical number of base movement days
+    to create year-over-year competition with 1-5 lakh differences.
+    Current year gets days up to today. A small recent burst is added for forecasting.
     """
     dates: list[date] = []
     current_year = today.year
-    # Fixed number of base movement days per year for perfect year-over-year competition
-    BASE_DAYS_PER_YEAR = 18
+    # Base movement days per year with slight variation for YoY competition
+    BASE_DAYS_PER_YEAR = {2024: 18, 2025: 17, 2026: 19}
     for year in range(MOVEMENT_START.year, current_year + 1):
         year_start = max(MOVEMENT_START, date(year, 1, 1))
         year_end = min(today, date(year, 12, 31))
         span = (year_end - year_start).days
         if span <= 0:
             continue
-        # Distribute BASE_DAYS_PER_YEAR evenly across the year
-        step = max(1, span // BASE_DAYS_PER_YEAR)
-        for i in range(BASE_DAYS_PER_YEAR):
+        base_days = BASE_DAYS_PER_YEAR.get(year, 18)
+        # Distribute base_days evenly across the year
+        step = max(1, span // base_days)
+        for i in range(base_days):
             day_offset = min(i * step + rng.randint(0, max(0, step - 1)), span)
             dates.append(year_start + timedelta(days=day_offset))
         # Seasonal burst: add 2 extra days in peak months (Q2 + Q4) for COMPLETE years only
@@ -272,6 +273,8 @@ def _generate_movements(cur) -> int:
     today = date.today()
     recent_cutoff = today - timedelta(days=RECENT_WINDOW_DAYS)
     rows: list[tuple] = []
+    # Year-specific sales multipliers to create 1-5 lakh differences between years
+    SALES_YEAR_MULT = {2024: 1.00, 2025: 0.92, 2026: 1.08}
     for idx, product in enumerate(products):
         demand = float(product["demand_rate"] or 0)
         daily = max(0.5, demand / 365.0) if demand else 3.0
@@ -289,7 +292,9 @@ def _generate_movements(cur) -> int:
                 continue
             roll = _RNG.random()
             if roll < 0.70:
-                qty = max(1, round(daily * _RNG.uniform(2.5, 4.5)))  # tighter range for consistent yearly totals
+                year = day.year
+                mult = SALES_YEAR_MULT.get(year, 1.0)
+                qty = max(1, round(daily * _RNG.uniform(2.5, 4.5) * mult))
                 qty = min(qty, stock)
                 rows.append(_movement_row(product, "OUT", qty, day, _RNG))
                 stock -= qty
