@@ -213,24 +213,26 @@ def _movement_row(product: dict, mtype: str, qty: int, day: date, rng: random.Ra
 def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> list[date]:
     """Evenly distributed movement days from Jan 2024 -> today.
 
-    Every calendar year gets its own share of days so the year-over-year sales
-    charts stay competitive (2024/2025 are no longer dwarfed by the current
-    year), plus an extra dense burst in the last ``RECENT_WINDOW_DAYS`` so the
-    Prophet/ARIMA forecasters have enough daily points. Each COMPLETE year also gets a
-    seasonal burst to make YTD/QTD/MTD charts show tight competition.
+    Every calendar year gets EXACTLY the same number of base movement days
+    so year-over-year sales charts are perfectly competitive. Current year
+    gets days up to today. A small recent burst is added for forecasting.
     """
     dates: list[date] = []
     current_year = today.year
+    # Fixed number of base movement days per year for perfect year-over-year competition
+    BASE_DAYS_PER_YEAR = 18
     for year in range(MOVEMENT_START.year, current_year + 1):
         year_start = max(MOVEMENT_START, date(year, 1, 1))
         year_end = min(today, date(year, 12, 31))
         span = (year_end - year_start).days
         if span <= 0:
             continue
-        n = rng.randint(15, 20)  # increased base per year
-        for _ in range(n):
-            dates.append(year_start + timedelta(days=rng.randint(0, span)))
-        # Seasonal burst: add extra movement days in peak months (Q2 + Q4) for COMPLETE years only
+        # Distribute BASE_DAYS_PER_YEAR evenly across the year
+        step = max(1, span // BASE_DAYS_PER_YEAR)
+        for i in range(BASE_DAYS_PER_YEAR):
+            day_offset = min(i * step + rng.randint(0, max(0, step - 1)), span)
+            dates.append(year_start + timedelta(days=day_offset))
+        # Seasonal burst: add 2 extra days in peak months (Q2 + Q4) for COMPLETE years only
         is_complete_year = year < current_year or (year == current_year and year_end.month == 12 and year_end.day == 31)
         if is_complete_year:
             peak_months = [4, 5, 6, 10, 11, 12]
@@ -242,9 +244,10 @@ def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> lis
                     m_end = min(year_end, date(year, month + 1, 1) - timedelta(days=1))
                 if (m_end - m_start).days >= 0:
                     dates.append(m_start + timedelta(days=rng.randint(0, (m_end - m_start).days)))
+    # Small recent burst for forecasting (4-6 days in last 180 days)
     recent_span = (today - recent_cutoff).days
     if recent_span > 0:
-        for _ in range(rng.randint(4, 6)):  # reduced recent burst for forecasting only
+        for _ in range(rng.randint(4, 6)):
             dates.append(recent_cutoff + timedelta(days=rng.randint(0, recent_span)))
     dates.sort()
     return dates
@@ -285,19 +288,19 @@ def _generate_movements(cur) -> int:
                 stock += qty
                 continue
             roll = _RNG.random()
-            if roll < 0.72:
-                qty = max(1, round(daily * _RNG.uniform(1.5, 6.0)))
+            if roll < 0.70:
+                qty = max(1, round(daily * _RNG.uniform(2.5, 4.5)))  # tighter range for consistent yearly totals
                 qty = min(qty, stock)
                 rows.append(_movement_row(product, "OUT", qty, day, _RNG))
                 stock -= qty
-            elif roll < 0.82:
-                qty = max(1, round(reorder_qty * _RNG.uniform(0.4, 0.8)))
+            elif roll < 0.80:
+                qty = max(1, round(reorder_qty * _RNG.uniform(0.5, 0.7)))
                 rows.append(_movement_row(product, "IN", qty, day, _RNG))
                 stock += qty
-            elif roll < 0.92:
-                rows.append(_movement_row(product, "ADJUSTMENT", _RNG.randint(1, 5), day, _RNG))
+            elif roll < 0.90:
+                rows.append(_movement_row(product, "ADJUSTMENT", _RNG.randint(1, 4), day, _RNG))
             else:
-                rows.append(_movement_row(product, "RETURN", _RNG.randint(1, 4), day, _RNG))
+                rows.append(_movement_row(product, "RETURN", _RNG.randint(1, 3), day, _RNG))
 
         if _drain_bucket(idx):
             # Demand surge: recent sales outrun supply, ending the period

@@ -35,6 +35,10 @@ LOGGER = logging.getLogger(__name__)
 _reports_cache: dict[str, tuple[float, dict]] = {}
 _REPORTS_CACHE_TTL = 30  # seconds
 
+# Simple in-memory cache for dashboard data (TTL-based)
+_dashboard_cache: dict[str, tuple[float, dict]] = {}
+_DASHBOARD_CACHE_TTL = 60  # seconds
+
 
 def _cache_get(key: str):
     """Get cached value if not expired."""
@@ -46,6 +50,18 @@ def _cache_get(key: str):
 
 def _cache_set(key: str, value: dict):
     _reports_cache[key] = (time.time(), value)
+
+
+def _dashboard_cache_get(key: str):
+    """Get cached dashboard value if not expired."""
+    entry = _dashboard_cache.get(key)
+    if entry and (time.time() - entry[0]) < _DASHBOARD_CACHE_TTL:
+        return entry[1]
+    return None
+
+
+def _dashboard_cache_set(key: str, value: dict):
+    _dashboard_cache[key] = (time.time(), value)
 
 
 def _make_cache_key(**kwargs) -> str:
@@ -71,6 +87,13 @@ def dashboard():
     today = date.today()
     _, critical_pct = SettingsService.threshold_pcts()
     critical_ratio = critical_pct / 100.0
+
+    # Dashboard cache key - per user + date (resets daily)
+    dash_key = f"dashboard:{current_user.id}:{today.isoformat()}"
+    cached = _dashboard_cache_get(dash_key)
+    if cached:
+        return render_template("dashboard.html", **cached)
+
     with get_cursor() as cur:
         cur.execute("SELECT COUNT(*) AS c FROM products")
         total_skus = cur.fetchone()["c"]
@@ -283,31 +306,33 @@ def dashboard():
     healthy_count = max(total_skus - reorder_count, 0)
     health_pct = round(healthy_count / max(total_skus, 1) * 100) if total_skus else 0
 
-    return render_template(
-        "dashboard.html",
-        total_skus=total_skus,
-        inventory_value=inventory_value,
-        reorder_count=reorder_count,
-        critical_count=critical_count,
-        warning_count=warning_count,
-        units_today=units_today,
-        health_pct=min(health_pct, 100),
-        chart=chart,
-        category_counts=category_counts,
-        queue=queue,
-        forecast_product=forecast_product,
-        forecast_model=SettingsService.forecast_model(),
-        queue_units=sum(int(p.get("current_stock") or 0) for p in queue),
-        slow_movers=slow_movers,
-        top_demand=top_demand,
-        top_sales=top_sales,
-        top_suppliers=top_suppliers,
-        warehouse_profile=warehouse_profile,
-        turnover_by_category=turnover_by_category,
-        abc_data=abc_data,
-        today=today,
-        format_money=format_money_display,
-    )
+    template_context = {
+        "total_skus": total_skus,
+        "inventory_value": inventory_value,
+        "reorder_count": reorder_count,
+        "critical_count": critical_count,
+        "warning_count": warning_count,
+        "units_today": units_today,
+        "health_pct": min(health_pct, 100),
+        "chart": chart,
+        "category_counts": category_counts,
+        "queue": queue,
+        "forecast_product": forecast_product,
+        "forecast_model": SettingsService.forecast_model(),
+        "queue_units": sum(int(p.get("current_stock") or 0) for p in queue),
+        "slow_movers": slow_movers,
+        "top_demand": top_demand,
+        "top_sales": top_sales,
+        "top_suppliers": top_suppliers,
+        "warehouse_profile": warehouse_profile,
+        "turnover_by_category": turnover_by_category,
+        "abc_data": abc_data,
+        "today": today,
+        "format_money": format_money_display,
+    }
+    _dashboard_cache_set(dash_key, template_context)
+
+    return render_template("dashboard.html", **template_context)
 
 
 @ui_bp.route("/inventory")
@@ -1874,8 +1899,8 @@ def _chart_geometry(values, dates):
     if not values:
         values = [0]
     max_val = max(values) or 1
-    width, height = 556, 210
-    left, right, top, bottom = 18, 538, 40, 176
+    width, height = 600, 220
+    left, right, top, bottom = 20, 580, 35, 185
     pts = []
     for i, value in enumerate(values):
         x = left + i * ((right - left) / max(1, len(values) - 1))

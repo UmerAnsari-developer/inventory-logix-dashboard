@@ -68,6 +68,12 @@ CREATE INDEX IF NOT EXISTS idx_movements_type_created ON movements(type, created
 CREATE INDEX IF NOT EXISTS idx_movements_product_created ON movements(product_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_movements_product_type_created ON movements(product_id, type, created_at);
 
+-- Products indexes for dashboard/reports queries
+CREATE INDEX IF NOT EXISTS idx_products_stock_rop ON products(current_stock, reorder_point, on_order);
+CREATE INDEX IF NOT EXISTS idx_products_warehouse_category ON products(warehouse, category);
+CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_products_unit_price ON products(unit_price);
+
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id              SERIAL PRIMARY KEY,
     po_number       VARCHAR(40) UNIQUE NOT NULL,
@@ -82,6 +88,10 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     CONSTRAINT purchase_orders_status_chk
         CHECK (status IN ('draft','approved','in_transit','received','cancelled'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_po_supplier_status ON purchase_orders(supplier_id, status);
+CREATE INDEX IF NOT EXISTS idx_po_created_at ON purchase_orders(created_at);
+CREATE INDEX IF NOT EXISTS idx_po_product ON purchase_orders(product_id);
 
 CREATE TABLE IF NOT EXISTS user_settings (
     id              SERIAL PRIMARY KEY,

@@ -28,7 +28,7 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 # the (potentially SSL) handshake for every page load.
 _POOLS: dict[str, psycopg2.pool.ThreadedConnectionPool] = {}
 _POOL_LOCK = threading.Lock()
-_POOL_SIZE = 10
+_POOL_SIZE = 20
 
 
 def _pool_key(params: dict) -> str:

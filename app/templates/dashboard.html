@@ -57,25 +57,25 @@
     <div class="panel-content">
       <div class="chart-wrap">
         {% set max_val = chart.max %}
-        <svg class="chart" viewBox="0 0 556 210" role="img" aria-label="Stock movements over the last fourteen days">
+        <svg class="chart" viewBox="0 0 600 220" role="img" aria-label="Stock movements over the last fourteen days">
           <defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3d997c" stop-opacity=".28"/><stop offset="1" stop-color="#3d997c" stop-opacity="0"/></linearGradient></defs>
-          <line class="chart-grid-line" x1="18" y1="40" x2="538" y2="40"/>
-          <line class="chart-grid-line" x1="18" y1="86" x2="538" y2="86"/>
-          <line class="chart-grid-line" x1="18" y1="132" x2="538" y2="132"/>
-          <line class="chart-grid-line" x1="18" y1="176" x2="538" y2="176"/>
-          <text class="chart-label" x="0" y="44">{{ max_val }}</text>
-          <text class="chart-label" x="0" y="90">{{ (max_val * 2 // 3) }}</text>
-          <text class="chart-label" x="0" y="136">{{ (max_val // 3) }}</text>
-          <text class="chart-label" x="5" y="180">0</text>
+          <line class="chart-grid-line" x1="20" y1="35" x2="580" y2="35"/>
+          <line class="chart-grid-line" x1="20" y1="85" x2="580" y2="85"/>
+          <line class="chart-grid-line" x1="20" y1="135" x2="580" y2="135"/>
+          <line class="chart-grid-line" x1="20" y1="185" x2="580" y2="185"/>
+          <text class="chart-label" x="2" y="39">{{ max_val }}</text>
+          <text class="chart-label" x="2" y="89">{{ (max_val * 2 // 3) }}</text>
+          <text class="chart-label" x="2" y="139">{{ (max_val // 3) }}</text>
+          <text class="chart-label" x="2" y="189">0</text>
           <polygon class="chart-area" points="{{ chart.area }}"/>
           <polyline class="chart-line" points="{{ chart.points }}"/>
           {% for x, y in chart.circles %}
           <circle class="chart-point" cx="{{ x }}" cy="{{ y }}" r="3.5"/>
           {% endfor %}
-          <text class="chart-label" x="15" y="202">{{ d0 }}</text>
-          <text class="chart-label" x="180" y="202">{{ d1 }}</text>
-          <text class="chart-label" x="340" y="202">{{ d2 }}</text>
-          <text class="chart-label" x="487" y="202">{{ d3 }}</text>
+          <text class="chart-label" x="18" y="205">{{ d0 }}</text>
+          <text class="chart-label" x="190" y="205">{{ d1 }}</text>
+          <text class="chart-label" x="365" y="205">{{ d2 }}</text>
+          <text class="chart-label" x="530" y="205">{{ d3 }}</text>
         </svg>
       </div>
     </div>
@@ -89,11 +89,13 @@
       </div>
     </div>
     <div class="panel-content">
-      <div class="category-list">
+      <div class="category-mix-scroll">
         {% for item in category_counts %}
-        <div class="category-row">
+        <div class="category-col">
           <span class="category-name">{{ item.category }}</span>
-          <span class="bar-track"><span class="bar-fill {{ item.tone }}" style="width:{{ item.pct }}%"></span></span>
+          <div class="cat-bar-track">
+            <div class="cat-bar-fill {{ item.tone }}" style="height:{{ item.pct }}%"></div>
+          </div>
           <span class="category-number">{{ '%02d'|format(item.count) }} SKUs</span>
         </div>
         {% else %}

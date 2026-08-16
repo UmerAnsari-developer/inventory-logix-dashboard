@@ -114,14 +114,19 @@
     <div class="report-grid">
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Stock health breakdown</div><div class="panel-caption">SKUs by stock status</div></div>
-        <div class="panel-content"><div class="report-chart"><canvas id="statusChart"></canvas></div></div>
+        <div class="panel-content">
+          <div class="chart-with-legend">
+            <div class="report-chart"><canvas id="statusChart"></canvas></div>
+            <div class="legend-grid" id="statusLegend"></div>
+          </div>
+        </div>
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per category</div></div>
         <div class="panel-content">
           <div class="chart-with-legend">
             <div class="report-chart"><canvas id="overviewCategoryChart"></canvas></div>
-            <ul class="chart-legend-scroll" id="overviewCategoryLegend"></ul>
+            <div class="legend-grid" id="overviewCategoryLegend"></div>
           </div>
         </div>
       </article>
@@ -281,7 +286,12 @@
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Purchase order status</div><div class="panel-caption">PO pipeline by status</div></div>
-        <div class="panel-content"><div class="report-chart"><canvas id="poStatusChart"></canvas></div></div>
+        <div class="panel-content">
+          <div class="chart-with-legend">
+            <div class="report-chart"><canvas id="poStatusChart"></canvas></div>
+            <div class="legend-grid" id="poStatusLegend"></div>
+          </div>
+        </div>
       </article>
       <article class="panel wide">
         <div class="panel-header"><div class="panel-title">Supplier analytics</div><div class="panel-caption">Procurement performance by vendor</div></div>
@@ -402,14 +412,19 @@
     <div class="report-grid">
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Stock health breakdown</div><div class="panel-caption">SKUs by stock status</div></div>
-        <div class="panel-content"><div class="report-chart"><canvas id="invStatusChart"></canvas></div></div>
+        <div class="panel-content">
+          <div class="chart-with-legend">
+            <div class="report-chart"><canvas id="invStatusChart"></canvas></div>
+            <div class="legend-grid" id="invStatusLegend"></div>
+          </div>
+        </div>
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per category</div></div>
         <div class="panel-content">
           <div class="chart-with-legend">
             <div class="report-chart report-chart-tall"><canvas id="invCategoryChart"></canvas></div>
-            <ul class="chart-legend-scroll" id="invCategoryLegend"></ul>
+            <div class="legend-grid" id="invCategoryLegend"></div>
           </div>
         </div>
       </article>
@@ -634,14 +649,17 @@
     cfg.options.plugins.datalabels = dl(cfg.options.plugins.datalabels);
     charts[id] = new window.Chart(el, cfg);
   }
-  function renderScrollLegend(id, labels, colors, formatter) {
+  function renderScrollLegend(id, labels, colors, formatter, cols) {
     var el = document.getElementById(id);
     if (!el) return;
     var html = '';
+    var nCols = cols || Math.min(10, Math.max(5, labels.length));
+    el.style.gridTemplateColumns = 'repeat(' + nCols + ', minmax(120px, 1fr))';
     for (var i = 0; i < labels.length; i++) {
-      html += '<li><span class="legend-dot" style="background:' + (colors[i % colors.length] || '#999') + '"></span>' +
+      html += '<div class="legend-item">' +
+        '<span class="legend-dot" style="background:' + (colors[i % colors.length] || '#999') + '"></span>' +
         '<span class="legend-label">' + labels[i] + '</span>' +
-        '<span class="legend-value">' + formatter(i) + '</span></li>';
+        '<span class="legend-value">' + formatter(i) + '</span></div>';
     }
     el.innerHTML = html;
   }
@@ -651,8 +669,11 @@
     makeChart('statusChart', {
       type: 'doughnut',
       data: { labels: D.status.labels, datasets: [{ data: D.status.values, backgroundColor: ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtNum }) } },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtNum }) } },
     });
+    renderScrollLegend('statusLegend', D.status.labels, ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], function (i) {
+      return fmtNum(D.status.values[i]);
+    }, D.status.labels.length);
     makeChart('overviewCategoryChart', {
       type: 'doughnut',
       data: { labels: D.category.labels, datasets: [{ data: D.category.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
@@ -660,7 +681,7 @@
     });
     renderScrollLegend('overviewCategoryLegend', D.category.labels, PALETTE, function (i) {
       return fmtMoney(D.category.values[i]);
-    });
+    }, Math.min(10, Math.max(5, D.category.labels.length)));
     makeChart('movementChart', {
       type: 'line',
       data: {
@@ -742,8 +763,11 @@
     makeChart('poStatusChart', {
       type: 'doughnut',
       data: { labels: D.poStatus.labels, datasets: [{ data: D.poStatus.values, backgroundColor: ['#3d997c', '#2563eb', '#e3a43c', '#7c3aed', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtNum }) } },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtNum }) } },
     });
+    renderScrollLegend('poStatusLegend', D.poStatus.labels, ['#3d997c', '#2563eb', '#e3a43c', '#7c3aed', '#1f2937'], function (i) {
+      return fmtNum(D.poStatus.values[i]);
+    }, D.poStatus.labels.length);
   }
 
   function buildPeriod(D) {
@@ -887,8 +911,11 @@
     makeChart('invStatusChart', {
       type: 'doughnut',
       data: { labels: D.status.labels, datasets: [{ data: D.status.values, backgroundColor: ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtNum }) } },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtNum }) } },
     });
+    renderScrollLegend('invStatusLegend', D.status.labels, ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], function (i) {
+      return fmtNum(D.status.values[i]);
+    }, D.status.labels.length);
     makeChart('invCategoryChart', {
       type: 'doughnut',
       data: { labels: D.category.labels, datasets: [{ data: D.category.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
@@ -896,7 +923,7 @@
     });
     renderScrollLegend('invCategoryLegend', D.category.labels, PALETTE, function (i) {
       return fmtMoney(D.category.values[i]);
-    });
+    }, Math.min(10, Math.max(5, D.category.labels.length)));
     makeChart('invWarehouseChart', {
       type: 'bar',
       data: { labels: D.warehouse.labels, datasets: [{ label: 'Inventory value', data: D.warehouse.values, backgroundColor: '#2563eb', borderRadius: 8, borderSkipped: false }] },
