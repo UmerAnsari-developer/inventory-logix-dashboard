@@ -1530,16 +1530,21 @@ tbody tr:hover {
 
 .chart-with-legend {
   display: flex;
-  gap: 14px;
-  align-items: stretch;
-  flex: 1;
+  flex-direction: column;
+  gap: 10px;
   min-height: 0;
 }
 
 .chart-with-legend .report-chart,
 .chart-with-legend .report-chart-tall {
   flex: 1;
+  min-height: 240px;
   min-width: 0;
+}
+
+.chart-with-legend .legend-grid {
+  flex: 0 0 auto;
+  max-height: 120px;
 }
 
 .chart-legend-scroll {
@@ -1587,11 +1592,13 @@ tbody tr:hover {
 /* Horizontal scrollable legend grid for pie/doughnut charts */
 .legend-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 8px;
   padding: 8px 4px;
   overflow-x: auto;
   overflow-y: hidden;
-  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  border-left: none;
   font-size: 0.7rem;
   line-height: 1.6;
   min-width: 0;
