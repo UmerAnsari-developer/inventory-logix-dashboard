@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 import psycopg2.extras
+from werkzeug.security import generate_password_hash
 
 from flask import current_app
 
@@ -21,6 +22,13 @@ from ..services.dataset_service import get_products, get_suppliers
 LOGGER = logging.getLogger(__name__)
 
 SUPPLIER_LIMIT = 150
+
+# Demo accounts used by the UI tour, smoke tests and the test suite.
+USERS_SEED = [
+    ("admin", "admin@inventorylogix.local", "Admin@123", "admin"),
+    ("manager", "manager@inventorylogix.local", "Manager@123", "manager"),
+    ("viewer", "viewer@inventorylogix.local", "Viewer@123", "viewer"),
+]
 
 
 def _open_conn():
@@ -75,7 +83,7 @@ def _product_params(product: dict, supplier_ids: list[int]) -> tuple | None:
 
 
 def run_seed(force: bool = False) -> None:
-    """Load a bounded supplier set plus the product catalogue into the DB."""
+    """Load demo users plus a bounded supplier/product catalogue into the DB."""
     conn = _open_conn()
     try:
         with conn.cursor() as cur:
@@ -84,6 +92,22 @@ def run_seed(force: bool = False) -> None:
                 if (cur.fetchone() or {}).get("c", 0):
                     LOGGER.info("Seed skipped: products table already populated.")
                     return
+
+            # Demo users — only inserted when the users table is empty so
+            # self-registered accounts are never overwritten.
+            cur.execute("SELECT COUNT(*) AS c FROM users")
+            if (cur.fetchone() or {}).get("c", 0) == 0:
+                for username, email, password, role in USERS_SEED:
+                    cur.execute(
+                        """
+                        INSERT INTO users (username, email, password_hash, role)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (username, email, generate_password_hash(password), role),
+                    )
+                LOGGER.info("Seeded %s demo users.", len(USERS_SEED))
+            else:
+                LOGGER.info("Seed skipped: users table already populated.")
 
             suppliers = get_suppliers()
             products = get_products()
