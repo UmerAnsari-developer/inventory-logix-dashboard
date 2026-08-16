@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 import psycopg2.extras
+from psycopg2.extras import execute_values
 from werkzeug.security import generate_password_hash
 
 from flask import current_app
@@ -114,41 +115,48 @@ def run_seed(force: bool = False) -> None:
             LOGGER.info("Loaded %s suppliers and %s products from dataset.",
                         len(suppliers), len(products))
 
-            supplier_ids: list[int] = []
+            supplier_rows = []
             for supplier in suppliers[:SUPPLIER_LIMIT]:
                 params = _supplier_params(supplier)
-                if not params:
-                    continue
-                cur.execute(
+                if params:
+                    supplier_rows.append(params)
+
+            supplier_ids: list[int] = []
+            if supplier_rows:
+                returned = execute_values(
+                    cur,
                     """
                     INSERT INTO suppliers (name, initials, location, lead_days,
                                            reliability, tone)
-                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+                    VALUES %s RETURNING id
                     """,
-                    params,
+                    supplier_rows,
+                    fetch=True,
                 )
-                supplier_ids.append(cur.fetchone()["id"])
+                supplier_ids = [row[0] for row in returned]
 
-            added_products = 0
+            product_rows = []
             for product in products:
                 params = _product_params(product, supplier_ids)
-                if not params:
-                    continue
-                cur.execute(
+                if params:
+                    product_rows.append(params)
+
+            if product_rows:
+                execute_values(
+                    cur,
                     """
                     INSERT INTO products (sku, name, category, warehouse,
                                           current_stock, reorder_point,
                                           demand_rate, ordering_cost,
                                           holding_cost, unit_price, supplier_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES %s
                     """,
-                    params,
+                    product_rows,
                 )
-                added_products += 1
 
         conn.commit()
         LOGGER.info("Seed complete: %s suppliers, %s products.",
-                    len(supplier_ids), added_products)
+                    len(supplier_ids), len(product_rows))
     except Exception as exc:
         conn.rollback()
         LOGGER.warning("DataCo dataset seeding deferred: %s", exc)

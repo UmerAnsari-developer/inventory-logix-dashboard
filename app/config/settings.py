@@ -31,6 +31,7 @@ class Config:
     DB_NAME = os.environ.get("DB_NAME", "inventory_db")
     DB_USER = os.environ.get("DB_USER", "postgres")
     DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
+    DB_SSLMODE = os.environ.get("DB_SSLMODE", "")
     DATABASE_URL = os.environ.get("DATABASE_URL")
 
     # Rate limiting
@@ -59,13 +60,16 @@ class Config:
     def psycopg2_params(cls) -> dict:
         if cls.DATABASE_URL:
             return {"dsn": cls.DATABASE_URL}
-        return {
+        params = {
             "host": cls.DB_HOST,
             "port": cls.DB_PORT,
             "dbname": cls.DB_NAME,
             "user": cls.DB_USER,
             "password": cls.DB_PASSWORD,
         }
+        if cls.DB_SSLMODE:
+            params["sslmode"] = cls.DB_SSLMODE
+        return params
 
 
 class DevelopmentConfig(Config):
