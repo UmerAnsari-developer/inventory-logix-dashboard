@@ -14,6 +14,17 @@ os.environ.setdefault("FLASK_ENV", "testing")
 os.environ.setdefault("WTF_CSRF_ENABLED", "0")
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 
+# Tests always run against the local development PostgreSQL, never the
+# Render database configured in .env. load_dotenv() won't override these.
+os.environ.setdefault("DB_HOST", "localhost")
+os.environ.setdefault("DB_PORT", "5432")
+os.environ.setdefault("DB_NAME", "inventory_db")
+os.environ.setdefault("DB_USER", "postgres")
+os.environ.setdefault("DB_PASSWORD", "Um%25ans12er")
+os.environ.setdefault("DB_SSLMODE", "")
+# .env may carry a Render DATABASE_URL; tests must use the local DB_* fields.
+os.environ.setdefault("DATABASE_URL", "")
+
 
 @pytest.fixture(scope="session")
 def app():
