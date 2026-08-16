@@ -95,7 +95,11 @@ def anomaly_run():
 @ai_bp.route("/anomaly/portfolio")
 @login_required
 def anomaly_portfolio():
-    return api_response(AnomalyService.portfolio())
+    try:
+        contamination = float(request.args.get("contamination", 0.05))
+    except ValueError:
+        contamination = 0.05
+    return api_response(AnomalyService.portfolio(contamination=contamination))
 
 
 @ai_bp.route("/eoq/sensitivity")
