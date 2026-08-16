@@ -814,7 +814,7 @@
       data: { labels: D.salesYtdCompare.labels, datasets: ytdDatasets },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, font: { size: 9, weight: '600' } } },
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, font: { size: 9, weight: '600' }, display: true, clip: false, align: function (ctx) { return ['center', 'bottom', 'top'][ctx.datasetIndex] || 'top'; } } },
         scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
       },
     });
@@ -854,7 +854,7 @@
       data: { labels: D.salesQtdCompare.labels, datasets: qtdDatasets },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, font: { size: 9, weight: '600' } } },
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, font: { size: 9, weight: '600' }, display: true, clip: false, align: function (ctx) { return ['center', 'bottom', 'top'][ctx.datasetIndex] || 'top'; } } },
         scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
       },
     });
