@@ -849,6 +849,13 @@ h1 {
   letter-spacing: -0.015em;
 }
 
+.panel-title-lg {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+
 .panel-caption {
   margin-top: 5px;
   color: var(--muted);
