@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..database import get_cursor
-from ..utils import stock_status
+from ..utils import calculate_eoq, stock_status
 
 
 def _decorate(row: dict) -> dict:
@@ -24,6 +24,10 @@ def _decorate(row: dict) -> dict:
     )
     row["status"] = status
     row["status_label"] = label
+    _eoq = calculate_eoq(
+        row.get("demand_rate"), row.get("ordering_cost"), row.get("holding_cost")
+    )
+    row["eoq"] = round(_eoq) if _eoq else None
     if row.get("name"):
         parts = [p for p in row["name"].split() if p]
         row["initials"] = (
