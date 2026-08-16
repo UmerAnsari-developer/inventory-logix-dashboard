@@ -146,7 +146,10 @@
         };
         async function loadPortfolio() {
             try {
-                const res = await api(cfg.portfolioUrl + '?horizon=30');
+                const q = new URLSearchParams();
+                if (cfg.model) q.set('model', cfg.model.value);
+                if (cfg.horizon) q.set('horizon', cfg.horizon.value);
+                const res = await api(cfg.portfolioUrl + '?' + q.toString());
                 const rows = res.data || [];
                 const tbody = cfg.table.tBodies[0];
                 tbody.innerHTML = rows.length ? rows.map(r => (
