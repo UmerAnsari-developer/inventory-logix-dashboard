@@ -41,3 +41,6 @@ instance/
 
 # Internal docs
 SESSION_SUMMARY.md
+
+# Data
+datasets/
