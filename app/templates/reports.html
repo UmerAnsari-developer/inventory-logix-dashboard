@@ -359,11 +359,11 @@
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">YTD sales — 2024 vs 2025 vs 2026</div><div class="panel-caption">Cumulative sales revenue through {{ today.strftime('%b') }} (₹)</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesYtdChart"></canvas></div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall" style="height: 360px;"><canvas id="salesYtdChart"></canvas></div></div>
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">QTD sales — 2024 vs 2025 vs 2026</div><div class="panel-caption">Cumulative sales revenue per quarter through Q{{ (today.month - 1) // 3 + 1 }} (₹)</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesQuarterChart"></canvas></div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall" style="height: 360px;"><canvas id="salesQuarterChart"></canvas></div></div>
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Current month vs previous month</div><div class="panel-caption">Sales revenue by category, current month vs last month (₹)</div></div>
