@@ -56,12 +56,11 @@ def dashboard():
 
         cur.execute(
             """
-            SELECT COUNT(*) AS c,
-                   SUM(CASE WHEN current_stock > reorder_point THEN 1 ELSE 0 END) AS healthy
-            FROM products WHERE on_order <= 0
+            SELECT COUNT(*) AS c
+            FROM products WHERE current_stock <= reorder_point AND on_order <= 0
             """
         )
-        reorder_row = cur.fetchone()
+        reorder_count = int(cur.fetchone()["c"] or 0)
 
         cur.execute(
             """
@@ -109,13 +108,10 @@ def dashboard():
         top = cur.fetchone()
         forecast_product = {"id": top["id"], "sku": top["sku"], "name": top["name"]} if top else None
 
-    reorder_count = int(reorder_row["c"] or 0)
     critical_count = int(risk["critical"] or 0)
     warning_count = int((risk["at_risk"] or 0) - critical_count)
-    total_for_health = total_skus or 1
-    healthy_count = int(reorder_row["healthy"] or 0)
-    base_healthy = (total_skus - reorder_count) + healthy_count
-    health_pct = round(base_healthy / max(total_skus, 1) * 100) if total_skus else 0
+    healthy_count = max(total_skus - reorder_count, 0)
+    health_pct = round(healthy_count / max(total_skus, 1) * 100) if total_skus else 0
 
     return render_template(
         "dashboard.html",
@@ -1507,15 +1503,11 @@ def _landing_stats():
             )
             stats["units_today"] = int(cur.fetchone()["u"] or 0)
 
-            cur.execute(
-                "SELECT COUNT(*) AS c, "
-                "SUM(CASE WHEN current_stock > reorder_point THEN 1 ELSE 0 END) AS healthy "
-                "FROM products WHERE on_order <= 0"
-            )
-            health = cur.fetchone()
-            total = int(health["c"] or 0)
+            total = stats["total_skus"]
             if total:
-                stats["stock_health"] = round(int(health["healthy"] or 0) / total * 100)
+                stats["stock_health"] = round(
+                    max(total - stats["reorder_count"], 0) / total * 100
+                )
 
             cur.execute(
                 "SELECT category, COUNT(*) AS cnt FROM products "
