@@ -8,6 +8,7 @@ from .validators import (
     sanitize_input,
 )
 from .headers import init_security_headers
+from .roles import WRITE_ROLES, roles_required, write_roles_required
 
 __all__ = [
     "validate_sku",
@@ -17,4 +18,7 @@ __all__ = [
     "validate_username",
     "sanitize_input",
     "init_security_headers",
+    "WRITE_ROLES",
+    "roles_required",
+    "write_roles_required",
 ]

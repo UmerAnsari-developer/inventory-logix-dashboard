@@ -114,7 +114,7 @@
     <div class="table-scroll">
       <table>
         <thead>
-          <tr><th>SKU</th><th>Product</th><th>Current</th><th>Stock runway</th><th>ROP</th><th>EOQ</th><th>State</th><th>Action</th></tr>
+          <tr><th>SKU</th><th>Product</th><th>Current</th><th>Stock runway</th><th>ROP</th><th>EOQ</th><th>State</th>{% if current_user.role in ['admin', 'manager'] %}<th>Action</th>{% endif %}</tr>
         </thead>
         <tbody>
           {% for product in queue %}
@@ -142,12 +142,14 @@
             <td><span class="number">{{ product.reorder_point }}</span></td>
             <td><span class="number">{{ product.eoq or "-" }}</span></td>
             <td><span class="status {{ product.status }}">{{ product.status_label }}</span></td>
+            {% if current_user.role in ['admin', 'manager'] %}
             <td>
               <a href="{{ url_for('ui.movement_form', product_id=product.id) }}" class="btn btn-secondary btn-sm">Record movement</a>
             </td>
+            {% endif %}
           </tr>
           {% else %}
-          <tr><td colspan="8"><div class="empty-state">The reorder queue is clear</div></td></tr>
+          <tr><td colspan="{{ 8 if current_user.role in ['admin', 'manager'] else 7 }}"><div class="empty-state">The reorder queue is clear</div></td></tr>
           {% endfor %}
         </tbody>
       </table>

@@ -108,6 +108,7 @@
               </a>
             </div>
           </div>
+          {% if current_user.role in ['admin', 'manager'] %}
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
               <span class="nav-drop-label">Settings</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
@@ -118,6 +119,7 @@
               </a>
             </div>
           </div>
+          {% endif %}
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
               <span class="nav-drop-label">Others</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>

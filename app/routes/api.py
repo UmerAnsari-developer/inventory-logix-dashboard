@@ -11,6 +11,7 @@ from ..repositories import (
     ProductRepository,
     SupplierRepository,
 )
+from ..security import write_roles_required
 from ..services import MovementService, ProductService, SupplierService
 from ..utils import api_error, api_response
 
@@ -34,6 +35,7 @@ def get_settings():
 
 @api_bp.route("/settings", methods=["PUT"])
 @login_required
+@write_roles_required
 def update_settings():
     from ..services.settings_service import SettingsService
 
@@ -140,6 +142,7 @@ def get_product(product_id):
 @api_bp.route("/products", methods=["POST"])
 @limiter.limit("30 per minute")
 @login_required
+@write_roles_required
 def create_product():
     payload = request.get_json(silent=True) or {}
     try:
@@ -155,6 +158,7 @@ def create_product():
 @api_bp.route("/products/<int:product_id>", methods=["PUT"])
 @limiter.limit("30 per minute")
 @login_required
+@write_roles_required
 def update_product(product_id):
     payload = request.get_json(silent=True) or {}
     try:
@@ -169,6 +173,7 @@ def update_product(product_id):
 @api_bp.route("/products/<int:product_id>", methods=["DELETE"])
 @limiter.limit("30 per minute")
 @login_required
+@write_roles_required
 def delete_product(product_id):
     ProductService.delete(product_id)
     AuditRepository.record(current_user.id, "api.product.delete",
@@ -195,6 +200,7 @@ def get_supplier(supplier_id):
 @api_bp.route("/suppliers", methods=["POST"])
 @limiter.limit("30 per minute")
 @login_required
+@write_roles_required
 def create_supplier():
     payload = request.get_json(silent=True) or {}
     try:
@@ -210,6 +216,7 @@ def create_supplier():
 @api_bp.route("/movements", methods=["POST"])
 @limiter.limit("60 per minute")
 @login_required
+@write_roles_required
 def create_movement():
     payload = request.get_json(silent=True) or {}
     try:

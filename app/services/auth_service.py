@@ -29,6 +29,7 @@ class AuthService:
 
     @staticmethod
     def register(username: str, email: str, password: str, role: str = "viewer") -> int:
+        """Create a new account. Self-registration is always a viewer."""
         try:
             username = validate_username(username)
             email = validate_email(email)
@@ -40,10 +41,8 @@ class AuthService:
             raise AuthError("Username is already taken.")
         if UserRepository.find_by_email(email):
             raise AuthError("Email is already registered.")
-        if role not in {"admin", "manager", "viewer"}:
-            role = "viewer"
 
-        user_id = UserRepository.create(username, email, password, role)
+        user_id = UserRepository.create(username, email, password, "viewer")
         AuditRepository.record(user_id, "user.register", target_type="user", target_id=user_id)
         return user_id
 

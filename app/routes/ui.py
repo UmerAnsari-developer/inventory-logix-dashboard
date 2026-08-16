@@ -13,6 +13,8 @@ from datetime import date, timedelta
 from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
+from ..security import WRITE_ROLES, write_roles_required
+
 from ..database import get_cursor
 from ..repositories import (
     AuditRepository,
@@ -177,6 +179,7 @@ def inventory_export():
 @ui_bp.route("/products/new", methods=["GET", "POST"])
 @ui_bp.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
 @login_required
+@write_roles_required
 def product_form(product_id: int | None = None):
     product = ProductRepository.find(product_id) if product_id else None
     if product_id and not product:
@@ -223,6 +226,7 @@ def product_form(product_id: int | None = None):
 
 @ui_bp.route("/products/<int:product_id>/delete", methods=["POST"])
 @login_required
+@write_roles_required
 def delete_product(product_id: int):
     ProductService.delete(product_id)
     AuditRepository.record(current_user.id, "product.delete",
@@ -258,6 +262,7 @@ def reorder_alerts():
 
 @ui_bp.route("/reorder-alerts/auto-draft", methods=["POST"])
 @login_required
+@write_roles_required
 def auto_draft_pos():
     if not SettingsService.is_on("auto_reorder"):
         flash("Auto-reorder is disabled in Settings", "warning")
@@ -296,6 +301,7 @@ def auto_draft_pos():
 
 @ui_bp.route("/reorder-alerts/<int:product_id>/mark-ordered", methods=["POST"])
 @login_required
+@write_roles_required
 def mark_ordered(product_id: int):
     product = ProductRepository.find(product_id)
     if not product:
@@ -315,6 +321,7 @@ def mark_ordered(product_id: int):
 
 @ui_bp.route("/movements/new", methods=["GET", "POST"])
 @login_required
+@write_roles_required
 def movement_form():
     preselect = request.args.get("product_id", type=int)
     with get_cursor() as cur:
@@ -345,6 +352,8 @@ def movement_form():
 @login_required
 def suppliers():
     if request.method == "POST":
+        if current_user.role not in WRITE_ROLES:
+            abort(403)
         try:
             SupplierService.create({
                 "name": request.form.get("name"),
@@ -364,6 +373,7 @@ def suppliers():
 
 @ui_bp.route("/suppliers/<int:supplier_id>/delete", methods=["POST"])
 @login_required
+@write_roles_required
 def delete_supplier(supplier_id: int):
     SupplierService.delete(supplier_id)
     flash("Supplier removed", "success")
@@ -374,6 +384,8 @@ def delete_supplier(supplier_id: int):
 @login_required
 def purchase_orders():
     if request.method == "POST":
+        if current_user.role not in WRITE_ROLES:
+            abort(403)
         import random
 
         po_number = request.form.get("po_number") or "PO-{0:%Y%m%d}-{1:04d}".format(
@@ -415,6 +427,7 @@ def purchase_orders():
 
 @ui_bp.route("/purchase-orders/<int:po_id>/status", methods=["POST"])
 @login_required
+@write_roles_required
 def update_po_status(po_id: int):
     status = request.form.get("status")
     if status in ("draft", "approved", "in_transit", "received", "cancelled"):
@@ -1444,6 +1457,7 @@ def eoq_calculator():
 
 @ui_bp.route("/settings")
 @login_required
+@write_roles_required
 def settings():
     settings_data = SettingsService.get_settings()
     low_pct, critical_pct = SettingsService.threshold_pcts()

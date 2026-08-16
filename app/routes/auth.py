@@ -43,14 +43,13 @@ def register():
             "username": request.form.get("username", ""),
             "email": request.form.get("email", ""),
             "password": request.form.get("password", ""),
-            "role": request.form.get("role", "viewer"),
         }
         try:
-            AuthService.register(**payload)
+            AuthService.register(**payload, role="viewer")
         except AuthError as exc:
             flash(str(exc), "error")
             return render_template("auth/register.html", form=payload), 400
-        flash("Account created — please log in.", "success")
+        flash("Account created — you are signed up as a Viewer. Please log in.", "success")
         return redirect(url_for("auth.login"))
     return render_template("auth/register.html", form={})
 
@@ -115,8 +114,4 @@ def logout():
 
 def _role_home(role: str) -> str:
     """Return the role-appropriate main page used after login."""
-    return {
-        "admin": url_for("ui.dashboard"),
-        "manager": url_for("ui.inventory"),
-        "viewer": url_for("ui.reports"),
-    }.get(role, url_for("ui.dashboard"))
+    return url_for("ui.dashboard")

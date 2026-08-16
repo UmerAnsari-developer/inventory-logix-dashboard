@@ -5,6 +5,7 @@
 {% block content %}
 <section>
   <div class="page-heading"><div><div class="eyebrow">Procurement</div><h1>Suppliers</h1></div></div>
+  {% if current_user.role in ['admin', 'manager'] %}
   <article class="panel">
     <div class="panel-header"><div class="panel-title">Add supplier</div></div>
     <div class="panel-content">
@@ -31,6 +32,7 @@
       </form>
     </div>
   </article>
+  {% endif %}
   <div class="supplier-grid">
     {% for s in suppliers %}
     <article class="supplier-card">
@@ -44,10 +46,12 @@
         <dt>Active SKUs</dt><dd>{{ s.active_skus }}</dd>
         <dt>Reliability</dt><dd>{{ '%.0f' % (s.reliability or 90) }}%</dd>
       </dl>
+      {% if current_user.role in ['admin', 'manager'] %}
       <form method="post" action="{{ url_for('ui.delete_supplier', supplier_id=s.id) }}" onsubmit="return confirm('Remove this supplier?');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <button class="btn btn-ghost btn-sm" type="submit">Remove</button>
       </form>
+      {% endif %}
     </article>
     {% else %}
     <div class="empty-state">No suppliers yet</div>

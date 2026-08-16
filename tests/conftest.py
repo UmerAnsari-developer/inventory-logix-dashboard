@@ -38,7 +38,7 @@ def auth_client(client):
     """Returns a logged-in test client."""
     client.post(
         "/auth/login",
-        data={"username": "admin", "password": "Admin@123"},
+        data={"username": "admin", "password": "Admin@123", "remember": "on"},
         follow_redirects=False,
     )
     return client
