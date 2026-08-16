@@ -86,6 +86,16 @@ RECENT_WINDOW_DAYS = 180
 _RNG = random.Random(2024)
 
 
+def _drain_bucket(idx: int) -> bool:
+    """Deterministic subset of products left below their reorder point.
+
+    The same rule is used by the movement and PO generators so those products
+    never carry an open PO (``on_order`` stays 0) and genuinely appear in the
+    reorder queue.
+    """
+    return idx % 6 == 0
+
+
 def _open_conn():
     params = current_app.config["psycopg2_params"]()
     if "dsn" in params:
@@ -200,62 +210,89 @@ def _movement_row(product: dict, mtype: str, qty: int, day: date, rng: random.Ra
     )
 
 
+def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> list[date]:
+    """Evenly distributed movement days from Jan 2024 -> today.
+
+    Every calendar year gets its own share of days so the year-over-year sales
+    charts stay competitive (2024/2025 are no longer dwarfed by the current
+    year), plus an extra dense burst in the last ``RECENT_WINDOW_DAYS`` so the
+    Prophet/ARIMA forecasters have enough daily points.
+    """
+    dates: list[date] = []
+    for year in range(MOVEMENT_START.year, today.year + 1):
+        year_start = max(MOVEMENT_START, date(year, 1, 1))
+        year_end = min(today, date(year, 12, 31))
+        span = (year_end - year_start).days
+        if span <= 0:
+            continue
+        n = rng.randint(13, 16)
+        for _ in range(n):
+            dates.append(year_start + timedelta(days=rng.randint(0, span)))
+    recent_span = (today - recent_cutoff).days
+    if recent_span > 0:
+        for _ in range(rng.randint(12, 16)):
+            dates.append(recent_cutoff + timedelta(days=rng.randint(0, recent_span)))
+    dates.sort()
+    return dates
+
+
 def _generate_movements(cur) -> int:
     """Build a movement ledger from Jan 2024 -> today.
 
     Each product receives a deterministic stream of IN (restock), OUT (sales)
-    and occasional ADJUSTMENT/RETURN movements. Running stock is tracked and
-    never goes negative; ``products.current_stock`` is updated to the final
-    ledger balance so the ETL's backward stock walk stays consistent. Recent
-    movements are denser so Prophet/ARIMA forecasting has enough daily points.
+    and occasional ADJUSTMENT/RETURN movements. Stock is managed against a
+    restock-to level (``rop + reorder_qty``) so the cumulative units moved in
+    and out stay close to each other — the charts show a real battle between
+    inbound supply and outbound demand rather than a one-sided restock flood.
+    ``products.current_stock`` is set to the final ledger balance so the ETL's
+    backward stock walk stays consistent. A deterministic subset of products
+    (``_drain_bucket``) ends the period below their reorder point (a demand
+    surge without a matching restock), which is what populates the reorder
+    queue.
     """
     cur.execute("SELECT id, sku, demand_rate, reorder_point FROM products ORDER BY id")
     products = [dict(r) for r in cur.fetchall()]
     today = date.today()
     recent_cutoff = today - timedelta(days=RECENT_WINDOW_DAYS)
     rows: list[tuple] = []
-    for product in products:
+    for idx, product in enumerate(products):
         demand = float(product["demand_rate"] or 0)
         daily = max(0.5, demand / 365.0) if demand else 3.0
         rop = max(int(product["reorder_point"] or 0), 1)
-        reorder_qty = max(int(daily * 21), 12)
-        stock = max(rop * 2, reorder_qty)
+        reorder_qty = max(int(daily * 14), 10)
+        target = rop + reorder_qty
+        stock = target
 
-        older_span = (recent_cutoff - MOVEMENT_START).days
-        recent_span = (today - recent_cutoff).days
-        dates = []
-        for _ in range(_RNG.randint(22, 30)):
-            if older_span > 0:
-                dates.append(MOVEMENT_START + timedelta(days=_RNG.randint(0, older_span - 1)))
-        for _ in range(_RNG.randint(26, 34)):
-            if recent_span > 0:
-                dates.append(recent_cutoff + timedelta(days=_RNG.randint(0, recent_span - 1)))
-        dates.sort()
-
+        dates = _movement_dates(_RNG, today, recent_cutoff)
         for day in dates:
             if stock <= rop:
-                qty = max(int(reorder_qty * _RNG.uniform(0.85, 1.2)), 1)
+                qty = max(target - stock, 1)
                 rows.append(_movement_row(product, "IN", qty, day, _RNG))
                 stock += qty
+                continue
             roll = _RNG.random()
-            if roll < 0.60:
-                qty = max(1, int(round(daily * _RNG.uniform(0.6, 1.6))))
-                if stock <= 0:
-                    qty = max(int(reorder_qty * _RNG.uniform(0.6, 1.0)), 1)
-                    rows.append(_movement_row(product, "IN", qty, day, _RNG))
-                    stock += qty
-                    continue
+            if roll < 0.72:
+                qty = max(1, round(daily * _RNG.uniform(1.5, 6.0)))
                 qty = min(qty, stock)
                 rows.append(_movement_row(product, "OUT", qty, day, _RNG))
                 stock -= qty
-            elif roll < 0.85:
-                qty = max(int(reorder_qty * _RNG.uniform(0.6, 1.2)), 1)
+            elif roll < 0.82:
+                qty = max(1, round(reorder_qty * _RNG.uniform(0.4, 0.8)))
                 rows.append(_movement_row(product, "IN", qty, day, _RNG))
                 stock += qty
-            elif roll < 0.93:
+            elif roll < 0.92:
                 rows.append(_movement_row(product, "ADJUSTMENT", _RNG.randint(1, 5), day, _RNG))
             else:
                 rows.append(_movement_row(product, "RETURN", _RNG.randint(1, 4), day, _RNG))
+
+        if _drain_bucket(idx):
+            # Demand surge: recent sales outrun supply, ending the period
+            # below the reorder point so the product lands in the reorder queue.
+            target_low = _RNG.randint(0, max(rop - 1, 0))
+            if stock > target_low:
+                day = today - timedelta(days=_RNG.randint(0, 2))
+                rows.append(_movement_row(product, "OUT", stock - target_low, day, _RNG))
+                stock = target_low
         cur.execute("UPDATE products SET current_stock=%s WHERE id=%s", (stock, product["id"]))
 
     if rows:
@@ -289,6 +326,7 @@ def _generate_purchase_orders(cur) -> int:
     seen: set[str] = set()
     for i in range(25):
         product = rng.choice(products)
+        product_idx = products.index(product)
         supplier_id = rng.choice(supplier_ids)
         created = MOVEMENT_START + timedelta(days=rng.randint(0, span))
         age_days = (today - created).days
@@ -298,6 +336,8 @@ def _generate_purchase_orders(cur) -> int:
             status = rng.choice(["received", "in_transit", "approved"])
         else:
             status = rng.choice(["draft", "approved", "in_transit", "cancelled"])
+        if _drain_bucket(product_idx) and status in ("approved", "in_transit"):
+            status = "draft"
         po_number = f"PO-{created:%Y%m%d}-{i + 1:04d}"
         if po_number in seen:
             continue

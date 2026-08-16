@@ -282,6 +282,46 @@
       </div>
     </div>
   </article>
+
+  <article class="panel queue-panel" style="grid-column: 1 / -1;">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Top suppliers</div>
+        <div class="panel-caption">Highest procurement value delivered &middot; this year</div>
+      </div>
+    </div>
+    <div class="panel-content">
+      <div class="table-scroll compact">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Supplier</th><th>Location</th><th>Units supplied</th><th>SKUs</th><th>Procurement value</th></tr>
+          </thead>
+          <tbody>
+            {% for s in top_suppliers %}
+            <tr>
+              <td><span class="sku">{{ '%02d'|format(loop.index) }}</span></td>
+              <td>
+                <div class="product-cell">
+                  <span class="product-icon">{{ s.name[:1] }}</span>
+                  <div>
+                    <div class="product-name">{{ s.name }}</div>
+                    <div class="product-meta">Supplier</div>
+                  </div>
+                </div>
+              </td>
+              <td>{{ s.contact_person or '—' }}</td>
+              <td><span class="number">{{ '{:,}'.format(s.units_in) }}</span></td>
+              <td><span class="number">{{ s.skus }}</span></td>
+              <td><span class="number">{{ format_money(s.spend) }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6"><div class="empty-state">No supplier deliveries yet</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </article>
 </section>
 {% endblock %}
 {% block scripts %}
