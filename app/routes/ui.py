@@ -110,6 +110,78 @@ def dashboard():
         top = cur.fetchone()
         forecast_product = {"id": top["id"], "sku": top["sku"], "name": top["name"]} if top else None
 
+        # --- Slow-moving products: longest time sitting in inventory ---------
+        # Days since the product's last OUT (sales) movement. Products with the
+        # biggest gap hold capital idle for the longest.
+        cur.execute(
+            """
+            SELECT p.id, p.sku, p.name, p.category, p.warehouse, p.current_stock,
+                   p.unit_price, p.reorder_point,
+                   COALESCE(MAX(CASE WHEN m.type = 'OUT' THEN m.created_at::date END),
+                            p.created_at::date) AS last_out
+            FROM products p
+            LEFT JOIN movements m ON m.product_id = p.id
+            GROUP BY p.id
+            ORDER BY last_out ASC
+            LIMIT 6
+            """
+        )
+        slow_movers = list(cur.fetchall())
+        today_dt = date.today()
+        for row in slow_movers:
+            row["days_idle"] = max((today_dt - row["last_out"]).days, 0)
+
+        # --- Top demand & top sales (last 90 days) --------------------------
+        cur.execute(
+            """
+            SELECT p.sku, p.name, p.category,
+                   COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS units,
+                   COALESCE(SUM(CASE WHEN m.type = 'OUT'
+                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS value
+            FROM products p
+            JOIN movements m ON m.product_id = p.id
+            WHERE m.created_at >= %s
+            GROUP BY p.sku, p.name, p.category
+            ORDER BY units DESC
+            LIMIT 10
+            """,
+            (today - timedelta(days=90),),
+        )
+        top_demand = list(cur.fetchall())
+
+        cur.execute(
+            """
+            SELECT p.sku, p.name, p.category,
+                   COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS units,
+                   COALESCE(SUM(CASE WHEN m.type = 'OUT'
+                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS value
+            FROM products p
+            JOIN movements m ON m.product_id = p.id
+            WHERE m.created_at >= %s
+            GROUP BY p.sku, p.name, p.category
+            ORDER BY value DESC
+            LIMIT 10
+            """,
+            (today - timedelta(days=90),),
+        )
+        top_sales = list(cur.fetchall())
+
+        # --- Warehouse stock & price profile for charts ---------------------
+        cur.execute(
+            """
+            SELECT warehouse,
+                   COUNT(*) AS sku_count,
+                   COALESCE(SUM(current_stock), 0) AS total_units,
+                   COALESCE(AVG(unit_price), 0) AS avg_price,
+                   COALESCE(SUM(current_stock * unit_price), 0) AS total_value
+            FROM products
+            WHERE warehouse IS NOT NULL
+            GROUP BY warehouse
+            ORDER BY total_units DESC
+            """
+        )
+        warehouse_profile = list(cur.fetchall())
+
     critical_count = int(risk["critical"] or 0)
     warning_count = int((risk["at_risk"] or 0) - critical_count)
     healthy_count = max(total_skus - reorder_count, 0)
@@ -130,6 +202,10 @@ def dashboard():
         forecast_product=forecast_product,
         forecast_model=SettingsService.forecast_model(),
         queue_units=sum(int(p.get("current_stock") or 0) for p in queue),
+        slow_movers=slow_movers,
+        top_demand=top_demand,
+        top_sales=top_sales,
+        warehouse_profile=warehouse_profile,
         today=today,
         format_money=format_money_display,
     )
@@ -447,9 +523,27 @@ def warehouses():
     if rows is None:
         rows = _warehouses_legacy()
     active_warehouse = rows[0]["warehouse"] if rows else None
+
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT warehouse,
+                   COUNT(*) AS sku_count,
+                   COALESCE(SUM(current_stock), 0) AS total_units,
+                   COALESCE(AVG(unit_price), 0) AS avg_price,
+                   COALESCE(SUM(current_stock * unit_price), 0) AS total_value
+            FROM products
+            WHERE warehouse IS NOT NULL
+            GROUP BY warehouse
+            ORDER BY total_units DESC
+            """
+        )
+        chart_data = list(cur.fetchall())
+
     return render_template("warehouses.html", warehouses=rows,
                            format_money=format_money_display,
-                           active_warehouse=active_warehouse)
+                           active_warehouse=active_warehouse,
+                           chart_data=chart_data)
 
 
 def _warehouses_legacy():
@@ -1493,6 +1587,10 @@ def _landing_stats():
         "categories": [],
         "series": [],
         "dates": [],
+        "movements": 0,
+        "first_movement": None,
+        "last_movement": None,
+        "open_pos": 0,
     }
     try:
         with get_cursor() as cur:
@@ -1530,6 +1628,22 @@ def _landing_stats():
             stats["categories"] = [
                 {"category": r["category"], "count": int(r["cnt"])} for r in cur.fetchall()
             ]
+
+            cur.execute(
+                "SELECT COUNT(*) AS c, "
+                "MIN(created_at)::date AS first, MAX(created_at)::date AS last "
+                "FROM movements"
+            )
+            mrow = cur.fetchone()
+            stats["movements"] = int(mrow["c"] or 0)
+            stats["first_movement"] = mrow["first"]
+            stats["last_movement"] = mrow["last"]
+
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM purchase_orders "
+                "WHERE status NOT IN ('received','cancelled')"
+            )
+            stats["open_pos"] = int(cur.fetchone()["c"] or 0)
     except Exception:
         pass
     series, dates = _series_for_last_days(MovementRepository.daily_totals(14), 14)

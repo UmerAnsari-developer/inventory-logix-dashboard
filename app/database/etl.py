@@ -16,6 +16,7 @@ import logging
 from datetime import date, timedelta
 
 import psycopg2.extras
+from psycopg2.extras import execute_values
 
 from flask import current_app
 
@@ -92,23 +93,29 @@ def _build_dim_dates(cur, start: date, end: date) -> int:
     added = 0
     cur.execute("SELECT date_key FROM dim_date WHERE date_key BETWEEN %s AND %s", (start, end))
     existing = {r["date_key"] for r in cur.fetchall()}
+    rows = []
     for d in _iter_dates(start, end):
         if d in existing:
             continue
-        cur.execute(
-            """
-            INSERT INTO dim_date
-                (date_key, year, quarter, month, month_name, day_of_month,
-                 day_of_week, week, is_weekend)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
+        rows.append(
             (
                 d, d.year, (d.month - 1) // 3 + 1, d.month,
                 d.strftime("%b"), d.day, d.isoweekday(),
                 int(d.strftime("%U")), d.weekday() >= 5,
-            ),
+            )
         )
         added += 1
+    if rows:
+        execute_values(
+            cur,
+            """
+            INSERT INTO dim_date
+                (date_key, year, quarter, month, month_name, day_of_month,
+                 day_of_week, week, is_weekend)
+            VALUES %s
+            """,
+            rows,
+        )
     return added
 
 
@@ -126,6 +133,7 @@ def _build_dims(cur, summary: dict, product_range: tuple[date, date]) -> None:
     cur.execute("SELECT warehouse_code FROM dim_warehouse")
     used_codes = {r["warehouse_code"] for r in cur.fetchall()}
     warehouse_keys: dict[str, int] = dict(existing_wh)
+    new_wh: list[tuple[str, str, str, str]] = []
     for name in warehouse_names:
         if name in warehouse_keys:
             continue
@@ -136,34 +144,47 @@ def _build_dims(cur, summary: dict, product_range: tuple[date, date]) -> None:
                 n += 1
             code = f"{code}-{n}"
         used_codes.add(code)
-        cur.execute(
+        new_wh.append((code, name, city, region))
+    if new_wh:
+        returned = execute_values(
+            cur,
             """
             INSERT INTO dim_warehouse (warehouse_code, warehouse_name, city, region)
-            VALUES (%s, %s, %s, %s) RETURNING warehouse_key
+            VALUES %s RETURNING warehouse_name, warehouse_key
             """,
-            (code, name, city, region),
+            new_wh,
+            fetch=True,
         )
-        warehouse_keys[name] = cur.fetchone()["warehouse_key"]
-        summary["dim_warehouses"] += 1
+        for name, key in returned:
+            warehouse_keys[name] = key
+            summary["dim_warehouses"] += 1
 
     cur.execute("SELECT id, sku, name, category, supplier_id, unit_price FROM products")
     products = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT sku, product_key FROM dim_product")
     existing_prod = {r["sku"]: r["product_key"] for r in cur.fetchall()}
     product_keys: dict[str, int] = dict(existing_prod)
+    new_prod: list[tuple[str, str, str, int, float]] = []
     for p in products:
         if p["sku"] in product_keys:
             continue
-        cur.execute(
+        new_prod.append(
+            (p["sku"], p["name"], p["category"], p["supplier_id"], p["unit_price"])
+        )
+    if new_prod:
+        returned = execute_values(
+            cur,
             """
             INSERT INTO dim_product
                 (sku, product_name, category, supplier_id, unit_price)
-            VALUES (%s, %s, %s, %s, %s) RETURNING product_key
+            VALUES %s RETURNING sku, product_key
             """,
-            (p["sku"], p["name"], p["category"], p["supplier_id"], p["unit_price"]),
+            new_prod,
+            fetch=True,
         )
-        product_keys[p["sku"]] = cur.fetchone()["product_key"]
-        summary["dim_products"] += 1
+        for sku, key in returned:
+            product_keys[sku] = key
+            summary["dim_products"] += 1
 
     cur.execute(
         "SELECT id, name, location, reliability, lead_days FROM suppliers"
@@ -171,18 +192,22 @@ def _build_dims(cur, summary: dict, product_range: tuple[date, date]) -> None:
     suppliers = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT supplier_id FROM dim_supplier WHERE supplier_id IS NOT NULL")
     existing_sup = {r["supplier_id"] for r in cur.fetchall()}
+    new_sup: list[tuple[int, str, str, float, int]] = []
     for s in suppliers:
         if s["id"] in existing_sup:
             continue
-        cur.execute(
+        new_sup.append((s["id"], s["name"], s["location"], s["reliability"], s["lead_days"]))
+        existing_sup.add(s["id"])
+    if new_sup:
+        execute_values(
+            cur,
             """
             INSERT INTO dim_supplier (supplier_id, supplier_name, location, reliability, lead_days)
-            VALUES (%s, %s, %s, %s, %s) RETURNING supplier_key
+            VALUES %s
             """,
-            (s["id"], s["name"], s["location"], s["reliability"], s["lead_days"]),
+            new_sup,
         )
-        existing_sup.add(s["id"])
-        summary["dim_suppliers"] += 1
+        summary["dim_suppliers"] += len(new_sup)
 
     # Publish dim maps back onto the cursor-friendly namespace for fact build.
     cur.execute("SELECT warehouse_name, warehouse_key FROM dim_warehouse")
@@ -266,7 +291,7 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
         end_day - timedelta(days=i)
         for i in range((end_day - start_day).days + 1)
     ]
-    rows = 0
+    rows: list[tuple[date, int, int, float, float, float]] = []
     for p in products:
         wh_key = wh_keys.get(p["warehouse"])
         prod_key = prod_keys.get(p["sku"])
@@ -276,18 +301,19 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
         price = float(p["unit_price"] or 0)
         stock = float(p["current_stock"] or 0)
         for d in days_list:
-            cur.execute(
-                """
-                INSERT INTO fact_inventory_daily
-                    (date_key, warehouse_key, product_key, stock_on_hand, reorder_point, inventory_value)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (date_key, warehouse_key, product_key) DO NOTHING
-                """,
-                (d, wh_key, prod_key, stock, rop, stock * price),
-            )
-            rows += 1
+            rows.append((d, wh_key, prod_key, stock, rop, stock * price))
             stock -= net_by_sku_day.get((p["sku"], d), 0)
-    return rows
+    if rows:
+        execute_values(
+            cur,
+            """
+            INSERT INTO fact_inventory_daily
+                (date_key, warehouse_key, product_key, stock_on_hand, reorder_point, inventory_value)
+            VALUES %s
+            """,
+            rows,
+        )
+    return len(rows)
 
 
 def run_etl(force: bool = False) -> dict:

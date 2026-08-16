@@ -981,6 +981,32 @@ svg.chart {
 
 .table-scroll {
   overflow-x: auto;
+  max-height: 520px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-3) transparent;
+}
+
+.table-scroll::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+  background: var(--ink-3);
+  border-radius: 4px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-2);
+}
+
+.table-scroll.compact {
+  max-height: 360px;
 }
 
 table {

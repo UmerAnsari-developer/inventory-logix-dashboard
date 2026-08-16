@@ -54,9 +54,9 @@
 
       <main class="landing-main">
         <section class="hero">
-          <p class="hero-eyebrow reveal">Powered by 180,000+ real supply-chain transactions &middot; Prophet &middot; ARIMA &middot; Isolation Forest</p>
+          <p class="hero-eyebrow reveal">Live demo &middot; {{ '{:,}'.format(stats.movements) }} stock movements from {{ stats.first_movement or 'Jan 2024' }} to {{ stats.last_movement or 'today' }} &middot; Prophet &middot; ARIMA &middot; Isolation Forest</p>
           <h1 class="reveal">Turn real stock data into <span class="grad">revenue-ready decisions</span>.</h1>
-          <p class="hero-sub reveal">Seeded from the real DataCo SMART SUPPLY CHAIN dataset — demand forecasting, anomaly detection, EOQ optimization and live warehouse reporting in one real-time command center for your entire supply chain.</p>
+          <p class="hero-sub reveal">A full production dataset — {{ stats.total_skus }} real-world products across {{ stats.warehouses }} warehouses, supplied by {{ stats.suppliers }} vendors, with {{ '{:,}'.format(stats.movements) }} transactions recorded every day from {{ stats.first_movement or 'January 2024' }} to today. Demand forecasting, anomaly detection, EOQ optimization and live warehouse reporting in one command center for your entire supply chain.</p>
           <div class="hero-cta reveal">
             <a class="btn btn-green btn-hero" href="{{ url_for('auth.register') }}">Get started free</a>
             <a class="btn btn-outline btn-hero" href="{{ url_for('auth.login') }}">Explore live dashboard</a>
@@ -64,9 +64,9 @@
 
           <div class="hero-stats reveal" id="heroStats">
             <div class="metric-card"><div class="metric-label">SKUs tracked</div><div class="metric-value stat-num" data-count="{{ stats.total_skus }}">0</div></div>
-            <div class="metric-card"><div class="metric-label">Inventory value</div><div class="metric-value stat-num money" data-count="{{ stats.inventory_value }}" data-prefix="₹">0</div></div>
+            <div class="metric-card"><div class="metric-label">Warehouses</div><div class="metric-value stat-num" data-count="{{ stats.warehouses }}">0</div></div>
+            <div class="metric-card"><div class="metric-label">Stock movements</div><div class="metric-value stat-num" data-count="{{ stats.movements }}">0</div></div>
             <div class="metric-card"><div class="metric-label">Suppliers</div><div class="metric-value stat-num" data-count="{{ stats.suppliers }}">0</div></div>
-            <div class="metric-card"><div class="metric-label">Stock health</div><div class="metric-value stat-num" data-count="{{ stats.stock_health }}" data-suffix="%">0</div></div>
           </div>
         </section>
 
@@ -142,7 +142,7 @@
             <div class="insight-metrics">
               <div><span data-count="{{ stats.reorder_count }}">0</span><em>alerts flagged</em></div>
               <div><span data-count="{{ stats.warehouses }}">0</span><em>warehouses live</em></div>
-              <div><span class="grad">{{ '%02d'|format(stats.stock_health) }}%</span><em>health score</em></div>
+              <div><span class="grad">{{ '{:,}'.format(stats.movements) }}</span><em>movements recorded</em></div>
             </div>
           </div>
         </section>

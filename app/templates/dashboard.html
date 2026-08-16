@@ -156,10 +156,165 @@
     </div>
   </article>
 </section>
+
+<section class="dashboard-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Slow-moving products</div>
+        <div class="panel-caption">Longest time since last sale &middot; idle stock tied up</div>
+      </div>
+    </div>
+    <div class="panel-content">
+      <div class="table-scroll compact">
+        <table>
+          <thead>
+            <tr><th>Product</th><th>Days idle</th><th>Stock</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            {% for p in slow_movers %}
+            <tr>
+              <td>
+                <div class="product-cell">
+                  <span class="product-icon">{{ p.name[:1] }}</span>
+                  <div>
+                    <div class="product-name"><a href="{{ url_for('ui.product_detail', product_id=p.id) }}">{{ p.name }}</a></div>
+                    <div class="product-meta">{{ p.sku }} &middot; {{ p.warehouse }}</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="status {{ 'critical' if p.days_idle >= 60 else 'warning' if p.days_idle >= 30 else 'good' }}">{{ p.days_idle }}d</span></td>
+              <td><span class="number">{{ p.current_stock }}</span></td>
+              <td><span class="number">{{ format_money(p.current_stock * (p.unit_price or 0)) }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4"><div class="empty-state">No movement data yet</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Top demand</div>
+        <div class="panel-caption">Highest unit sales &middot; last 90 days</div>
+      </div>
+    </div>
+    <div class="panel-content">
+      <div class="table-scroll compact">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Product</th><th>Units</th></tr>
+          </thead>
+          <tbody>
+            {% for p in top_demand %}
+            <tr>
+              <td><span class="sku">{{ '%02d'|format(loop.index) }}</span></td>
+              <td>
+                <div class="product-cell">
+                  <div>
+                    <div class="product-name">{{ p.name }}</div>
+                    <div class="product-meta">{{ p.sku }} &middot; {{ p.category or "-" }}</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="number">{{ '{:,}'.format(p.units) }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3"><div class="empty-state">No sales yet</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Top sales</div>
+        <div class="panel-caption">Highest revenue products &middot; last 90 days</div>
+      </div>
+    </div>
+    <div class="panel-content">
+      <div class="table-scroll compact">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Product</th><th>Revenue</th></tr>
+          </thead>
+          <tbody>
+            {% for p in top_sales %}
+            <tr>
+              <td><span class="sku">{{ '%02d'|format(loop.index) }}</span></td>
+              <td>
+                <div class="product-cell">
+                  <div>
+                    <div class="product-name">{{ p.name }}</div>
+                    <div class="product-meta">{{ p.sku }} &middot; {{ p.category or "-" }}</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="number">{{ format_money(p.value) }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3"><div class="empty-state">No sales yet</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel queue-panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Warehouse profile</div>
+        <div class="panel-caption">Stock level and average price per warehouse</div>
+      </div>
+      <div class="chart-legend"><span class="legend-key"><span class="legend-dot" style="background:var(--green)"></span>Units on hand</span><span class="legend-key"><span class="legend-dot" style="background:var(--ink-3)"></span>Avg price</span></div>
+    </div>
+    <div class="panel-content">
+      <div class="warehouse-chart-wrap">
+        <canvas id="warehouseProfileChart" height="220"></canvas>
+      </div>
+    </div>
+  </article>
+</section>
 {% endblock %}
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  var profileData = {{ (warehouse_profile|tojson) if warehouse_profile else 'null' }};
+  var profEl = document.getElementById('warehouseProfileChart');
+  if (profileData && profEl && window.Chart) {
+    var labels = profileData.map(function (w) { return w.warehouse; });
+    new window.Chart(profEl, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'Units on hand', data: profileData.map(function (w) { return w.total_units; }),
+            backgroundColor: 'rgba(61,153,124,0.75)', borderColor: '#3d997c', borderWidth: 1, yAxisID: 'y' },
+          { label: 'Avg price', data: profileData.map(function (w) { return Math.round(w.avg_price); }),
+            type: 'line', backgroundColor: 'rgba(31,41,55,0.1)', borderColor: '#1f2937',
+            borderWidth: 2, pointBackgroundColor: '#1f2937', tension: 0.25, yAxisID: 'y1' },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { beginAtZero: true, title: { display: true, text: 'Units' } },
+          y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'Avg price' } },
+        },
+        plugins: { legend: { labels: { boxWidth: 10 } } },
+      },
+    });
+  }
+
   if (window.StockflowDashboardForecast) {
     var product = {{ (forecast_product|tojson) if forecast_product else 'null' }};
     var el = document.getElementById('dashboardForecastChart');

@@ -63,7 +63,8 @@ def create_app(config_name: str | None = None) -> Flask:
         try:
             init_schema()
             seed_database()
-            etl_database()
+            if app.config.get("RUN_ETL_ON_STARTUP", True):
+                etl_database()
         except Exception as exc:
             LOGGER.warning("Database bootstrap deferred: %s", exc)
 
