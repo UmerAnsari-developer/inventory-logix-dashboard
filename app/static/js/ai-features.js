@@ -257,7 +257,9 @@
         };
         async function loadPortfolio() {
             try {
-                const res = await api(cfg.portfolioUrl);
+                const q = new URLSearchParams();
+                if (cfg.contamination) q.set('contamination', cfg.contamination.value);
+                const res = await api(cfg.portfolioUrl + '?' + q.toString());
                 const rows = res.data || [];
                 const tbody = cfg.portfolioTable.tBodies[0];
                 tbody.innerHTML = rows.length ? rows.map(r => (
