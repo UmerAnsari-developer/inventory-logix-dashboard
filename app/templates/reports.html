@@ -602,6 +602,13 @@
     if (v === null || v === undefined) return '';
     return '₹' + fmtNum(v);
   }
+  function fmtPct(value, ctx) {
+    if (!ctx || !ctx.chart) return '';
+    var data = ctx.chart.data.datasets[0].data;
+    var total = data.reduce(function(a, b) { return a + (b || 0); }, 0);
+    if (!total) return '0%';
+    return Math.round((value / total) * 100) + '%';
+  }
   function dl(opts) {
     var base = {
       color: '#1f2937',
@@ -669,7 +676,7 @@
     makeChart('statusChart', {
       type: 'doughnut',
       data: { labels: D.status.labels, datasets: [{ data: D.status.values, backgroundColor: ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtNum }) } },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtPct }) } },
     });
     renderScrollLegend('statusLegend', D.status.labels, ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], function (i) {
       return fmtNum(D.status.values[i]);
@@ -677,7 +684,7 @@
     makeChart('overviewCategoryChart', {
       type: 'doughnut',
       data: { labels: D.category.labels, datasets: [{ data: D.category.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, cutout: '45%', plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtMoney }) } },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '45%', plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtPct }) } },
     });
     renderScrollLegend('overviewCategoryLegend', D.category.labels, PALETTE, function (i) {
       return fmtMoney(D.category.values[i]);
@@ -763,7 +770,7 @@
     makeChart('poStatusChart', {
       type: 'doughnut',
       data: { labels: D.poStatus.labels, datasets: [{ data: D.poStatus.values, backgroundColor: ['#3d997c', '#2563eb', '#e3a43c', '#7c3aed', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtNum }) } },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtPct }) } },
     });
     renderScrollLegend('poStatusLegend', D.poStatus.labels, ['#3d997c', '#2563eb', '#e3a43c', '#7c3aed', '#1f2937'], function (i) {
       return fmtNum(D.poStatus.values[i]);
@@ -911,7 +918,7 @@
     makeChart('invStatusChart', {
       type: 'doughnut',
       data: { labels: D.status.labels, datasets: [{ data: D.status.values, backgroundColor: ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtNum }) } },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtPct }) } },
     });
     renderScrollLegend('invStatusLegend', D.status.labels, ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], function (i) {
       return fmtNum(D.status.values[i]);
@@ -919,7 +926,7 @@
     makeChart('invCategoryChart', {
       type: 'doughnut',
       data: { labels: D.category.labels, datasets: [{ data: D.category.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, cutout: '45%', plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtMoney }) } },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '45%', plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtPct }) } },
     });
     renderScrollLegend('invCategoryLegend', D.category.labels, PALETTE, function (i) {
       return fmtMoney(D.category.values[i]);
