@@ -153,6 +153,28 @@ Gmail password will not work.
 
 ---
 
+## Deploying to Render (PostgreSQL)
+
+1. Create a PostgreSQL database on Render and note the internal connection
+   string from the **Connect** panel.
+2. Open the PSQL shell (or your preferred client) and run:
+
+   ```bash
+   \i database.sql
+   ```
+
+   This drops and recreates all tables (operational + ETL star schema) and
+   seeds the three demo users (`admin`/`Admin@123`, `manager`/`Manager@123`,
+   `viewer`/`Viewer@123`) with real password hashes.
+3. Point your app at the Render database. Either set `DATABASE_URL` to the
+   internal connection string, or set `DB_HOST`, `DB_PORT`, `DB_NAME`,
+   `DB_USER`, `DB_PASSWORD` individually.
+4. Optional: after deploy, run `flask --app run.py seed-db --force` with the
+   `datasets/DataCoSupplyChainDataset.csv` present to load products/suppliers.
+   Without it the app still boots (the schema is already in place).
+
+---
+
 ## REST API
 
 All endpoints return a consistent JSON envelope:
