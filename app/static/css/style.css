@@ -1632,6 +1632,51 @@ tbody tr:hover {
   font-size: 0.7rem;
 }
 
+/* Landing-page style inventory mix chart (used on dashboard) */
+.cat-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.cat-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 40px;
+  align-items: center;
+  gap: 12px;
+}
+
+.cat-row .cat-name {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.cat-row .cat-track {
+  height: 10px;
+  border-radius: 99px;
+  background: rgba(61, 153, 124, 0.12);
+  overflow: hidden;
+}
+
+.cat-row .cat-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--green), var(--lp-cyan));
+  transition: width 900ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.cat-row .cat-val {
+  color: var(--green);
+  font: 600 0.78rem var(--mono);
+  text-align: right;
+}
+
 /* ABC Analysis row highlighting */
 .table-scroll tr.abc-a td {
   background: rgba(61, 153, 124, 0.06);
