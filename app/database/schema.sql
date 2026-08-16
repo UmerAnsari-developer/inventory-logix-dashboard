@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS movements (
     CONSTRAINT movements_type_chk CHECK (type IN ('IN','OUT','ADJUSTMENT','RETURN'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_movements_created_at ON movements(created_at);
+CREATE INDEX IF NOT EXISTS idx_movements_type_created ON movements(type, created_at);
+CREATE INDEX IF NOT EXISTS idx_movements_product_created ON movements(product_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_movements_product_type_created ON movements(product_id, type, created_at);
+
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id              SERIAL PRIMARY KEY,
     po_number       VARCHAR(40) UNIQUE NOT NULL,

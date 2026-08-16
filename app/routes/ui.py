@@ -8,7 +8,9 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import time
 from datetime import date, timedelta
+from functools import lru_cache
 
 from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -28,6 +30,28 @@ from ..services import MovementService, ProductService, SettingsService, Supplie
 from ..utils import format_money_display
 
 LOGGER = logging.getLogger(__name__)
+
+# Simple in-memory cache for reports data (TTL-based)
+_reports_cache: dict[str, tuple[float, dict]] = {}
+_REPORTS_CACHE_TTL = 30  # seconds
+
+
+def _cache_get(key: str):
+    """Get cached value if not expired."""
+    entry = _reports_cache.get(key)
+    if entry and (time.time() - entry[0]) < _REPORTS_CACHE_TTL:
+        return entry[1]
+    return None
+
+
+def _cache_set(key: str, value: dict):
+    _reports_cache[key] = (time.time(), value)
+
+
+def _make_cache_key(**kwargs) -> str:
+    """Create a cache key from filter parameters."""
+    return "|".join(f"{k}={v}" for k, v in sorted(kwargs.items()) if v)
+
 
 ui_bp = Blueprint("ui", __name__)
 
@@ -202,6 +226,58 @@ def dashboard():
         )
         warehouse_profile = list(cur.fetchall())
 
+        # --- Stock turnover rate by category (COGS / avg inventory) -----------
+        cur.execute(
+            """
+            SELECT p.category,
+                   COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS cogs,
+                   COALESCE(AVG(p.current_stock * p.unit_price), 0) AS avg_inv_value,
+                   COUNT(*) AS sku_count
+            FROM products p
+            LEFT JOIN movements m ON m.product_id = p.id
+                AND m.type = 'OUT' AND m.created_at >= %s
+            WHERE p.category IS NOT NULL AND p.unit_price IS NOT NULL
+            GROUP BY p.category
+            ORDER BY cogs DESC
+            """,
+            (today - timedelta(days=365),),
+        )
+        turnover_by_category = list(cur.fetchall())
+        for row in turnover_by_category:
+            row["turnover_rate"] = round(float(row["cogs"] or 0) / float(row["avg_inv_value"] or 1), 2) if row["avg_inv_value"] else 0
+
+        # --- ABC analysis (Pareto) - SKUs ranked by inventory value ------------
+        cur.execute(
+            """
+            SELECT sku, name, category, (current_stock * unit_price) AS value
+            FROM products
+            WHERE unit_price IS NOT NULL AND current_stock > 0
+            ORDER BY value DESC
+            """
+        )
+        abc_rows = list(cur.fetchall())
+        total_value = sum(float(r["value"] or 0) for r in abc_rows)
+        cum = 0.0
+        abc_data = []
+        for i, row in enumerate(abc_rows, 1):
+            cum += float(row["value"] or 0)
+            pct = round(cum / total_value * 100, 1) if total_value else 0
+            if pct <= 80:
+                cls = "A"
+            elif pct <= 95:
+                cls = "B"
+            else:
+                cls = "C"
+            abc_data.append({
+                "rank": i,
+                "sku": row["sku"],
+                "name": row["name"],
+                "category": row["category"],
+                "value": float(row["value"] or 0),
+                "cum_pct": pct,
+                "class": cls,
+            })
+
     critical_count = int(risk["critical"] or 0)
     warning_count = int((risk["at_risk"] or 0) - critical_count)
     healthy_count = max(total_skus - reorder_count, 0)
@@ -227,6 +303,8 @@ def dashboard():
         top_sales=top_sales,
         top_suppliers=top_suppliers,
         warehouse_profile=warehouse_profile,
+        turnover_by_category=turnover_by_category,
+        abc_data=abc_data,
         today=today,
         format_money=format_money_display,
     )
@@ -692,6 +770,21 @@ def reports():
 
     movement_where = ("WHERE " + " AND ".join(movement_conditions)) if movement_conditions else "WHERE 1=1"
 
+    # --- Cache key for reports data ---
+    cache_key = _make_cache_key(
+        date_from=date_from or "",
+        date_to=date_to or "",
+        warehouses=",".join(selected_warehouses) if selected_warehouses else "",
+        categories=",".join(selected_categories) if selected_categories else "",
+    )
+    cached = _cache_get(cache_key)
+    if cached:
+        # Unpack cached data and render
+        return render_template(
+            "reports.html",
+            **cached,
+        )
+
     with get_cursor() as cur:
         # --- Category breakdown (value + units) ---
         if date_from_start or date_to_end:
@@ -923,6 +1016,20 @@ def reports():
         )
         reorder_pressure = list(cur.fetchall())
 
+        # --- Reorder items by supplier ---
+        cur.execute(
+            f"""
+            SELECT s.name AS supplier, COUNT(*) AS skus_below_rop
+            FROM products p
+            JOIN suppliers s ON s.id = p.supplier_id
+            {product_where}
+            AND p.reorder_point > 0 AND p.current_stock <= p.reorder_point
+            GROUP BY s.name ORDER BY skus_below_rop DESC LIMIT 10
+            """,
+            tuple(product_params)
+        )
+        reorder_by_supplier = list(cur.fetchall())
+
         cur.execute(
             "SELECT COUNT(*) AS c FROM purchase_orders "
             "WHERE status NOT IN ('received','cancelled')"
@@ -970,40 +1077,97 @@ def reports():
     tomorrow = today + timedelta(days=1)
 
     with get_cursor() as cur:
-        def _period_metrics(start, end):
-            cur.execute(
-                f"""
-                SELECT COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0) AS units_in,
-                       COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS units_out,
-                       COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS value_in,
-                       COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS value_out,
-                       COUNT(DISTINCT m.product_id) AS skus
-                FROM movements m
-                JOIN products p ON p.id = m.product_id
-                WHERE m.created_at >= %s AND m.created_at < %s {filter_clause}
-                """,
-                tuple([start, end] + filter_params),
-            )
-            return cur.fetchone()
+        # Combined period metrics in one query (MTD, YTD, prev MTD, prev YTD)
+        cur.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN m.type = 'IN' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity ELSE 0 END), 0) AS mtd_units_in,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity ELSE 0 END), 0) AS mtd_units_out,
+                COALESCE(SUM(CASE WHEN m.type = 'IN' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity * p.unit_price ELSE 0 END), 0) AS mtd_value_in,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity * p.unit_price ELSE 0 END), 0) AS mtd_value_out,
+                COUNT(DISTINCT CASE WHEN m.created_at >= %s AND m.created_at < %s THEN m.product_id END) AS mtd_skus,
 
-        def _period_po(start, end):
-            cur.execute(
-                """
-                SELECT COALESCE(SUM(quantity * unit_cost), 0) AS value, COUNT(*) AS c
-                FROM purchase_orders WHERE created_at >= %s AND created_at < %s
-                """,
-                (start, end),
-            )
-            return cur.fetchone()
+                COALESCE(SUM(CASE WHEN m.type = 'IN' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity ELSE 0 END), 0) AS ytd_units_in,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity ELSE 0 END), 0) AS ytd_units_out,
+                COALESCE(SUM(CASE WHEN m.type = 'IN' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity * p.unit_price ELSE 0 END), 0) AS ytd_value_in,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity * p.unit_price ELSE 0 END), 0) AS ytd_value_out,
+                COUNT(DISTINCT CASE WHEN m.created_at >= %s AND m.created_at < %s THEN m.product_id END) AS ytd_skus,
 
-        mtd_row = _period_metrics(mtd_start, tomorrow)
-        ytd_row = _period_metrics(ytd_start, tomorrow)
-        prev_mtd_row = _period_metrics(prev_mtd_start, mtd_start)
-        prev_ytd_row = _period_metrics(prev_ytd_start, prev_ytd_end)
-        mtd_po_row = _period_po(mtd_start, tomorrow)
-        ytd_po_row = _period_po(ytd_start, tomorrow)
-        prev_mtd_po_row = _period_po(prev_mtd_start, mtd_start)
-        prev_ytd_po_row = _period_po(prev_ytd_start, prev_ytd_end)
+                COALESCE(SUM(CASE WHEN m.type = 'IN' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity ELSE 0 END), 0) AS prev_mtd_units_in,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity ELSE 0 END), 0) AS prev_mtd_units_out,
+                COALESCE(SUM(CASE WHEN m.type = 'IN' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity * p.unit_price ELSE 0 END), 0) AS prev_mtd_value_in,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity * p.unit_price ELSE 0 END), 0) AS prev_mtd_value_out,
+                COUNT(DISTINCT CASE WHEN m.created_at >= %s AND m.created_at < %s THEN m.product_id END) AS prev_mtd_skus,
+
+                COALESCE(SUM(CASE WHEN m.type = 'IN' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity ELSE 0 END), 0) AS prev_ytd_units_in,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity ELSE 0 END), 0) AS prev_ytd_units_out,
+                COALESCE(SUM(CASE WHEN m.type = 'IN' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity * p.unit_price ELSE 0 END), 0) AS prev_ytd_value_in,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s THEN m.quantity * p.unit_price ELSE 0 END), 0) AS prev_ytd_value_out,
+                COUNT(DISTINCT CASE WHEN m.created_at >= %s AND m.created_at < %s THEN m.product_id END) AS prev_ytd_skus
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE (m.created_at >= %s AND m.created_at < %s) {filter_clause}
+            """,
+            tuple([
+                mtd_start, tomorrow, mtd_start, tomorrow, mtd_start, tomorrow, mtd_start, tomorrow, mtd_start, tomorrow,
+                ytd_start, tomorrow, ytd_start, tomorrow, ytd_start, tomorrow, ytd_start, tomorrow, ytd_start, tomorrow,
+                prev_mtd_start, mtd_start, prev_mtd_start, mtd_start, prev_mtd_start, mtd_start, prev_mtd_start, mtd_start, prev_mtd_start, mtd_start,
+                prev_ytd_start, prev_ytd_end, prev_ytd_start, prev_ytd_end, prev_ytd_start, prev_ytd_end, prev_ytd_start, prev_ytd_end, prev_ytd_start, prev_ytd_end,
+                prev_ytd_start, tomorrow,
+            ] + filter_params),
+        )
+        period_row = cur.fetchone()
+
+        mtd_row = {
+            "units_in": period_row["mtd_units_in"], "units_out": period_row["mtd_units_out"],
+            "value_in": period_row["mtd_value_in"], "value_out": period_row["mtd_value_out"],
+            "skus": period_row["mtd_skus"],
+        }
+        ytd_row = {
+            "units_in": period_row["ytd_units_in"], "units_out": period_row["ytd_units_out"],
+            "value_in": period_row["ytd_value_in"], "value_out": period_row["ytd_value_out"],
+            "skus": period_row["ytd_skus"],
+        }
+        prev_mtd_row = {
+            "units_in": period_row["prev_mtd_units_in"], "units_out": period_row["prev_mtd_units_out"],
+            "value_in": period_row["prev_mtd_value_in"], "value_out": period_row["prev_mtd_value_out"],
+            "skus": period_row["prev_mtd_skus"],
+        }
+        prev_ytd_row = {
+            "units_in": period_row["prev_ytd_units_in"], "units_out": period_row["prev_ytd_units_out"],
+            "value_in": period_row["prev_ytd_value_in"], "value_out": period_row["prev_ytd_value_out"],
+            "skus": period_row["prev_ytd_skus"],
+        }
+
+        # Combined PO period metrics
+        cur.execute(
+            """
+            SELECT
+                COALESCE(SUM(CASE WHEN created_at >= %s AND created_at < %s THEN quantity * unit_cost ELSE 0 END), 0) AS mtd_value,
+                COUNT(CASE WHEN created_at >= %s AND created_at < %s THEN 1 END) AS mtd_c,
+                COALESCE(SUM(CASE WHEN created_at >= %s AND created_at < %s THEN quantity * unit_cost ELSE 0 END), 0) AS ytd_value,
+                COUNT(CASE WHEN created_at >= %s AND created_at < %s THEN 1 END) AS ytd_c,
+                COALESCE(SUM(CASE WHEN created_at >= %s AND created_at < %s THEN quantity * unit_cost ELSE 0 END), 0) AS prev_mtd_value,
+                COUNT(CASE WHEN created_at >= %s AND created_at < %s THEN 1 END) AS prev_mtd_c,
+                COALESCE(SUM(CASE WHEN created_at >= %s AND created_at < %s THEN quantity * unit_cost ELSE 0 END), 0) AS prev_ytd_value,
+                COUNT(CASE WHEN created_at >= %s AND created_at < %s THEN 1 END) AS prev_ytd_c
+            FROM purchase_orders
+            WHERE created_at >= %s AND created_at < %s
+            """,
+            tuple([
+                mtd_start, tomorrow, mtd_start, tomorrow,
+                ytd_start, tomorrow, ytd_start, tomorrow,
+                prev_mtd_start, mtd_start, prev_mtd_start, mtd_start,
+                prev_ytd_start, prev_ytd_end, prev_ytd_start, prev_ytd_end,
+                prev_ytd_start, tomorrow,
+            ]),
+        )
+        po_row = cur.fetchone()
+
+        mtd_po_row = {"value": po_row["mtd_value"], "c": po_row["mtd_c"]}
+        ytd_po_row = {"value": po_row["ytd_value"], "c": po_row["ytd_c"]}
+        prev_mtd_po_row = {"value": po_row["prev_mtd_value"], "c": po_row["prev_mtd_c"]}
+        prev_ytd_po_row = {"value": po_row["prev_ytd_value"], "c": po_row["prev_ytd_c"]}
 
         def _period_dict(row, po_row):
             return {
@@ -1201,6 +1365,12 @@ def reports():
             monthly_series["labels"].append(lm.strftime("%b %y"))
             monthly_series["in"].append(int((row["in_qty"] or 0)) if row else 0)
             monthly_series["out"].append(int((row["out_qty"] or 0)) if row else 0)
+
+        movement_caption = (
+            f"from {date_from_start.strftime('%b %Y')} to {date_to_end.strftime('%b %Y')}"
+            if date_from_start and date_to_end
+            else "over the last 30 days"
+        )
 
         # --- Sales analysis: OUT movements = sales ---
         def _period_orders(start, end):
@@ -1475,6 +1645,10 @@ def reports():
             "labels": [r["category"] for r in reorder_by_category],
             "below": [int(r["below"] or 0) for r in reorder_by_category],
         },
+        "reorderSupplier": {
+            "labels": [r["supplier"] for r in reorder_by_supplier],
+            "values": [int(r["skus_below_rop"] or 0) for r in reorder_by_supplier],
+        },
         "salesYear": sales_year_series,
         "salesYtdCompare": sales_ytd_compare,
         "salesQtdCompare": sales_qtd_compare,
@@ -1502,65 +1676,73 @@ def reports():
             "values": [round(float(r["value"] or 0)) for r in top_sellers],
             "units": [int(r["units"] or 0) for r in top_sellers],
         },
-    }
-
-    return render_template(
-        "reports.html",
-        breakdown=breakdown,
-        top_skus=top_skus,
-        warehouse_breakdown=warehouse_breakdown,
-        supplier_stats=supplier_stats,
-        reorder_pressure=reorder_pressure,
-        movement=movement,
-        report_data=report_data,
-        total=float(kpi["inventory_value"] or 0),
-        total_units=int(kpi["total_units"] or 0),
-        sku_count=int(kpi["sku_count"] or 0),
-        unders=int(unders or 0),
-        out_stock=int(kpi["out_of_stock"] or 0),
-        healthy=status_healthy,
-        open_po=open_po,
-        supplier_count=supplier_count,
-        thinnest=thinnest,
-        today=date.today(),
-        warehouses=warehouses,
-        categories=categories,
-        selected_warehouses=selected_warehouses,
-        selected_categories=selected_categories,
-        # Backward compatibility
-        selected_warehouse=selected_warehouses[0] if selected_warehouses else "",
-        selected_category=selected_categories[0] if selected_categories else "",
-        date_from=date_from,
-        date_to=date_to,
-        category_counts=category_counts,
-        product_rows=product_rows,
-        po_status=po_status,
-        po_value=po_value,
-        open_pos=open_pos,
-        warehouse_analytics=warehouse_analytics,
-        warehouse_movement=warehouse_movement,
-        reorder_by_category=reorder_by_category,
-        mtd=mtd,
-        ytd=ytd,
-        prev_mtd=prev_mtd,
-        prev_ytd=prev_ytd,
-        sales=sales,
-        top_sellers=top_sellers,
-        sales_years=sales_years,
-        year_series=year_series,
-        ytd_compare=ytd_compare,
-        month_compare=month_compare,
-        monthly_series=monthly_series,
-        reorder_coverage=[
+}
+    # Cache the template context for reuse
+    template_context = {
+        "breakdown": breakdown,
+        "top_skus": top_skus,
+        "warehouse_breakdown": warehouse_breakdown,
+        "supplier_stats": supplier_stats,
+        "reorder_pressure": reorder_pressure,
+        "movement": movement,
+        "report_data": report_data,
+        "total": float(kpi["inventory_value"] or 0),
+        "total_units": int(kpi["total_units"] or 0),
+        "sku_count": int(kpi["sku_count"] or 0),
+        "unders": int(unders or 0),
+        "out_stock": int(kpi["out_of_stock"] or 0),
+        "healthy": status_healthy,
+        "open_po": open_po,
+        "supplier_count": supplier_count,
+        "thinnest": thinnest,
+        "today": date.today(),
+        "warehouses": warehouses,
+        "categories": categories,
+        "selected_warehouses": selected_warehouses,
+        "selected_categories": selected_categories,
+        "selected_warehouse": selected_warehouses[0] if selected_warehouses else "",
+        "selected_category": selected_categories[0] if selected_categories else "",
+        "date_from": date_from,
+        "date_to": date_to,
+        "category_counts": category_counts,
+        "product_rows": product_rows,
+        "po_status": po_status,
+        "po_value": po_value,
+        "open_pos": open_pos,
+        "warehouse_analytics": warehouse_analytics,
+        "warehouse_movement": warehouse_movement,
+        "ytd": ytd,
+        "prev_ytd": prev_ytd,
+        "mtd": mtd,
+        "prev_mtd": prev_mtd,
+        "year_series": year_series,
+        "ytd_compare": ytd_compare,
+        "month_compare": month_compare,
+        "monthly_series": monthly_series,
+        "reorder_by_category": reorder_by_category,
+        "sales": sales,
+        "top_sellers": top_sellers,
+        "sales_years": sales_years,
+        "sales_ytd_compare": sales_ytd_compare,
+        "sales_qtd_compare": sales_qtd_compare,
+        "sales_months_by_year": sales_months_by_year,
+        "sales_quarter": sales_quarter_series,
+        "sales_quarter_compare": sales_quarter_compare,
+        "sales_month_compare": sales_month_compare,
+        "sales_monthly": sales_monthly_series,
+        "reorder_by_supplier": {
+            "labels": [r["supplier"] for r in reorder_by_supplier] if 'reorder_by_supplier' in locals() else [],
+            "values": [int(r["skus_below_rop"] or 0) for r in reorder_by_supplier] if 'reorder_by_supplier' in locals() else [],
+        },
+        "movement_caption": movement_caption,
+        "reorder_coverage": [
             {"sku": r["sku"], "coverage": round((r["coverage"] or 0) * 100)}
             for r in reorder_pressure
         ],
-        movement_caption=(
-            f"from {date_from_start.strftime('%b %Y')} to {date_to_end.strftime('%b %Y')}"
-            if date_from_start and date_to_end
-            else "over the last 30 days"
-        ),
-    )
+    }
+    _cache_set(cache_key, template_context)
+
+    return render_template("reports.html", **template_context)
 
 
 @ui_bp.route("/eoq-calculator")

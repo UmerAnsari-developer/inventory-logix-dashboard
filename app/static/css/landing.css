@@ -256,11 +256,19 @@ a {
   font: 0.58rem var(--mono);
 }
 
+.category-panel {
+  display: flex;
+  flex-direction: column;
+}
+
 .cat-bars {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   padding-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
 .cat-row {
