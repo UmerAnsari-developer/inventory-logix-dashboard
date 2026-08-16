@@ -166,6 +166,26 @@ def dashboard():
         )
         top_sales = list(cur.fetchall())
 
+        # --- Top supplier by procurement spend (this year) -------------------
+        cur.execute(
+            """
+            SELECT s.name, s.location AS contact_person,
+                   COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0) AS units_in,
+                   COALESCE(SUM(CASE WHEN m.type = 'IN'
+                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS spend,
+                   COUNT(DISTINCT p.id) AS skus
+            FROM suppliers s
+            JOIN products p ON p.supplier_id = s.id
+            LEFT JOIN movements m ON m.product_id = p.id
+                AND m.type = 'IN' AND m.created_at >= %s
+            GROUP BY s.id
+            ORDER BY spend DESC, units_in DESC
+            LIMIT 5
+            """,
+            (date(today.year, 1, 1),),
+        )
+        top_suppliers = list(cur.fetchall())
+
         # --- Warehouse stock & price profile for charts ---------------------
         cur.execute(
             """
@@ -205,6 +225,7 @@ def dashboard():
         slow_movers=slow_movers,
         top_demand=top_demand,
         top_sales=top_sales,
+        top_suppliers=top_suppliers,
         warehouse_profile=warehouse_profile,
         today=today,
         format_money=format_money_display,

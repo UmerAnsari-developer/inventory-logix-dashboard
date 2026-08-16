@@ -11,7 +11,6 @@
 
   <div class="report-tabs" role="tablist" aria-label="Report sections">
     <button type="button" class="report-tab active" data-tab="overview" role="tab">Overview</button>
-    <button type="button" class="report-tab" data-tab="product" role="tab">Product Analysis</button>
     <button type="button" class="report-tab" data-tab="warehouse" role="tab">Warehouse Analysis</button>
     <button type="button" class="report-tab" data-tab="supplier" role="tab">Supplier &amp; Purchase</button>
     <button type="button" class="report-tab" data-tab="period" role="tab">Sales Analysis</button>
@@ -119,7 +118,12 @@
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per category</div></div>
-        <div class="panel-content"><div class="report-chart"><canvas id="overviewCategoryChart"></canvas></div></div>
+        <div class="panel-content">
+          <div class="chart-with-legend">
+            <div class="report-chart"><canvas id="overviewCategoryChart"></canvas></div>
+            <ul class="chart-legend-scroll" id="overviewCategoryLegend"></ul>
+          </div>
+        </div>
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Movement activity</div><div class="panel-caption">Units in / out {{ movement_caption }}</div></div>
@@ -203,64 +207,7 @@
     </div>
   </div>
 
-  <!-- ============================ 2 · PRODUCT ============================ -->
-  <div class="report-section" id="tab-product" role="tabpanel">
-    <div class="report-grid">
-      <article class="panel">
-        <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per product category</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="categoryChart"></canvas></div></div>
-      </article>
-      <article class="panel">
-        <div class="panel-header"><div class="panel-title">Product count by category</div><div class="panel-caption">Catalogue composition</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="categoryCountChart"></canvas></div></div>
-      </article>
-      <article class="panel">
-        <div class="panel-header"><div class="panel-title">Top SKUs by value</div><div class="panel-caption">Highest inventory investment</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="topSkuChart"></canvas></div></div>
-      </article>
-      <article class="panel">
-        <div class="panel-header"><div class="panel-title">Category value share</div><div class="panel-caption">Value and units per category</div></div>
-        <div class="panel-content">
-          <div class="category-list">
-            {% for item in breakdown %}
-            <div class="category-row">
-              <span class="category-name">{{ item.category }} <span class="category-number-sm">{{ item.units }} units</span></span>
-              <span class="bar-track"><span class="{{ item.bar_class }}" style="width:{{ item.bar_width }}%"></span></span>
-              <span class="category-number">₹ {{ '{:,.0f}'.format(item.value) }} · {{ item.pct }}%</span>
-            </div>
-            {% else %}
-            <p class="empty-state">No categories recorded yet</p>
-            {% endfor %}
-          </div>
-        </div>
-      </article>
-      <article class="panel wide">
-        <div class="panel-header"><div class="panel-title">Product catalogue by value</div><div class="panel-caption">Top 12 products by inventory investment</div></div>
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead><tr><th>SKU</th><th>Product</th><th>Category</th><th>Warehouse</th><th>Stock</th><th>Unit price</th><th>Value</th></tr></thead>
-            <tbody>
-              {% for r in product_rows %}
-              <tr>
-                <td><span class="sku">{{ r.sku }}</span></td>
-                <td>{{ r.name }}</td>
-                <td>{{ r.category or '—' }}</td>
-                <td>{{ r.warehouse or '—' }}</td>
-                <td>{{ '{:,.0f}'.format(r.current_stock or 0) }}</td>
-                <td>₹ {{ '{:,.2f}'.format(r.unit_price or 0) }}</td>
-                <td><strong>₹ {{ '{:,.0f}'.format(r.value or 0) }}</strong></td>
-              </tr>
-              {% else %}
-              <tr><td colspan="7" class="empty-state">No products yet</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </article>
-    </div>
-  </div>
-
-  <!-- ============================ 3 · WAREHOUSE ============================ -->
+  <!-- ============================ 2 · WAREHOUSE ============================ -->
   <div class="report-section" id="tab-warehouse" role="tabpanel">
     <div class="report-grid">
       <article class="panel">
@@ -459,7 +406,12 @@
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per category</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invCategoryChart"></canvas></div></div>
+        <div class="panel-content">
+          <div class="chart-with-legend">
+            <div class="report-chart report-chart-tall"><canvas id="invCategoryChart"></canvas></div>
+            <ul class="chart-legend-scroll" id="invCategoryLegend"></ul>
+          </div>
+        </div>
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Inventory value by warehouse</div><div class="panel-caption">Capital per location</div></div>
@@ -678,6 +630,17 @@
     cfg.options.plugins.datalabels = dl(cfg.options.plugins.datalabels);
     charts[id] = new window.Chart(el, cfg);
   }
+  function renderScrollLegend(id, labels, colors, formatter) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var html = '';
+    for (var i = 0; i < labels.length; i++) {
+      html += '<li><span class="legend-dot" style="background:' + (colors[i % colors.length] || '#999') + '"></span>' +
+        '<span class="legend-label">' + labels[i] + '</span>' +
+        '<span class="legend-value">' + formatter(i) + '</span></li>';
+    }
+    el.innerHTML = html;
+  }
   var PALETTE = ['#3d997c', '#e3a43c', '#c34c4c', '#2563eb', '#7c3aed', '#1f2937', '#0d9488', '#f97316'];
 
   function buildOverview(D) {
@@ -689,7 +652,10 @@
     makeChart('overviewCategoryChart', {
       type: 'doughnut',
       data: { labels: D.category.labels, datasets: [{ data: D.category.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtMoney }) } },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '45%', plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtMoney }) } },
+    });
+    renderScrollLegend('overviewCategoryLegend', D.category.labels, PALETTE, function (i) {
+      return fmtMoney(D.category.values[i]);
     });
     makeChart('movementChart', {
       type: 'line',
@@ -728,32 +694,6 @@
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { font: { size: 9, weight: '600' } } },
         scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
-      },
-    });
-  }
-
-  function buildProduct(D) {
-    makeChart('categoryChart', {
-      type: 'bar',
-      data: { labels: D.category.labels, datasets: [{ label: 'Value', data: D.category.values, backgroundColor: '#2563eb', borderRadius: 8, borderSkipped: false }] },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney } },
-        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
-      },
-    });
-    makeChart('categoryCountChart', {
-      type: 'doughnut',
-      data: { labels: D.categoryCount.labels, datasets: [{ data: D.categoryCount.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtNum }) } },
-    });
-    makeChart('topSkuChart', {
-      type: 'bar',
-      data: { labels: D.topSkus.labels, datasets: [{ label: 'Value', data: D.topSkus.values, backgroundColor: '#0d9488', borderRadius: 8, borderSkipped: false }] },
-      options: {
-        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end' } },
-        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
       },
     });
   }
@@ -948,7 +888,10 @@
     makeChart('invCategoryChart', {
       type: 'doughnut',
       data: { labels: D.category.labels, datasets: [{ data: D.category.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: font } }, datalabels: dlPie({ formatter: fmtMoney }) } },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '45%', plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtMoney }) } },
+    });
+    renderScrollLegend('invCategoryLegend', D.category.labels, PALETTE, function (i) {
+      return fmtMoney(D.category.values[i]);
     });
     makeChart('invWarehouseChart', {
       type: 'bar',
@@ -1024,7 +967,6 @@
     built[name] = true;
     var D = window.REPORT_DATA;
     if (name === 'overview') buildOverview(D);
-    if (name === 'product') buildProduct(D);
     if (name === 'warehouse') buildWarehouse(D);
     if (name === 'supplier') buildSupplier(D);
     if (name === 'period') buildPeriod(D);
