@@ -14,7 +14,7 @@
       <div class="alert-subtitle">Items below reorder point and not currently on order</div>
     </div>
   </div>
-  {% if auto_reorder %}
+  {% if auto_reorder and current_user.role in ['admin', 'manager'] %}
   <form method="post" action="{{ url_for('ui.auto_draft_pos') }}" class="alert-strip" style="margin-top:12px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <div class="alert-copy">
@@ -39,10 +39,12 @@
         <div><span class="label">ROP</span><span class="value">{{ a.reorder_point }}</span></div>
         <div><span class="label">EOQ</span><span class="value">{{ a.eoq or '&mdash;' }}</span></div>
       </div>
+      {% if current_user.role in ['admin', 'manager'] %}
       <form method="post" action="{{ url_for('ui.mark_ordered', product_id=a.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <button class="btn btn-primary btn-sm" type="submit">Mark ordered</button>
       </form>
+      {% endif %}
     </article>
     {% else %}
     <div class="empty-state">The reorder queue is clear</div>

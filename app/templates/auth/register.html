@@ -18,13 +18,7 @@
       <label><span>Username</span><input type="text" name="username" value="{{ form.username or '' }}" required minlength="3" maxlength="60"></label>
       <label><span>Email</span><input type="email" name="email" value="{{ form.email or '' }}" required></label>
       <label><span>Password</span><input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
-      <label><span>Role</span>
-        <select name="role">
-          <option value="viewer">Viewer</option>
-          <option value="manager">Manager</option>
-          <option value="admin">Admin</option>
-        </select>
-      </label>
+      <p class="auth-helper">New accounts are created with <strong>Viewer</strong> access. Higher roles are assigned by an administrator.</p>
       <button type="submit" class="btn btn-primary auth-submit">Create account</button>
     </form>
     <p class="auth-helper">Already registered? <a href="{{ url_for('auth.login') }}">Sign in</a></p>

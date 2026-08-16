@@ -6,6 +6,7 @@
 <section>
   <div class="page-heading"><div><div class="eyebrow">Procurement</div><h1>Purchase orders</h1></div></div>
 
+  {% if current_user.role in ['admin', 'manager'] %}
   <article class="panel" style="margin-bottom: 24px;">
     <div class="panel-header"><div class="panel-title">Create purchase order</div><div class="panel-caption">Raise a new PO against a supplier and product</div></div>
     <div class="panel-content">
@@ -39,6 +40,7 @@
       </form>
     </div>
   </article>
+  {% endif %}
 
   <div class="kanban-grid">
     {% for label, status in [('Draft','draft'),('Approved','approved'),('In transit','in_transit'),('Received','received')] %}
@@ -52,6 +54,7 @@
           <div class="kanban-meta">{{ po.supplier_name or 'No supplier' }}</div>
           <div class="kanban-meta">Qty {{ po.quantity }} &middot; ₹ {{ '{:,.2f}'.format(po.unit_cost or 0) if po.unit_cost else '0.00' }}</div>
           <div class="kanban-meta">ETA {{ po.eta_date }}</div>
+          {% if current_user.role in ['admin', 'manager'] %}
           <form method="post" action="{{ url_for('ui.update_po_status', po_id=po.id) }}" class="po-status-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
             <select name="status" onchange="this.form.submit()">
@@ -60,6 +63,7 @@
               {% endfor %}
             </select>
           </form>
+          {% endif %}
         </div>
         {% endfor %}
       </div>

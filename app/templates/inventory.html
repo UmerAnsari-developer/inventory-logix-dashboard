@@ -12,7 +12,9 @@
     </div>
     <div class="page-actions">
       <a class="btn btn-secondary" href="{{ url_for('ui.inventory_export') }}">Export CSV</a>
+      {% if current_user.role in ['admin', 'manager'] %}
       <a class="btn btn-primary" href="{{ url_for('ui.product_form', product_id=None) }}">+ Add product</a>
+      {% endif %}
     </div>
   </div>
   <form class="filter-bar" method="get">
@@ -40,7 +42,7 @@
   <div class="table-scroll">
     <table class="data-table">
       <thead>
-        <tr><th>SKU</th><th>Product</th><th>Warehouse</th><th>Stock</th><th>ROP</th><th>EOQ</th><th>Price</th><th>Status</th><th></th></tr>
+        <tr><th>SKU</th><th>Product</th><th>Warehouse</th><th>Stock</th><th>ROP</th><th>EOQ</th><th>Price</th><th>Status</th>{% if current_user.role in ['admin', 'manager'] %}<th></th>{% endif %}</tr>
       </thead>
       <tbody>
         {% for product in products %}
@@ -61,10 +63,12 @@
           <td><span class="number">{{ product.eoq or "-" }}</span></td>
           <td>{{ format_money(product.unit_price) }}</td>
           <td><span class="status {{ product.status }}">{{ product.status_label }}</span></td>
+          {% if current_user.role in ['admin', 'manager'] %}
           <td><a class="btn btn-secondary btn-sm" href="{{ url_for('ui.product_form', product_id=product.id) }}">Edit</a></td>
+          {% endif %}
         </tr>
         {% else %}
-        <tr><td colspan="9"><div class="empty-state">No products match those filters</div></td></tr>
+        <tr><td colspan="{{ 9 if current_user.role in ['admin', 'manager'] else 8 }}"><div class="empty-state">No products match those filters</div></td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -6,21 +6,23 @@
 <section>
   <div class="page-heading">
     <div>
-      <div class="eyebrow">{{ p.sku</div> }}
-      <h1>{{ p.name</h1> }}
-      <p class="heading-note">{{ p.category or 'Uncategorised' }} &middot; supplier &middot; stock info</p>
-  </div>
+      <div class="eyebrow">{{ p.sku }}</div>
+      <h1>{{ p.name }}</h1>
+      <p class="heading-note">{{ p.category or 'Uncategorised' }} &middot; {{ p.supplier_name or 'supplier n/a' }} &middot; stock info</p>
+    </div>
     <div class="page-actions">
+      {% if current_user.role in ['admin', 'manager'] %}
       <a class="btn btn-secondary" href="{{ url_for('ui.movement_form', product_id=p.id) }}">Record movement</a>
       <a class="btn btn-primary" href="{{ url_for('ui.product_form', product_id=p.id) }}">Edit</a>
+      {% endif %}
+    </div>
   </div>
-</div>
   <div class="metric-grid">
-    <div class="metric-card"><div class="metric-label">Current stock</div><div class="metric-value">{{ p.current_stock</div></div> }}
-    <div class="metric-card"><div class="metric-label">Reorder point</div><div class="metric-value">{{ p.reorder_point</div></div> }}
-    <div class="metric-card"><div class="metric-label">EOQ</div><div class="metric-value">{{ p.eoq or '&mdash;'</div></div> }}
-    <div class="metric-card"><div class="metric-label">Status</div><div class="metric-value"><span class="status {{ p.status }}">{{ p.status_label</span></div></div> }}
-</div>
+    <div class="metric-card"><div class="metric-label">Current stock</div><div class="metric-value">{{ p.current_stock }}</div></div>
+    <div class="metric-card"><div class="metric-label">Reorder point</div><div class="metric-value">{{ p.reorder_point }}</div></div>
+    <div class="metric-card"><div class="metric-label">EOQ</div><div class="metric-value">{{ p.eoq or '&mdash;' }}</div></div>
+    <div class="metric-card"><div class="metric-label">Status</div><div class="metric-value"><span class="status {{ p.status }}">{{ p.status_label }}</span></div></div>
+  </div>
   <article class="panel">
     <div class="panel-header"><div class="panel-title">Recent movements</div></div>
     <div class="table-scroll">
@@ -28,13 +30,13 @@
         <thead><tr><th>When</th><th>Type</th><th>Quantity</th><th>Reference</th><th>Notes</th></tr></thead>
         <tbody>
 {% for m in movements %}
-          <tr><td>{{ m.created_at</td><td>{{ m.type</td><td>{{ m.quantity</td><td>{{ m.reference or ''</td><td>{{ m.notes or ''</td></tr> }} }} }} }} }}
+          <tr><td>{{ m.created_at }}</td><td>{{ m.type }}</td><td>{{ m.quantity }}</td><td>{{ m.reference or '' }}</td><td>{{ m.notes or '' }}</td></tr>
 {% else %}
           <tr><td colspan="5"><div class="empty-state">No movements yet</div></td></tr>
 {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</article>
+        </tbody>
+      </table>
+    </div>
+  </article>
 </section>
 {% endblock %}
