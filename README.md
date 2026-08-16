@@ -14,11 +14,16 @@ toast notifications, and sidebar grouping).
 
 - **Authentication** — Flask-Login with hashed passwords, role-based access
   (`admin`, `manager`, `viewer`), CSRF protection via Flask-WTF, session
-  fingerprinting, and rate-limited login/register endpoints.
+  fingerprinting, and rate-limited login/register endpoints. Self-registration
+  always creates a **viewer** account; write access (products, suppliers,
+  movements, purchase orders, settings) is restricted to `admin`/`manager`.
 - **Database** — PostgreSQL with normalised schema (`users`, `suppliers`,
   `products`, `movements`, `purchase_orders`, `audit_log`, `forecast_cache`,
-  `anomaly_log`). Schema bootstrap + sample data run automatically on first
+  `anomaly_log`). Schema bootstrap + data seeding run automatically on first
   start.
+- **Real data** — the app is seeded from the **DataCo SMART SUPPLY CHAIN**
+  dataset (180,000+ real transactions): 118 products with real demand /
+  ordering / holding costs (used for EOQ) and up to 150 suppliers.
 - **REST API** — `/api/products`, `/api/suppliers`, `/api/movements`,
   `/api/eoq/calculate`, `/api/health`, plus AI endpoints
   (`/ai/forecast/run`, `/ai/anomaly/run`, `/ai/eoq/sensitivity`). Consistent
@@ -47,10 +52,10 @@ toast notifications, and sidebar grouping).
 │   ├── config/                # Environment-driven configuration classes
 │   ├── database/              # schema.sql + seed.py + connection helpers
 │   ├── repositories/          # SQL CRUD per entity (one module per table)
-│   ├── services/              # Business logic (auth, products, forecast, …)
+│   ├── services/              # Business logic (auth, products, dataset, …)
 │   ├── routes/                # Flask blueprints (auth, ui, api, ai)
 │   ├── ml/                    # Forecasting + anomaly detection models
-│   ├── security/              # Validators + security header middleware
+│   ├── security/              # Validators, headers + role decorators
 │   ├── utils/                 # Helpers (EOQ formula, JSON envelope, …)
 │   ├── templates/             # Jinja2 templates
 │   │   ├── base.html
@@ -58,6 +63,7 @@ toast notifications, and sidebar grouping).
 │   │   ├── ai/                # forecast / anomaly
 │   │   └── errors/            # 400 / 401 / 403 / 404 / 422 / 429 / 500
 │   └── static/                # CSS / JS (style.css preserved, AI overlays added)
+├── datasets/                  # DataCoSupplyChainDataset.csv (not in git)
 ├── tests/                     # pytest suite
 ├── scripts/                   # smoke_test.py — end-to-end route verification
 ├── run.py                     # Entry point
@@ -97,11 +103,22 @@ flask --app run.py init-db
 flask --app run.py seed-db --force
 ```
 
-This creates:
+The seeder loads from `datasets/DataCoSupplyChainDataset.csv`. Place the
+dataset file there first (it is gitignored, so you must add it locally):
 
-- 8 suppliers + 16 products across 3 warehouses
-- 90 days of stock movements (with anomaly spikes already baked in)
+```
+datasets/
+└── DataCoSupplyChainDataset.csv
+```
+
+On a fresh database this creates:
+
 - 3 demo users (admin / manager / viewer)
+- up to 150 suppliers derived from the DataCo dataset
+- 118 products with real demand, ordering and holding costs (real EOQ values)
+  and deterministic, varied stock levels
+- If the dataset file is missing, seeding is deferred with a log warning and
+  the app still boots (the schema is applied regardless).
 
 ### 4. Run the Flask app
 
@@ -155,6 +172,9 @@ the Flask session cookie; CSRF is enforced on write requests.
 ## Security
 
 - All write endpoints require an authenticated session.
+- Role-based access: `viewer` is read-only. Routes that create / edit / delete
+  products, suppliers, movements or purchase orders, and the settings page,
+  are restricted to `admin` and `manager` (see `app/security/roles.py`).
 - CSRF tokens are auto-injected into every Jinja form via `csrf_token()` and
   verified by Flask-WTF on POST/PUT/DELETE.
 - Rate limits (Flask-Limiter) on `/auth/login` (10/min) and `/auth/register`
@@ -212,9 +232,11 @@ pip install pytest
 pytest
 ```
 
-The suite covers:
+The suite (89 tests) covers:
 
 - Auth flow (login, registration validation, protected routes)
+- Role-based access control (viewer is read-only, registration is always
+  viewer, admin/manager can write)
 - REST API (health, products, EOQ validation)
 - Security helpers + HTTP headers
 - ML helpers (forecast + anomaly smoke tests)
@@ -224,9 +246,10 @@ The suite covers:
 
 ## UI Tour
 
-1. **Landing** — `/` — animated, analytics-driven marketing page with live
-   KPIs, a 14-day movement chart and inventory mix, plus **Log in** / **Sign up**
-   options. Authenticated users skip straight to the dashboard.
+1. **Landing** — `/` — animated, analytics-driven marketing page referencing
+   the real DataCo dataset, with live KPIs, a 14-day movement chart and
+   inventory mix, plus **Log in** / **Sign up** options. Authenticated users
+   skip straight to the dashboard.
 2. **Login** — `/auth/login` — corporate InventoryLogix card with seeded demo
    credentials under a `<details>` block.
 3. **Dashboard** — `/` — KPI cards (incl. AI savings), AI recommendation
@@ -234,7 +257,7 @@ The suite covers:
 4. **Inventory** — `/inventory` — searchable, filterable table with
    pagination and CSV export.
 5. **Reorder queue** — `/reorder-alerts` — severity-sorted cards with
-   "Mark ordered" action.
+   "Mark ordered" action (admin/manager only).
 6. **Suppliers** — `/suppliers` — cards with reliability and lead time.
 7. **Purchase orders** — `/purchase-orders` — kanban board by status.
 8. **Warehouses** — `/warehouses` — capacity tiles.
@@ -245,9 +268,12 @@ The suite covers:
     Plotly history/projection/confidence chart, KPIs, portfolio snapshot.
 12. **Anomaly detection** — `/ai/anomaly` — Isolation Forest + SPC chart.
 13. **Settings** — `/settings` — per-account preferences, AI defaults, alert
-    thresholds, and integrations.
+    thresholds, and integrations (admin/manager only).
 14. **Dark mode** — saved preference (theme toggle was removed from the
     sidebar; it is set under Settings).
+
+All pages are viewable by every role; create / edit / delete actions and the
+Settings page are hidden for `viewer` accounts.
 
 ---
 
@@ -261,6 +287,10 @@ The suite covers:
   Prophet is unavailable, so this is non-fatal.
 - **Login keeps saying "Invalid"** — credentials may not be seeded. Run
   `flask --app run.py seed-db --force`.
+- **Empty inventory / no products** — the `datasets/DataCoSupplyChainDataset.csv`
+  file is missing (it is gitignored). Add it and run `flask --app run.py
+  seed-db --force`. The app boots fine without it; pages simply have no
+  seeded data.
 
 ---
 
