@@ -93,7 +93,7 @@
         {% for item in category_counts %}
         <div class="cat-row">
           <span class="cat-name">{{ item.category }}</span>
-          <div class="cat-track"><div class="cat-fill {{ item.tone }}" style="width:{{ item.pct }}%"></div></div>
+          <div class="cat-track"><div class="cat-fill {{ item.tone }}" style="width:0%" data-target-width="{{ item.pct }}%"></div></div>
           <span class="cat-val">{{ '%02d'|format(item.count) }} SKUs</span>
         </div>
         {% else %}
@@ -435,8 +435,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Animate inventory mix bars (like landing page)
   document.querySelectorAll('.cat-fill').forEach(function(fill, i) {
+    var target = fill.dataset.targetWidth || fill.style.width;
+    fill.style.width = '0%';
     setTimeout(function() {
-      fill.style.width = fill.style.width; // trigger transition
+      fill.style.width = target;
     }, 150 + i * 90);
   });
     function fmt(n) { return Number(n || 0).toLocaleString('en-IN'); }
