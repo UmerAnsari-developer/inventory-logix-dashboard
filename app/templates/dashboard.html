@@ -283,7 +283,7 @@
     </div>
   </article>
 
-  <article class="panel queue-panel" style="grid-column: 1 / -1;">
+<article class="panel queue-panel" style="grid-column: 1 / -1;">
     <div class="panel-header">
       <div>
         <div class="panel-title">Top suppliers</div>
@@ -309,13 +309,75 @@
                   </div>
                 </div>
               </td>
-              <td>{{ s.contact_person or '—' }}</td>
+              <td>{{ s.location or '—' }}</td>
               <td><span class="number">{{ '{:,}'.format(s.units_in) }}</span></td>
               <td><span class="number">{{ s.skus }}</span></td>
               <td><span class="number">{{ format_money(s.spend) }}</span></td>
             </tr>
             {% else %}
             <tr><td colspan="6"><div class="empty-state">No supplier deliveries yet</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </article>
+</section>
+
+<section class="dashboard-grid">
+  <article class="panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Stock turnover rate</div>
+        <div class="panel-caption">Annual COGS / average inventory value by category</div>
+      </div>
+    </div>
+    <div class="panel-content">
+      <div class="table-scroll compact">
+        <table>
+          <thead><tr><th>Category</th><th>COGS (₹)</th><th>Avg Inv Value (₹)</th><th>Turnover Rate</th><th>SKUs</th></tr></thead>
+          <tbody>
+            {% for t in turnover_by_category %}
+            <tr>
+              <td>{{ t.category }}</td>
+              <td>{{ format_money(t.cogs) }}</td>
+              <td>{{ format_money(t.avg_inv_value) }}</td>
+              <td><span class="status {{ 'good' if t.turnover_rate >= 4 else 'warning' if t.turnover_rate >= 2 else 'critical' }}">{{ t.turnover_rate }}x</span></td>
+              <td>{{ t.sku_count }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5"><div class="empty-state">No turnover data yet</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel queue-panel" style="grid-column: 1 / -1;">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">ABC Analysis (Pareto)</div>
+        <div class="panel-caption">SKUs ranked by inventory value — A: top 80%, B: next 15%, C: bottom 5%</div>
+      </div>
+    </div>
+    <div class="panel-content">
+      <div class="table-scroll compact">
+        <table>
+          <thead><tr><th>Class</th><th>#</th><th>SKU</th><th>Product</th><th>Category</th><th>Value (₹)</th><th>Cumulative %</th></tr></thead>
+          <tbody>
+            {% for a in abc_data[:30] %}
+            <tr class="{{ 'abc-a' if a.class == 'A' else 'abc-b' if a.class == 'B' else 'abc-c' }}">
+              <td><span class="status {{ 'good' if a.class == 'A' else 'warning' if a.class == 'B' else 'critical' }}">{{ a.class }}</span></td>
+              <td><span class="sku">{{ a.rank }}</span></td>
+              <td>{{ a.sku }}</td>
+              <td>{{ a.name }}</td>
+              <td>{{ a.category or '—' }}</td>
+              <td>{{ format_money(a.value) }}</td>
+              <td>{{ a.cum_pct }}%</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7"><div class="empty-state">No ABC data yet</div></td></tr>
             {% endfor %}
           </tbody>
         </table>

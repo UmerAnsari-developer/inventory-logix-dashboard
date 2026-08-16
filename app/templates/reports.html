@@ -402,7 +402,7 @@
     <div class="report-grid">
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Stock health breakdown</div><div class="panel-caption">SKUs by stock status</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invStatusChart"></canvas></div></div>
+        <div class="panel-content"><div class="report-chart"><canvas id="invStatusChart"></canvas></div></div>
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per category</div></div>
@@ -428,6 +428,10 @@
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Below ROP by category</div><div class="panel-caption">SKUs at or below reorder point</div></div>
         <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="reorderCategoryChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Reorder by supplier</div><div class="panel-caption">Suppliers with most SKUs below reorder point</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="reorderSupplierChart"></canvas></div></div>
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Stock coverage</div><div class="panel-caption">Stock ÷ reorder point for pressured SKUs</div></div>
@@ -935,6 +939,18 @@
         scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
       },
     });
+    // Reorder by supplier
+    if (D.reorderSupplier && D.reorderSupplier.labels && D.reorderSupplier.labels.length) {
+      makeChart('reorderSupplierChart', {
+        type: 'bar',
+        data: { labels: D.reorderSupplier.labels, datasets: [{ label: 'SKUs below ROP', data: D.reorderSupplier.values, backgroundColor: '#c34c4c', borderRadius: 8, borderSkipped: false }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+          plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end', font: { size: 9, weight: '600' } } },
+          scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+        },
+      });
+    }
     // Stock coverage for pressured SKUs is rendered as a horizontal bar chart.
     var cov = (window.REORDER_COVERAGE || []);
     if (cov.length) {

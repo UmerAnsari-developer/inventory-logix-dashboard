@@ -1582,6 +1582,17 @@ tbody tr:hover {
   color: var(--text);
 }
 
+/* ABC Analysis row highlighting */
+.table-scroll tr.abc-a td {
+  background: rgba(61, 153, 124, 0.06);
+}
+.table-scroll tr.abc-b td {
+  background: rgba(227, 164, 60, 0.06);
+}
+.table-scroll tr.abc-c td {
+  background: rgba(195, 76, 76, 0.04);
+}
+
 .report-grid .panel {
   display: flex;
   flex-direction: column;

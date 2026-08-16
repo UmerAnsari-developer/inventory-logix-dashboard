@@ -216,21 +216,35 @@ def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> lis
     Every calendar year gets its own share of days so the year-over-year sales
     charts stay competitive (2024/2025 are no longer dwarfed by the current
     year), plus an extra dense burst in the last ``RECENT_WINDOW_DAYS`` so the
-    Prophet/ARIMA forecasters have enough daily points.
+    Prophet/ARIMA forecasters have enough daily points. Each COMPLETE year also gets a
+    seasonal burst to make YTD/QTD/MTD charts show tight competition.
     """
     dates: list[date] = []
-    for year in range(MOVEMENT_START.year, today.year + 1):
+    current_year = today.year
+    for year in range(MOVEMENT_START.year, current_year + 1):
         year_start = max(MOVEMENT_START, date(year, 1, 1))
         year_end = min(today, date(year, 12, 31))
         span = (year_end - year_start).days
         if span <= 0:
             continue
-        n = rng.randint(13, 16)
+        n = rng.randint(15, 20)  # increased base per year
         for _ in range(n):
             dates.append(year_start + timedelta(days=rng.randint(0, span)))
+        # Seasonal burst: add extra movement days in peak months (Q2 + Q4) for COMPLETE years only
+        is_complete_year = year < current_year or (year == current_year and year_end.month == 12 and year_end.day == 31)
+        if is_complete_year:
+            peak_months = [4, 5, 6, 10, 11, 12]
+            for month in peak_months:
+                m_start = max(year_start, date(year, month, 1))
+                if month == 12:
+                    m_end = min(year_end, date(year, 12, 31))
+                else:
+                    m_end = min(year_end, date(year, month + 1, 1) - timedelta(days=1))
+                if (m_end - m_start).days >= 0:
+                    dates.append(m_start + timedelta(days=rng.randint(0, (m_end - m_start).days)))
     recent_span = (today - recent_cutoff).days
     if recent_span > 0:
-        for _ in range(rng.randint(12, 16)):
+        for _ in range(rng.randint(4, 6)):  # reduced recent burst for forecasting only
             dates.append(recent_cutoff + timedelta(days=rng.randint(0, recent_span)))
     dates.sort()
     return dates
