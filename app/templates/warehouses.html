@@ -24,5 +24,39 @@
     </article>
     {% endfor %}
   </div>
+
+  <div class="report-grid" style="margin-top: 24px;">
+    <article class="panel">
+      <div class="panel-header">
+        <div><div class="panel-title">Stock level by warehouse</div><div class="panel-caption">Units on hand per location</div></div>
+      </div>
+      <div class="panel-content"><div class="report-chart"><canvas id="whStockChart"></canvas></div></div>
+    </article>
+    <article class="panel">
+      <div class="panel-header">
+        <div><div class="panel-title">Price level by warehouse</div><div class="panel-caption">Average unit price per location</div></div>
+      </div>
+      <div class="panel-content"><div class="report-chart"><canvas id="whPriceChart"></canvas></div></div>
+    </article>
+  </div>
 </section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var rows = {{ (chart_data|tojson) if chart_data else 'null' }};
+  if (!rows || !window.Chart) return;
+  var labels = rows.map(function (r) { return r.warehouse; });
+  new window.Chart(document.getElementById('whStockChart'), {
+    type: 'bar',
+    data: { labels: labels, datasets: [{ label: 'Units on hand', data: rows.map(function (r) { return r.total_units; }), backgroundColor: 'rgba(61,153,124,0.75)', borderColor: '#3d997c', borderWidth: 1 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+  });
+  new window.Chart(document.getElementById('whPriceChart'), {
+    type: 'bar',
+    data: { labels: labels, datasets: [{ label: 'Avg price', data: rows.map(function (r) { return Math.round(r.avg_price); }), backgroundColor: 'rgba(31,41,55,0.75)', borderColor: '#1f2937', borderWidth: 1 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+  });
+});
+</script>
 {% endblock %}

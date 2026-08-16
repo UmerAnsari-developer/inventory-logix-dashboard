@@ -53,6 +53,11 @@ class Config:
     ANOMALY_DETECTION_ENABLED = _bool(os.environ.get("ANOMALY_DETECTION_ENABLED"), True)
     DARK_MODE_ENABLED = _bool(os.environ.get("DARK_MODE_ENABLED"), True)
 
+    # Bootstrap behaviour. ``RUN_ETL_ON_STARTUP`` lets deployments skip the
+    # (potentially slow, remote) star-schema rebuild on every boot when the
+    # warehouse is already populated. Defaults to True for safety.
+    RUN_ETL_ON_STARTUP = _bool(os.environ.get("RUN_ETL_ON_STARTUP"), True)
+
     # Security headers
     SECURITY_HEADERS_ENABLED = _bool(os.environ.get("SECURITY_HEADERS_ENABLED"), True)
 
