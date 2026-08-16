@@ -432,6 +432,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
   var live = window.appSettings && window.appSettings.live_data === 'on';
   if (live) {
+
+  // Animate inventory mix bars (like landing page)
+  document.querySelectorAll('.cat-fill').forEach(function(fill, i) {
+    setTimeout(function() {
+      fill.style.width = fill.style.width; // trigger transition
+    }, 150 + i * 90);
+  });
     function fmt(n) { return Number(n || 0).toLocaleString('en-IN'); }
     function pollLive() {
       fetch('/api/dashboard/live', { headers: { 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content } })
