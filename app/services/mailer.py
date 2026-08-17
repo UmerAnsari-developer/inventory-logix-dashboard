@@ -4,6 +4,9 @@ Uses stdlib ``smtplib`` so there are no extra dependencies. When no SMTP
 host is configured the sender falls back to logging the message and returns
 False, letting the caller surface the reset link in the UI instead.
 
+Also supports SendGrid API (HTTPS) which works on platforms that block
+outbound SMTP ports (e.g. Render free tier).
+
 The ``send_password_reset`` method sends an HTML email with the
 InventoryLogix logo embedded as a CID attachment so the image appears
 directly in the user's email client without being blocked.
@@ -20,15 +23,23 @@ from email.utils import formataddr
 
 from flask import current_app
 
+try:
+    import sendgrid
+    from sendgrid.helpers.mail import Mail, Email, To, Content
+    _HAS_SENDGRID = True
+except Exception:
+    _HAS_SENDGRID = False
+
 LOGGER = logging.getLogger(__name__)
 
 
 class Mailer:
-    """Minimal SMTP sender backed by app configuration."""
+    """Minimal SMTP/SendGrid sender backed by app configuration."""
 
     @staticmethod
     def configured() -> bool:
-        return bool(current_app.config.get("SMTP_HOST"))
+        cfg = current_app.config
+        return bool(cfg.get("SMTP_HOST") or cfg.get("SENDGRID_API_KEY"))
 
     @staticmethod
     def _embed_logo_img() -> MIMEImage:
@@ -41,6 +52,35 @@ class Mailer:
         img.add_header("Content-ID", "<logo>")
         img.add_header("Content-Disposition", "inline", filename="logo.svg")
         return img
+
+    @staticmethod
+    def _send_via_sendgrid(to_email: str, username: str, reset_link: str) -> bool:
+        cfg = current_app.config
+        api_key = cfg.get("SENDGRID_API_KEY")
+        if not api_key:
+            return False
+        try:
+            sg = sendgrid.SendGridAPIClient(api_key=api_key)
+            from_email = Email(cfg["MAIL_FROM"], "InventoryLogix")
+            to_email_obj = To(to_email)
+            subject = "Reset your InventoryLogix password"
+            html = Mailer._html_body(username, reset_link)
+            plain = (
+                f"Hi {username},\n\n"
+                "You asked to reset your InventoryLogix password. Use the link "
+                "below to choose a new one:\n\n"
+                f"{reset_link}\n\n"
+                f"This link expires within "
+                f"{current_app.config['PASSWORD_RESET_TTL_MINUTES']} minutes. If "
+                "you didn't request this, you can safely ignore this email.\n\n"
+                "— InventoryLogix"
+            )
+            mail = Mail(from_email, to_email_obj, subject, Content("text/plain", plain), Content("text/html", html))
+            response = sg.client.mail.send.post(request_body=mail.get())
+            return 200 <= response.status_code < 300
+        except Exception as exc:
+            LOGGER.exception("SendGrid send failed to %s: %s", to_email, exc)
+            return False
 
     @staticmethod
     def send_password_reset(to_email: str, username: str, reset_link: str) -> bool:
@@ -76,7 +116,13 @@ class Mailer:
             LOGGER.warning("Logo file not found — sending without embedded image.")
 
         cfg = current_app.config
-        if not Mailer.configured():
+        
+        # Try SendGrid first (HTTPS, works on free tier)
+        if cfg.get("SENDGRID_API_KEY"):
+            return Mailer._send_via_sendgrid(to_email, username, reset_link)
+
+        # Fallback to SMTP
+        if not cfg.get("SMTP_HOST"):
             LOGGER.warning(
                 "SMTP not configured — password reset link for %s: %s",
                 to_email,
