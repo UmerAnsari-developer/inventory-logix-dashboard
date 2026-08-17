@@ -494,6 +494,10 @@ a {
   .feature-grid {
     grid-template-columns: 1fr 1fr;
   }
+
+  .landing-cta {
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 640px) {
@@ -518,6 +522,10 @@ a {
 
   .insight-metrics {
     gap: 30px;
+  }
+
+  .insight-inner {
+    padding: 42px 22px;
   }
 }
 

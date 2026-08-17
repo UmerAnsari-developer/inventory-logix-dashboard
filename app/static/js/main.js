@@ -43,6 +43,59 @@
     });
   }
 
+  const navToggle = document.getElementById("navToggle");
+  const topNav = document.querySelector(".top-nav");
+  if (navToggle && topNav) {
+    navToggle.addEventListener("click", function (e) {
+      e.stopPropagation();
+      const open = topNav.classList.toggle("open");
+      navToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    document.addEventListener("click", function (e) {
+      if (topNav.classList.contains("open") &&
+          !topNav.contains(e.target) && !navToggle.contains(e.target)) {
+        topNav.classList.remove("open");
+        navToggle.setAttribute("aria-expanded", "false");
+      }
+    });
+  }
+
+  document.querySelectorAll(".nav-drop-btn").forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      const drop = btn.closest(".nav-drop");
+      if (!drop) return;
+      const wasOpen = drop.classList.contains("open");
+      document.querySelectorAll(".nav-drop.open").forEach(function (d) {
+        d.classList.remove("open");
+        const b = d.querySelector(".nav-drop-btn");
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
+      if (!wasOpen) {
+        drop.classList.add("open");
+        btn.setAttribute("aria-expanded", "true");
+      }
+    });
+  });
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".nav-drop")) {
+      document.querySelectorAll(".nav-drop.open").forEach(function (d) {
+        d.classList.remove("open");
+        const b = d.querySelector(".nav-drop-btn");
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") {
+      document.querySelectorAll(".nav-drop.open").forEach(function (d) {
+        d.classList.remove("open");
+        const b = d.querySelector(".nav-drop-btn");
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
+    }
+  });
+
   const userMenuButton = document.getElementById("userMenuButton");
   const userDropdown = document.getElementById("userDropdown");
   if (userMenuButton && userDropdown) {

@@ -243,6 +243,7 @@
 /* ----- AI BANNER ----- */
 .ai-banner {
     display: flex;
+    flex-wrap: wrap;
     gap: 16px;
     align-items: center;
     padding: 16px 20px;
@@ -1209,5 +1210,36 @@ body.auth {
     .contact-grid,
     .kanban-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 700px) {
+    .alert-item {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .alert-item .alert-stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        justify-content: space-between;
+    }
+}
+
+@media (max-width: 640px) {
+    .result-grid {
+        grid-template-columns: 1fr;
+    }
+
+    #forecastChart {
+        height: 260px !important;
+    }
+
+    #spcChart {
+        height: 240px !important;
+    }
+
+    #eoq3dChart {
+        height: 260px !important;
+        min-height: 260px !important;
     }
 }
