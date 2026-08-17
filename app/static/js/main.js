@@ -168,6 +168,17 @@
     });
   });
 
+  // Password show/hide toggle
+  document.querySelectorAll(".password-toggle").forEach(function (btn) {
+    const target = document.getElementById(btn.dataset.target);
+    if (!target) return;
+    btn.addEventListener("click", function () {
+      const isPassword = target.type === "password";
+      target.type = isPassword ? "text" : "password";
+      btn.setAttribute("aria-pressed", isPassword ? "true" : "false");
+    });
+  });
+
   const eoqForm = document.getElementById("eoqForm");
   if (eoqForm && window.initEoqCalculator) {
     window.initEoqCalculator(eoqForm);

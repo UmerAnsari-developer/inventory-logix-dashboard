@@ -813,9 +813,60 @@ body.auth {
     accent-color: var(--primary);
     width: 17px;
     height: 17px;
-}
+  }
 
-.auth-submit {
+  .password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .password-wrapper input {
+    flex: 1;
+    padding-right: 48px;
+  }
+
+  .password-toggle {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+
+  .password-toggle:hover {
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .password-toggle svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .password-toggle .eye-closed {
+    display: none;
+  }
+
+  .password-toggle[aria-pressed="true"] .eye-open {
+    display: none;
+  }
+
+  .password-toggle[aria-pressed="true"] .eye-closed {
+    display: block;
+  }
+
+  .auth-submit {
     padding: 14px;
     font-size: 16px;
     font-weight: 600;
