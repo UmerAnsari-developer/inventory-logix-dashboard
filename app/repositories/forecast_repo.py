@@ -35,28 +35,6 @@ class ForecastRepository:
                 row["payload"] = _json.loads(row["payload"])
         return rows
 
-    @staticmethod
-    def recent_for(product_id: int, model: str, horizon: int, limit: int = 1) -> list[dict]:
-        """Latest stored forecast for an exact product + model + horizon.
-
-        Uses the idx_forecast_cache_lookup composite index.
-        """
-        with get_cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, model, horizon, accuracy, generated_at, payload
-                FROM forecast_cache
-                WHERE product_id = %s AND model = %s AND horizon = %s
-                ORDER BY generated_at DESC LIMIT %s
-                """,
-                (product_id, model, horizon, limit),
-            )
-            rows = list(cur.fetchall())
-        for row in rows:
-            if isinstance(row.get("payload"), str):
-                row["payload"] = _json.loads(row["payload"])
-        return rows
-
 
 class AnomalyRepository:
     @staticmethod
