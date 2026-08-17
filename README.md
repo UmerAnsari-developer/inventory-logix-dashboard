@@ -131,6 +131,11 @@ python run.py
 # open http://localhost:5000
 ```
 
+In production (e.g. Render) `python run.py` automatically serves the app with
+**Gunicorn** (`--workers 1 --threads 2`), keeping a single process and one
+shared database connection pool. You can also start it explicitly with
+`gunicorn run:app --workers 1 --threads 2 --timeout 120`.
+
 Demo credentials:
 
 | User    | Password    | Role    |
