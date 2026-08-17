@@ -10,8 +10,13 @@ Rows: 180,519 transactions | Columns: 53
 
 import os
 import math
+import logging
+import random
+
 import pandas as pd
 from flask import current_app
+
+LOGGER = logging.getLogger(__name__)
 
 # Column mapping: DataCo CSV header -> Project field name
 SUPPLIER_MAPPING = {
@@ -217,10 +222,64 @@ def get_suppliers(limit=None):
     return unique_suppliers
 
 
+def _synthetic_products(limit=None):
+    """Deterministic product catalogue used when the DataCo CSV is absent.
+
+    The dataset file is gitignored, so fresh deployments (e.g. Render from
+    GitHub) have no CSV. This fallback yields a realistic catalogue in the
+    same shape as :func:`get_products` so seeding works identically on any
+    environment.
+    """
+    categories = [
+        "Electronics", "Apparel", "Home & Kitchen", "Sports & Outdoors",
+        "Beauty & Personal Care", "Toys & Games", "Automotive", "Grocery",
+        "Books", "Office Products",
+    ]
+    names = [
+        "Bluetooth Speaker", "Laptop Stand", "Desk Lamp", "Water Bottle",
+        "Wireless Mouse", "Yoga Mat", "Coffee Maker", "Running Shoes",
+        "Headphones", "Backpack", "Wrist Watch", "Air Purifier", "Tea Kettle",
+        "Gaming Controller", "USB-C Hub", "Hoodie", "Sneakers", "Blender",
+        "Webcam", "Keyboard", "Monitor Arm", "Plant Pot", "Lunch Box",
+        "Tool Kit", "Car Charger", "Fitness Tracker", "Notebook", "Pillow",
+        "Curtain", "Cutting Board", "Toaster", "Hand Mixer", "Skincare Set",
+        "Sunglasses", "Power Bank", "Router",
+    ]
+    tags = [
+        "Eco", "Smart", "Pro", "Max", "Ultra", "Prime", "Flex", "Nova",
+        "Aero", "Velo", "Vertex", "Titan", "Pulse", "Drift", "Summit",
+        "Orbit", "Lumen", "Nexus",
+    ]
+    rng = random.Random(2024)
+    products = []
+    seen = set()
+    for i in range(118):
+        name = f"{rng.choice(names)} {rng.choice(tags)}"
+        while name in seen:
+            name = f"{rng.choice(names)} {rng.choice(tags)}"
+        seen.add(name)
+        category = categories[i % len(categories)]
+        price = round(rng.uniform(9.99, 499.99), 2)
+        products.append({
+            "product_name": name,
+            "product_card_id": str(1000 + i),
+            "product_category_id": str(i % len(categories) + 1),
+            "category_name": category,
+            "product_price": price,
+            "product_description": f"{category} - {name}",
+            "sales_per_customer": round(rng.uniform(150.0, 2000.0), 2),
+        })
+    if limit:
+        products = products[:limit]
+    return products
+
+
 def get_products(limit=None):
     """Get product data from DataCo dataset.
 
-    Returns product dicts with EOQ calculation included.
+    Returns product dicts with EOQ calculation included. When the dataset CSV
+    is not present (fresh Render deployment) a deterministic synthetic
+    catalogue is returned instead so the app always seeds demo data.
 
     Each product dict contains:
     - Standard product fields
@@ -229,7 +288,11 @@ def get_products(limit=None):
     - eoq_order_cost: Ordering cost per order
     - eoq_holding_cost: Holding cost per unit per year
     """
-    df = _load_dataset()
+    try:
+        df = _load_dataset()
+    except FileNotFoundError:
+        LOGGER.warning("DataCo dataset not found; using synthetic product catalogue.")
+        return _synthetic_products(limit)
 
     available_cols = [col for col in PRODUCT_MAPPING.keys() if col in df.columns]
     df_available = df[available_cols] if available_cols else df

@@ -32,6 +32,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Render CLI (render blueprint/preview cache)
+.render/
+
 # Logs & runtime
 *.log
 logs/

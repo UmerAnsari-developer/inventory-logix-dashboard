@@ -1,0 +1,37 @@
+# Render Blueprint — deploy this repo to Render straight from GitHub.
+#
+# How to use:
+#   1. Push this repo to GitHub.
+#   2. In the Render dashboard: New + -> Blueprint -> connect the repo.
+#   3. Render reads render.yaml, creates the web service + free Postgres,
+#      wires DATABASE_URL and SECRET_KEY automatically, and deploys.
+#
+# On first boot the app applies its schema and seeds demo data automatically
+# (see app/database/seed.py), so a fresh database needs no manual setup.
+# Demo login: admin / Admin@123.
+
+databases:
+  - name: inventory-logix-db
+    plan: free
+    # databaseName is required by Render even when auto-generated.
+    databaseName: inventory_logix
+
+services:
+  - type: web
+    name: inventory-logix
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn run:app --workers 1 --threads 2 --timeout 120 --access-logfile -
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inventory-logix-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
