@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 
 from ..ml.forecasting import (
     forecast_with_prophet,
@@ -12,8 +13,14 @@ from ..ml.forecasting import (
 from ..repositories import ForecastRepository
 from ..repositories.product_repo import ProductRepository
 from ..repositories.movement_repo import MovementRepository
+from ..utils import TTLCache
 
 LOGGER = logging.getLogger(__name__)
+
+# In-memory TTL cache: identical forecast runs within the window skip the ML compute.
+_FORECAST_MEM_CACHE: TTLCache[dict] = TTLCache(ttl=300)  # 5 minutes
+# Freshness window for reusing a forecast already stored in the DB.
+_DB_FRESH_SECONDS = 30 * 60  # 30 minutes
 
 
 class ForecastService:
@@ -24,6 +31,17 @@ class ForecastService:
         product = ProductRepository.find(product_id)
         if not product:
             raise ValueError("Product not found")
+        cache_key = f"forecast:{product_id}:{model}:{horizon}"
+
+        cached = _FORECAST_MEM_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        stored = cls._fresh_stored(product_id, model, horizon)
+        if stored is not None:
+            _FORECAST_MEM_CACHE.set(cache_key, stored)
+            return stored
+
         rows = MovementRepository.daily_for_product(product_id, days=180)
         history = [{"ds": r["day"].isoformat(), "y": int(r["total"])} for r in rows]
         if model == "arima":
@@ -39,7 +57,28 @@ class ForecastService:
         }
         result["model_label"] = cls.MODELS.get(model, "Prophet")
         ForecastRepository.save(product_id, model, horizon, result)
+        _FORECAST_MEM_CACHE.set(cache_key, result)
         return result
+
+    @staticmethod
+    def _fresh_stored(product_id: int, model: str, horizon: int) -> dict | None:
+        """Return a recent stored forecast for the exact key if fresh enough."""
+        try:
+            rows = ForecastRepository.recent_for(product_id, model, horizon, limit=1)
+            if not rows:
+                return None
+            generated_at = rows[0].get("generated_at")
+            payload = rows[0].get("payload")
+            if generated_at is None or not isinstance(payload, dict):
+                return None
+            if generated_at.tzinfo is None:
+                generated_at = generated_at.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - generated_at).total_seconds() > _DB_FRESH_SECONDS:
+                return None
+            return payload
+        except Exception:  # pragma: no cover - defensive, fall back to recompute
+            LOGGER.debug("Stored forecast lookup failed; recomputing.", exc_info=True)
+            return None
 
     @staticmethod
     def recent_for_product(product_id: int, limit: int = 5):

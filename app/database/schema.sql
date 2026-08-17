@@ -153,6 +153,7 @@ CREATE INDEX IF NOT EXISTS idx_movements_created     ON movements(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_user            ON audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created         ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_forecast_product      ON forecast_cache(product_id);
+CREATE INDEX IF NOT EXISTS idx_forecast_cache_lookup ON forecast_cache(product_id, model, horizon);
 CREATE INDEX IF NOT EXISTS idx_anomaly_product       ON anomaly_log(product_id);
 CREATE INDEX IF NOT EXISTS idx_po_status             ON purchase_orders(status);
 
