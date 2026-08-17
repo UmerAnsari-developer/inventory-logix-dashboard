@@ -73,42 +73,52 @@
     // ----- AI FORECAST PAGE -----
     function renderForecast(chartId, payload) {
         const el = typeof chartId === 'string' ? document.getElementById(chartId) : chartId;
-        if (!el || !window.Plotly) return;
-        const hist = (payload.history || []).map((v, i) => ({
-            x: i, y: v,
-        }));
-        const n = (payload.history || []).length;
-        const xPred = payload.predictions.map((_, i) => n + i);
-        const traces = [
-            {
-                x: hist.map(p => p.x), y: hist.map(p => p.y),
-                mode: 'lines+markers', name: 'Historical',
-                line: { color: '#2563eb', width: 2 },
-            },
-            {
-                x: xPred, y: payload.predictions,
-                mode: 'lines', name: 'Forecast',
-                line: { color: '#7c3aed', width: 3, dash: 'dot' },
-            },
-            {
-                x: xPred.concat(xPred.slice().reverse()),
-                y: payload.upper.concat(payload.lower.slice().reverse()),
-                fill: 'toself', name: '95% confidence',
-                fillcolor: 'rgba(124,58,237,0.18)',
-                line: { color: 'transparent' },
-                type: 'scatter', mode: 'lines',
-            },
-        ];
-        const layout = {
-            margin: { t: 20, b: 30, l: 40, r: 10 },
-            paper_bgcolor: 'transparent',
-            plot_bgcolor: 'transparent',
-            font: { family: 'Inter', size: 12 },
-            legend: { orientation: 'h', y: 1.1 },
-            xaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
-            yaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
+        if (!el) return;
+        const tryRender = () => {
+            if (!window.Plotly) return false;
+            const hist = (payload.history || []).map((v, i) => ({
+                x: i, y: v,
+            }));
+            const n = (payload.history || []).length;
+            const xPred = payload.predictions.map((_, i) => n + i);
+            const traces = [
+                {
+                    x: hist.map(p => p.x), y: hist.map(p => p.y),
+                    mode: 'lines+markers', name: 'Historical',
+                    line: { color: '#2563eb', width: 2 },
+                },
+                {
+                    x: xPred, y: payload.predictions,
+                    mode: 'lines', name: 'Forecast',
+                    line: { color: '#7c3aed', width: 3, dash: 'dot' },
+                },
+                {
+                    x: xPred.concat(xPred.slice().reverse()),
+                    y: payload.upper.concat(payload.lower.slice().reverse()),
+                    fill: 'toself', name: '95% confidence',
+                    fillcolor: 'rgba(124,58,237,0.18)',
+                    line: { color: 'transparent' },
+                    type: 'scatter', mode: 'lines',
+                },
+            ];
+            const layout = {
+                margin: { t: 20, b: 30, l: 40, r: 10 },
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                font: { family: 'Inter', size: 12 },
+                legend: { orientation: 'h', y: 1.1 },
+                xaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
+                yaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
+            };
+            Plotly.react(el, traces, layout, { responsive: true, displaylogo: false });
+            return true;
         };
-        Plotly.react(el, traces, layout, { responsive: true, displaylogo: false });
+        if (!tryRender()) {
+            const wait = setInterval(() => {
+                if (tryRender()) clearInterval(wait);
+            }, 100);
+            setTimeout(() => clearInterval(wait), 5000);
+        }
     }
 
     function initForecast(cfg) {
@@ -199,29 +209,40 @@
     // ----- ANOMALY PAGE -----
     function renderSPC(id, payload) {
         const el = document.getElementById(id);
-        if (!el || !window.Plotly) return;
-        const values = payload.values || [];
-        const mean = payload.mean || 0;
-        const sigma = payload.sigma || 1;
-        const ucl = payload.ucl || (mean + 3 * sigma);
-        const lcl = payload.lcl || Math.max(0, mean - 3 * sigma);
-        const x = values.map((_, i) => i);
-        const meanLine = values.map(() => mean);
-        const uclLine = values.map(() => ucl);
-        const lclLine = values.map(() => lcl);
-        const traces = [
-            { x: x, y: values, mode: 'lines+markers', name: 'Consumption', line: { color: '#2563eb' } },
-            { x: x, y: meanLine, mode: 'lines', name: 'Mean', line: { color: '#64748b', dash: 'dash' } },
-            { x: x, y: uclLine, mode: 'lines', name: 'UCL (+3sigma)', line: { color: '#dc2626', dash: 'dot' } },
-            { x: x, y: lclLine, mode: 'lines', name: 'LCL (-3sigma)', line: { color: '#dc2626', dash: 'dot' } },
-        ];
-        Plotly.react(el, traces, {
-            margin: { t: 20, b: 30, l: 40, r: 10 },
-            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-            font: { family: 'Inter', size: 12 },
-            xaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
-            yaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
-        }, { responsive: true, displaylogo: false });
+        if (!el) return;
+        const tryRender = () => {
+            if (!window.Plotly) return false;
+            const values = payload.values || [];
+            const mean = payload.mean || 0;
+            const sigma = payload.sigma || 1;
+            const ucl = payload.ucl || (mean + 3 * sigma);
+            const lcl = payload.lcl || Math.max(0, mean - 3 * sigma);
+            const x = values.map((_, i) => i);
+            const meanLine = values.map(() => mean);
+            const uclLine = values.map(() => ucl);
+            const lclLine = values.map(() => lcl);
+            const traces = [
+                { x: x, y: values, mode: 'lines+markers', name: 'Consumption', line: { color: '#2563eb' } },
+                { x: x, y: meanLine, mode: 'lines', name: 'Mean', line: { color: '#64748b', dash: 'dash' } },
+                { x: x, y: uclLine, mode: 'lines', name: 'UCL (+3σ)', line: { color: '#dc2626', dash: 'dot' } },
+                { x: x, y: lclLine, mode: 'lines', name: 'LCL (-3σ)', line: { color: '#dc2626', dash: 'dot' } },
+            ];
+            Plotly.react(el, traces, {
+                margin: { t: 20, b: 30, l: 40, r: 10 },
+                paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+                font: { family: 'Inter', size: 12 },
+                xaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
+                yaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
+            }, { responsive: true, displaylogo: false });
+            return true;
+        };
+        if (!tryRender()) {
+            // Plotly not ready yet — retry shortly
+            const wait = setInterval(() => {
+                if (tryRender()) clearInterval(wait);
+            }, 100);
+            setTimeout(() => clearInterval(wait), 5000);
+        }
     }
 
     function initAnomaly(cfg) {
