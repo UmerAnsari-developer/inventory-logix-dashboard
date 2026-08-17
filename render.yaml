@@ -11,10 +11,10 @@
 # Demo login: admin / Admin@123.
 
 databases:
-  - name: inventory-logix-db
+  - name: inventory_db_2ov0
     plan: free
     # databaseName is required by Render even when auto-generated.
-    databaseName: inventory_logix
+    databaseName: inventory_db_2ov0
 
 services:
   - type: web
