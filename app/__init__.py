@@ -45,6 +45,12 @@ def create_app(config_name: str | None = None) -> Flask:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
+    # Production: surface the resolved database target and fail fast (with a
+    # clear message) instead of serving 500s against an unconfigured DB.
+    if not app.config.get("TESTING") and not app.config.get("DEBUG"):
+        _log_database_target(config_cls)
+        _ensure_database_configured(config_cls)
+
     _init_extensions(app)
     _register_blueprints(app)
     _register_context(app)
@@ -86,6 +92,40 @@ def _register_class_helpers(app: Flask, config_cls) -> None:
         return config_cls.psycopg2_params()
 
     app.config["psycopg2_params"] = _params
+
+
+def _log_database_target(config_cls) -> None:
+    """Log which PostgreSQL host the app resolved to (never the password)."""
+    params = config_cls.psycopg2_params()
+    if "dsn" in params:
+        dsn = params["dsn"]
+        host = dsn.split("@")[-1].split("/")[0] if "@" in dsn else "unknown"
+        LOGGER.info("Connecting to PostgreSQL via DATABASE_URL (host %s).", host)
+    else:
+        LOGGER.info(
+            "Connecting to PostgreSQL at %s:%s/%s.",
+            params.get("host"),
+            params.get("port"),
+            params.get("dbname"),
+        )
+
+
+def _ensure_database_configured(config_cls) -> None:
+    """Raise a clear error if production resolves to the localhost defaults."""
+    params = config_cls.psycopg2_params()
+    if params.get("dsn"):
+        return
+    if params.get("host") == "localhost":
+        LOGGER.error(
+            "No database configured: DATABASE_URL is not set and DB_HOST "
+            "defaults to localhost. On Render, open the service Environment "
+            "and set DATABASE_URL to the PostgreSQL connection string (or "
+            "deploy via render.yaml Blueprint, which wires it automatically)."
+        )
+        raise RuntimeError(
+            "Database is not configured: set DATABASE_URL (or DB_HOST/DB_PORT/"
+            "DB_NAME/DB_USER/DB_PASSWORD) in the service environment."
+        )
 
 
 def _init_extensions(app: Flask) -> None:
