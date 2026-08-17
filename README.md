@@ -23,7 +23,9 @@ toast notifications, and sidebar grouping).
   start.
 - **Real data** — the app is seeded from the **DataCo SMART SUPPLY CHAIN**
   dataset (180,000+ real transactions): 118 products with real demand /
-  ordering / holding costs (used for EOQ) and up to 150 suppliers.
+  ordering / holding costs (used for EOQ) and up to 150 suppliers. When the
+  dataset file is not present a deterministic synthetic catalogue is used so
+  every deployment still gets demo data.
 - **REST API** — `/api/products`, `/api/suppliers`, `/api/movements`,
   `/api/eoq/calculate`, `/api/health`, plus AI endpoints
   (`/ai/forecast/run`, `/ai/anomaly/run`, `/ai/eoq/sensitivity`). Consistent
@@ -65,8 +67,9 @@ toast notifications, and sidebar grouping).
 │   └── static/                # CSS / JS (style.css preserved, AI overlays added)
 ├── datasets/                  # DataCoSupplyChainDataset.csv (not in git)
 ├── tests/                     # pytest suite
-├── scripts/                   # smoke_test.py — end-to-end route verification
+├── scripts/                   # smoke_test.py, populate_demo.py (ops helpers)
 ├── run.py                     # Entry point
+├── render.yaml                # Render Blueprint (deploy from GitHub)
 ├── requirements.txt
 └── README.md
 ```
@@ -114,11 +117,12 @@ datasets/
 On a fresh database this creates:
 
 - 3 demo users (admin / manager / viewer)
-- up to 150 suppliers derived from the DataCo dataset
-- 118 products with real demand, ordering and holding costs (real EOQ values)
-  and deterministic, varied stock levels
-- If the dataset file is missing, seeding is deferred with a log warning and
-  the app still boots (the schema is applied regardless).
+- 36 suppliers
+- 118 products with realistic demand, ordering and holding costs (real EOQ
+  values) and deterministic, varied stock levels
+- If the dataset file is missing (e.g. on Render, where `datasets/` is not in
+  the repo), a deterministic synthetic product catalogue is seeded instead, so
+  every deployment gets demo data.
 
 ### 4. Run the Flask app
 
@@ -153,25 +157,35 @@ Gmail password will not work.
 
 ---
 
-## Deploying to Render (PostgreSQL)
+## Deploying to Render (GitHub)
 
-1. Create a PostgreSQL database on Render and note the internal connection
-   string from the **Connect** panel.
-2. Open the PSQL shell (or your preferred client) and run:
+This repo ships a **Render Blueprint** (`render.yaml`) so you can deploy it
+straight from GitHub — no manual database setup required.
 
-   ```bash
-   \i database.sql
-   ```
+1. Push this repository to GitHub.
+2. In the Render dashboard open **New + → Blueprint**, pick the repo and click
+   **Apply**.
+3. Render reads `render.yaml` and creates:
+   - a free PostgreSQL database (`inventory-logix-db`),
+   - a free web service (`inventory-logix`) that starts with
+     `gunicorn run:app --workers 1 --threads 2 --timeout 120`,
+   - a health check on `/api/health`,
+   - and wires `DATABASE_URL` (from the database) plus a generated
+     `SECRET_KEY` automatically.
+4. Wait for the deploy to finish, then open the service URL.
 
-   This drops and recreates all tables (operational + ETL star schema) and
-   seeds the three demo users (`admin`/`Admin@123`, `manager`/`Manager@123`,
-   `viewer`/`Viewer@123`) with real password hashes.
-3. Point your app at the Render database. Either set `DATABASE_URL` to the
-   internal connection string, or set `DB_HOST`, `DB_PORT`, `DB_NAME`,
-   `DB_USER`, `DB_PASSWORD` individually.
-4. Optional: after deploy, run `flask --app run.py seed-db --force` with the
-   `datasets/DataCoSupplyChainDataset.csv` present to load products/suppliers.
-   Without it the app still boots (the schema is already in place).
+On first boot the app applies its schema and seeds demo data automatically
+(3 users + 36 suppliers + 118 products + movements + purchase orders), so a
+fresh database is ready immediately. Log in with `admin` / `Admin@123`.
+
+Notes:
+
+- `autoDeploy: true` redeploys the service on every push to `main`.
+- Environment variables like `DATABASE_URL` and `SECRET_KEY` are managed by
+  Render and never stored in the repository.
+- To use your own existing Render database instead of the Blueprint-created
+  one, unset the `fromDatabase` env var in `render.yaml` and set
+  `DATABASE_URL` (or the `DB_*` fields) in the Render dashboard instead.
 
 ---
 
