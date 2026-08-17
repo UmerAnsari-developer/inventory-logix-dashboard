@@ -156,3 +156,26 @@ def etl_database(force: bool = False) -> dict:
     from .etl import run_etl
 
     return run_etl(force=force)
+
+
+_BOOTSTRAPPED = False
+_BOOTSTRAP_LOCK = threading.Lock()
+
+
+def bootstrap_database() -> None:
+    """Run schema init, seed and ETL at most once per process.
+
+    Idempotent guard so repeated ``create_app`` calls (e.g. the Flask debug
+    reloader monitor, test fixtures or multiple workers importing ``run.py``)
+    do not re-apply the schema and open fresh database connections on every
+    boot.
+    """
+    global _BOOTSTRAPPED
+    with _BOOTSTRAP_LOCK:
+        if _BOOTSTRAPPED:
+            return
+        init_schema()
+        seed_database()
+        if current_app.config.get("RUN_ETL_ON_STARTUP", True):
+            etl_database()
+        _BOOTSTRAPPED = True

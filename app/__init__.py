@@ -13,7 +13,13 @@ from flask import Flask, g, render_template, request
 from flask_login import current_user
 
 from .config import get_config
-from .database.connection import close_connection, etl_database, init_schema, seed_database
+from .database.connection import (
+    bootstrap_database,
+    close_connection,
+    etl_database,
+    init_schema,
+    seed_database,
+)
 from .extensions import csrf, limiter, login_manager
 from .repositories import UserRepository
 from .routes import ai_bp, api_bp, auth_bp, ui_bp
@@ -58,15 +64,17 @@ def create_app(config_name: str | None = None) -> Flask:
     def etl_db_cmd(force: bool = False) -> None:  # pragma: no cover
         etl_database(force=force)
 
-    # First-run bootstrap (idempotent).
-    with app.app_context():
-        try:
-            init_schema()
-            seed_database()
-            if app.config.get("RUN_ETL_ON_STARTUP", True):
-                etl_database()
-        except Exception as exc:
-            LOGGER.warning("Database bootstrap deferred: %s", exc)
+    # First-run bootstrap (idempotent, once per process). Under the Flask
+    # debug reloader the monitor (parent) process also imports this module;
+    # only the serving child should touch the database so the DB isn't
+    # bootstrapped twice on every ``python run.py`` start.
+    reloader_parent = app.config.get("DEBUG", False) and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+    if not reloader_parent:
+        with app.app_context():
+            try:
+                bootstrap_database()
+            except Exception as exc:
+                LOGGER.warning("Database bootstrap deferred: %s", exc)
 
     return app
 
