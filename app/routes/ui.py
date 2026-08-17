@@ -8,7 +8,6 @@ from __future__ import annotations
 import csv
 import io
 import logging
-import time
 from datetime import date, timedelta
 from functools import lru_cache
 
@@ -27,41 +26,31 @@ from ..repositories import (
     WarehouseRepository,
 )
 from ..services import MovementService, ProductService, SettingsService, SupplierService
-from ..utils import format_money_display
+from ..utils import TTLCache, format_money_display
 
 LOGGER = logging.getLogger(__name__)
 
-# Simple in-memory cache for reports data (TTL-based)
-_reports_cache: dict[str, tuple[float, dict]] = {}
-_REPORTS_CACHE_TTL = 30  # seconds
-
-# Simple in-memory cache for dashboard data (TTL-based)
-_dashboard_cache: dict[str, tuple[float, dict]] = {}
-_DASHBOARD_CACHE_TTL = 60  # seconds
+# Simple in-memory TTL caches for reports and dashboard data
+_reports_cache: TTLCache[dict] = TTLCache(ttl=30)
+_dashboard_cache: TTLCache[dict] = TTLCache(ttl=60)
 
 
 def _cache_get(key: str):
-    """Get cached value if not expired."""
-    entry = _reports_cache.get(key)
-    if entry and (time.time() - entry[0]) < _REPORTS_CACHE_TTL:
-        return entry[1]
-    return None
+    """Get cached reports value if not expired."""
+    return _reports_cache.get(key)
 
 
 def _cache_set(key: str, value: dict):
-    _reports_cache[key] = (time.time(), value)
+    _reports_cache.set(key, value)
 
 
 def _dashboard_cache_get(key: str):
     """Get cached dashboard value if not expired."""
-    entry = _dashboard_cache.get(key)
-    if entry and (time.time() - entry[0]) < _DASHBOARD_CACHE_TTL:
-        return entry[1]
-    return None
+    return _dashboard_cache.get(key)
 
 
 def _dashboard_cache_set(key: str, value: dict):
-    _dashboard_cache[key] = (time.time(), value)
+    _dashboard_cache.set(key, value)
 
 
 def _make_cache_key(**kwargs) -> str:
