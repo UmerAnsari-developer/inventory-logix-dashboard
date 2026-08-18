@@ -130,3 +130,80 @@ class UserRepository:
             cur.execute(
                 "DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,)
             )
+
+    @staticmethod
+    def create_session(user_id: int, ip_address: str | None, user_agent: str | None) -> str:
+        """Create a new session record and return the session token."""
+        import secrets
+        token = secrets.token_urlsafe(32)
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                """
+                INSERT INTO user_sessions (user_id, session_token, ip_address, user_agent)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (user_id, token, ip_address, user_agent),
+            )
+        return token
+
+    @staticmethod
+    def end_session(token: str) -> None:
+        """Mark a session as ended (logout)."""
+        from datetime import datetime
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "UPDATE user_sessions SET is_active = FALSE, logout_at = %s WHERE session_token = %s",
+                (datetime.utcnow(), token),
+            )
+
+    @staticmethod
+    def update_session_activity(token: str) -> None:
+        """Update the last activity timestamp for a session."""
+        from datetime import datetime
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "UPDATE user_sessions SET last_activity = %s WHERE session_token = %s",
+                (datetime.utcnow(), token),
+            )
+
+    @staticmethod
+    def get_active_sessions(user_id: int | None = None) -> list[dict]:
+        """Get active sessions, optionally filtered by user_id."""
+        with get_cursor() as cur:
+            if user_id is not None:
+                cur.execute(
+                    """
+                    SELECT id, user_id, session_token, ip_address, user_agent,
+                           login_at, last_activity
+                    FROM user_sessions
+                    WHERE is_active = TRUE AND user_id = %s
+                    ORDER BY last_activity DESC
+                    """,
+                    (user_id,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, user_id, session_token, ip_address, user_agent,
+                           login_at, last_activity
+                    FROM user_sessions
+                    WHERE is_active = TRUE
+                    ORDER BY last_activity DESC
+                    """,
+                )
+            return list(cur.fetchall())
+
+    @staticmethod
+    def cleanup_stale_sessions(hours: int = 24) -> int:
+        """Mark sessions as inactive if no activity for specified hours."""
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                """
+                UPDATE user_sessions
+                SET is_active = FALSE, logout_at = NOW()
+                WHERE is_active = TRUE
+                  AND last_activity < NOW() - INTERVAL '%s hours'
+                """,
+                (hours,),
+            )
+            return cur.rowcount

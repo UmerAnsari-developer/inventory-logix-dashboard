@@ -47,7 +47,7 @@ class AuthService:
         return user_id
 
     @staticmethod
-    def authenticate(username: str, password: str, ip: str | None = None):
+    def authenticate(username: str, password: str, ip: str | None = None, user_agent: str | None = None):
         user = UserRepository.find_by_username(username)
         if not user or not user.get("is_active"):
             raise AuthError("Invalid username or password.")
@@ -58,6 +58,10 @@ class AuthService:
         UserRepository.record_login(user["id"])
         AuditRepository.record(user["id"], "user.login",
                                target_type="user", target_id=user["id"], ip_address=ip)
+        # Create session tracking record
+        session_token = UserRepository.create_session(user["id"], ip, user_agent)
+        user.session_token = session_token
+        from flask_login import login_user
         login_user(user, remember=True)
         return user
 

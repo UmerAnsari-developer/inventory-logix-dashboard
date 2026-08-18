@@ -227,9 +227,26 @@ CREATE INDEX IF NOT EXISTS idx_fact_mov_wh    ON fact_movement_daily(warehouse_k
 CREATE INDEX IF NOT EXISTS idx_fact_inv_date  ON fact_inventory_daily(date_key);
 CREATE INDEX IF NOT EXISTS idx_fact_inv_wh    ON fact_inventory_daily(warehouse_key);
 
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_token   VARCHAR(64) UNIQUE NOT NULL,
+    ip_address      VARCHAR(45),
+    user_agent      TEXT,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    last_activity   TIMESTAMP NOT NULL DEFAULT NOW(),
+    login_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+    logout_at       TIMESTAMP,
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_active ON user_sessions(is_active) WHERE is_active;
+
 -- ETL pipeline bookkeeping (high-water mark for incremental runs).
 CREATE TABLE IF NOT EXISTS etl_state (
-    key         VARCHAR(60) PRIMARY KEY,
-    value       TEXT,
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    state_key       VARCHAR(60) PRIMARY KEY,
+    value           TEXT,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
