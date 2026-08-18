@@ -48,6 +48,9 @@ class Config:
     MAIL_USE_TLS = _bool(os.environ.get("MAIL_USE_TLS"), True)
     PASSWORD_RESET_TTL_MINUTES = int(os.environ.get("PASSWORD_RESET_TTL_MINUTES", "30"))
 
+    # SendGrid API (HTTPS) — works on platforms that block outbound SMTP (e.g. Render free tier)
+    SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
+
     # Feature flags
     AI_FORECAST_ENABLED = _bool(os.environ.get("AI_FORECAST_ENABLED"), True)
     ANOMALY_DETECTION_ENABLED = _bool(os.environ.get("ANOMALY_DETECTION_ENABLED"), True)
