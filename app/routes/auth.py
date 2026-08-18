@@ -19,15 +19,13 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        if not request.form.get("remember"):
-            flash("Please tick the Remember me checkbox to continue.", "error")
-            return render_template("auth/login.html", username=username), 400
+        remember = bool(request.form.get("remember"))
         try:
             user = AuthService.authenticate(username, password, ip=request.remote_addr)
         except AuthError as exc:
             flash(str(exc), "error")
             return render_template("auth/login.html", username=username), 401
-        login_user(user, remember=True)
+        login_user(user, remember=remember)
         flash(f"Welcome back, {user['username']}!", "success")
         return redirect(_role_home(user["role"]))
     return render_template("auth/login.html")
