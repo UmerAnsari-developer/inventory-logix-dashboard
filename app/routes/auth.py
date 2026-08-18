@@ -5,6 +5,7 @@ from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
 from ..extensions import limiter
+from ..repositories import UserRepository
 from ..services import AuthService
 from ..services.auth_service import AuthError
 
@@ -21,7 +22,11 @@ def login():
         password = request.form.get("password", "")
         remember = bool(request.form.get("remember"))
         try:
-            user = AuthService.authenticate(username, password, ip=request.remote_addr)
+            user = AuthService.authenticate(
+                username, password,
+                ip=request.remote_addr,
+                user_agent=request.headers.get("User-Agent")
+            )
         except AuthError as exc:
             flash(str(exc), "error")
             return render_template("auth/login.html", username=username), 401
@@ -105,6 +110,10 @@ def reset_password(token: str):
 @auth_bp.route("/logout")
 @login_required
 def logout():
+    # End session tracking
+    session_token = getattr(current_user, "session_token", None)
+    if session_token:
+        UserRepository.end_session(session_token)
     logout_user()
     flash("You have been logged out.", "info")
     return redirect(url_for("ui.dashboard"))
