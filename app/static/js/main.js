@@ -183,6 +183,21 @@
   if (eoqForm && window.initEoqCalculator) {
     window.initEoqCalculator(eoqForm);
   }
+
+  // Back to top button
+  const backToTop = document.getElementById("backToTop");
+  if (backToTop) {
+    window.addEventListener("scroll", function () {
+      if (window.scrollY > 300) {
+        backToTop.hidden = false;
+      } else {
+        backToTop.hidden = true;
+      }
+    });
+    backToTop.addEventListener("click", function () {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
 });
 
 function toast(title, message) {
