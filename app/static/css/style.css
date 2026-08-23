@@ -7,7 +7,7 @@
   --surface-2: #edf2f1;
 
   --line: #dce5e2;
-  --muted: #6b7b83;
+  --muted: #71818a;
   --green: #3d997c;
   --green-soft: #dcefe8;
   --amber: #e3a43c;
@@ -17,7 +17,7 @@
   --blue: #3c78a5;
   --shadow: 0 18px 45px rgba(19, 36, 44, 0.08);
   --shadow-sm: 0 8px 20px rgba(19, 36, 44, 0.06);
-  --radius-lg: 12px;
+  --radius-lg: 10px;
   --radius-md: 8px;
   --radius-sm: 6px;
   --mono: "Consolas", "Menlo", "DejaVu Sans Mono", "Courier New", monospace;
@@ -563,7 +563,7 @@ h1 {
   padding: 0 14px;
   border: 1px solid transparent;
   border-radius: 8px;
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   font-weight: 750;
   transition: 160ms ease;
 }
@@ -629,7 +629,7 @@ h1 {
 .btn-sm {
   min-height: 32px;
   padding: 0 10px;
-  font-size: 0.74rem;
+  font-size: 0.68rem;
 }
 
 .icon-btn {
@@ -1021,12 +1021,12 @@ svg.chart {
   max-height: 520px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--muted) transparent;
+  scrollbar-color: var(--ink-3) transparent;
 }
 
 .table-scroll::-webkit-scrollbar {
-  height: 6px;
-  width: 6px;
+  height: 8px;
+  width: 8px;
 }
 
 .table-scroll::-webkit-scrollbar-track {
@@ -1034,13 +1034,12 @@ svg.chart {
 }
 
 .table-scroll::-webkit-scrollbar-thumb {
-  background: var(--muted);
-  border-radius: 3px;
+  background: var(--ink-3);
+  border-radius: 4px;
 }
 
 .table-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
-  opacity: 0.8;
+  background: var(--ink-2);
 }
 
 .table-scroll.compact {
@@ -1050,7 +1049,7 @@ svg.chart {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: auto;
+  min-width: 760px;
 }
 
 th {
@@ -1070,7 +1069,7 @@ td {
   padding: 15px 21px;
   border-bottom: 1px solid #edf1ef;
   color: var(--ink-2);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   vertical-align: middle;
 }
 
@@ -1201,9 +1200,9 @@ tbody tr:hover {
 
 .runway-label {
   position: absolute;
-  top: 22px;
-  color: var(--ink-3);
-  font: 0.65rem var(--mono);
+  top: 19px;
+  color: var(--muted);
+  font: 0.55rem var(--mono);
   white-space: nowrap;
 }
 
@@ -1730,27 +1729,6 @@ tbody tr:hover {
 .table-scroll tr.abc-c td {
   background: rgba(195, 76, 76, 0.04);
 }
-
-/* ABC Analysis table - balanced column widths */
-.abc-table {
-  table-layout: fixed;
-  width: 100%;
-}
-
-.abc-table th:nth-child(1),
-.abc-table td:nth-child(1) { width: 60px; }  /* Class */
-.abc-table th:nth-child(2),
-.abc-table td:nth-child(2) { width: 50px; }  /* # */
-.abc-table th:nth-child(3),
-.abc-table td:nth-child(3) { width: 100px; }  /* SKU */
-.abc-table th:nth-child(4),
-.abc-table td:nth-child(4) { width: 30%; max-width: 300px; }  /* Product */
-.abc-table th:nth-child(5),
-.abc-table td:nth-child(5) { width: 15%; }  /* Category */
-.abc-table th:nth-child(6),
-.abc-table td:nth-child(6) { width: 120px; }  /* Value */
-.abc-table th:nth-child(7),
-.abc-table td:nth-child(7) { width: 120px; }  /* Cumulative % */
 
 .report-grid .panel {
   display: flex;
@@ -2863,75 +2841,6 @@ main {
   .card {
     padding: 18px;
   }
-}
-
-}
-
-.app-footer {
-  margin-top: 48px;
-  padding: 24px 0;
-  border-top: 1px solid var(--line);
-  text-align: center;
-}
-
-.app-footer .footer-text {
-  color: var(--muted);
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-
-}
-
-.app-footer {
-  margin-top: 48px;
-  padding: 24px 0;
-  border-top: 1px solid var(--line);
-  text-align: center;
-}
-
-.app-footer .footer-text {
-  color: var(--muted);
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-
-.back-to-top {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  color: var(--ink-3);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  cursor: pointer;
-  transition: 160ms ease;
-  z-index: 50;
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(10px);
-}
-
-.back-to-top:not([hidden]) {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-}
-
-.back-to-top:hover {
-  border-color: var(--green);
-  color: var(--green);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow);
-}
-
-.back-to-top svg {
-  width: 20px;
-  height: 20px;
 }
 
 @media (prefers-reduced-motion: reduce) {

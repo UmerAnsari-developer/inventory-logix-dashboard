@@ -21,7 +21,7 @@
     <div class="alert-title">{{ reorder_count }} products need attention today</div>
     <div class="alert-subtitle">{{ critical_count }} are below their reorder point. Review the queue before the next dispatch cycle</div>
   </div>
-  <a href="{{ url_for('ui.reorder_alerts') }}" class="btn btn-secondary">Review reorder queue &rarr;</a>
+  <a href="{{ url_for('ui.reorder_alerts') }}" class="btn btn-secondary">Review reorder queue &rarr</a>
 </section>
 
 <section class="metric-grid">
@@ -30,7 +30,7 @@
   <div class="metric-card"><div class="metric-label">Units moved today <span class="metric-index">A3</span></div><div class="metric-value" id="liveUnitsToday">{{ '{:,}'.format(units_today) }}</div><div class="metric-foot"><strong>+14.8%</strong> vs daily average</div></div>
   <div class="metric-card"><div class="metric-label">Stock health <span class="metric-index">A4</span></div><div class="metric-value" id="liveHealthPct">{{ health_pct }}<span style="font-size:1.1rem">%</span></div><div class="metric-foot"><strong>{{ 'Good' if health_pct >= 80 else 'Monitor' }}</strong> &middot; target is 80%</div></div>
   {% if app_settings.get('ai_recommendations') != 'off' %}
-  <div class="metric-card"><div class="metric-label">AI savings (YTD) <span class="metric-index">AI</span></div><div class="metric-value" id="aiSavingsKpi">&mdash;</div><div class="metric-foot"><strong>vs manual ordering</strong></div></div>
+  <div class="metric-card ai-card"><div class="metric-label">AI savings (YTD) <span class="metric-index">AI</span></div><div class="metric-value" id="aiSavingsKpi">&mdash;</div><div class="metric-foot"><strong>vs manual ordering</strong></div></div>
   {% endif %}
 </section>
 
@@ -109,7 +109,7 @@
         <div class="panel-title">Reorder queue</div>
         <div class="panel-caption">The shortest path from stock signal to purchase decision</div>
       </div>
-      <a href="{{ url_for('ui.reorder_alerts') }}" class="btn btn-ghost">View all &rarr;</a>
+      <a href="{{ url_for('ui.reorder_alerts') }}" class="btn btn-ghost">View all &rarr</a>
     </div>
     <div class="table-scroll">
       <table>
@@ -144,11 +144,7 @@
             <td><span class="status {{ product.status }}">{{ product.status_label }}</span></td>
             {% if current_user.role in ['admin', 'manager'] %}
             <td>
-              {% if product.status == 'critical' %}
-              <a href="{{ url_for('ui.movement_form', product_id=product.id) }}" class="btn btn-green btn-sm">Record movement</a>
-              {% else %}
               <a href="{{ url_for('ui.movement_form', product_id=product.id) }}" class="btn btn-secondary btn-sm">Record movement</a>
-              {% endif %}
             </td>
             {% endif %}
           </tr>
@@ -367,7 +363,7 @@
     </div>
     <div class="panel-content">
       <div class="table-scroll compact">
-        <table class="abc-table">
+        <table>
           <thead><tr><th>Class</th><th>#</th><th>SKU</th><th>Product</th><th>Category</th><th>Value (₹)</th><th>Cumulative %</th></tr></thead>
           <tbody>
             {% for a in abc_data[:30] %}
