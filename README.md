@@ -2,46 +2,45 @@
 
 A full-stack Flask + PostgreSQL application for warehouse stock management with
 **real-time CRUD**, **AI demand forecasting**, **anomaly detection**, **REST API**,
-and an **auth-protected** UI built on a clean, modern dashboard design.
-
-The application preserves a clean, modern look-and-feel and layers in
-the advanced features (forecast, anomaly, 3D EOQ surface, dark mode, AI banner,
-toast notifications, and sidebar grouping).
+**data warehouse ETL**, and an **auth-protected** UI built on a unified futuristic
+dark-mode design with glassmorphism, GSAP animations, and Three.js 3D backgrounds.
 
 ---
 
 ## Highlights
 
 - **Authentication** — Flask-Login with hashed passwords, role-based access
-  (`admin`, `manager`, `viewer`), CSRF protection via Flask-WTF, session
-  fingerprinting, and rate-limited login/register endpoints. Self-registration
-  always creates a **viewer** account; write access (products, suppliers,
-  movements, purchase orders, settings) is restricted to `admin`/`manager`.
-- **Database** — PostgreSQL with normalised schema (`users`, `suppliers`,
-  `products`, `movements`, `purchase_orders`, `audit_log`, `forecast_cache`,
-  `anomaly_log`). Schema bootstrap + data seeding run automatically on first
-  start.
-- **Real data** — the app is seeded from the **DataCo SMART SUPPLY CHAIN**
-  dataset (180,000+ real transactions): 118 products with real demand /
-  ordering / holding costs (used for EOQ) and up to 150 suppliers. When the
-  dataset file is not present a deterministic synthetic catalogue is used so
-  every deployment still gets demo data.
+  (`admin`, `manager`, `viewer`), CSRF protection via Flask-WTF, per-request
+  CSP nonces, session fingerprinting, account lockout (5 failed attempts → 15 min),
+  and rate-limited auth endpoints. Self-registration always creates a **viewer**
+  account; write access is restricted to `admin`/`manager`.
+- **Database** — PostgreSQL with 84+ stored procedures, 8 trigger functions,
+  SCD Type 2 data warehouse dimensions + fact tables, and a full ETL pipeline.
+  Schema bootstrap + seeding run automatically on first start.
+- **Real data** — seeded from the **DataCo SMART SUPPLY CHAIN** dataset
+  (180,000+ real transactions): 118 products with real demand / ordering /
+  holding costs (used for EOQ) and up to 150 suppliers. Deterministic synthetic
+  catalogue when the dataset file is absent.
 - **REST API** — `/api/products`, `/api/suppliers`, `/api/movements`,
-  `/api/eoq/calculate`, `/api/health`, plus AI endpoints
-  (`/ai/forecast/run`, `/ai/anomaly/run`, `/ai/eoq/sensitivity`). Consistent
-  JSON envelope with success/error codes.
+  `/api/eoq/calculate`, `/api/health`, plus AI endpoints. Consistent JSON
+  envelope with success/error codes.
 - **ML module** — Prophet, ARIMA, and ensemble forecasting with graceful
-  fallback to a moving-average model when the optional libraries are
-  unavailable. Anomaly detection uses Isolation Forest plus an SPC z-score
-  control chart. All results are cached in `forecast_cache` / `anomaly_log`.
-- **Security** — CSP / X-Frame-Options / Referrer-Policy / Permissions-Policy
-  response headers, password hashing via Werkzeug, parameterised SQL via
-  psycopg2, rate limiting on auth and write endpoints, audit log writes for
-  every mutating call, soft-validated forms, input length limits, and a clear
-  error page hierarchy.
-- **UI** — modern dashboard design preserved, with dark-mode toggle, AI banner on
-  the dashboard, AI forecast strip, AI savings KPI, sidebar grouping
-  (Workspace / Analytics & AI / Account), and toast notifications.
+  fallback. Anomaly detection uses Isolation Forest plus SPC z-score control
+  charts. Portfolio-level forecast and anomaly endpoints with 1-hour caching.
+- **Data warehouse** — ETL pipeline populates `dim_product`, `dim_supplier`,
+  `dim_date`, `fact_inventory_daily`, and `fact_movement_monthly`. Stock walk
+  clamping ensures inventory accuracy. Warehouse monitoring dashboard at
+  `/monitoring`.
+- **Security** — CSP nonces on all inline scripts + import maps, per-request
+  nonce generation, password hashing, parameterised SQL, rate limiting, audit
+  logging, account lockout, secure session cookies, and soft-validated forms.
+- **Performance** — cached context processor (60s), lazy-loaded Plotly (3.5MB
+  only on pages that use it), dashboard queries batched (14→11), reports cache
+  TTL 5 min, AI portfolio cached 1 hour, ETL rebuilds non-blocking.
+- **UI** — unified futuristic dark-mode design with glassmorphism panels, GSAP
+  entrance animations, Three.js 3D wave + particle background, Chart.js /
+  Plotly charts with theme-aware datalabels, SVG sparklines, dark/light theme
+  toggle, and toast notifications.
 
 ---
 
@@ -50,27 +49,56 @@ toast notifications, and sidebar grouping).
 ```
 .
 ├── app/
-│   ├── __init__.py            # Application factory
-│   ├── config/                # Environment-driven configuration classes
-│   ├── database/              # schema.sql + seed.py + connection helpers
-│   ├── repositories/          # SQL CRUD per entity (one module per table)
-│   ├── services/              # Business logic (auth, products, dataset, …)
-│   ├── routes/                # Flask blueprints (auth, ui, api, ai)
-│   ├── ml/                    # Forecasting + anomaly detection models
-│   ├── security/              # Validators, headers + role decorators
-│   ├── utils/                 # Helpers (EOQ formula, JSON envelope, …)
-│   ├── templates/             # Jinja2 templates
-│   │   ├── base.html
-│   │   ├── auth/              # login / register
-│   │   ├── ai/                # forecast / anomaly
-│   │   └── errors/            # 400 / 401 / 403 / 404 / 422 / 429 / 500
-│   └── static/                # CSS / JS (style.css preserved, AI overlays added)
-├── datasets/                  # DataCoSupplyChainDataset.csv (not in git)
-├── tests/                     # pytest suite
-├── scripts/                   # smoke_test.py, populate_demo.py (ops helpers)
-├── run.py                     # Entry point
-├── render.yaml                # Render Blueprint (deploy from GitHub)
+│   ├── __init__.py              # Application factory
+│   ├── config/                  # Environment-driven configuration
+│   ├── database/
+│   │   ├── schema.sql           # Operational tables
+│   │   ├── procedures.sql       # 84+ stored procedures
+│   │   ├── triggers.sql         # 8 trigger functions
+│   │   ├── warehouse.sql        # SCD Type 2 dims + fact tables
+│   │   ├── etl_procedures.sql   # ETL + monitoring procedures
+│   │   ├── etl.py               # ETL pipeline + stock walk clamping
+│   │   ├── seed.py              # Demo data seeding
+│   │   └── connection.py        # Pool management + bootstrap
+│   ├── repositories/            # SQL CRUD per entity
+│   ├── services/                # Business logic (auth, products, EOQ, …)
+│   ├── routes/                  # Flask blueprints (auth, ui, api, ai)
+│   ├── ml/                      # Forecasting + anomaly detection
+│   ├── security/                # Validators, CSP headers, roles
+│   ├── utils/                   # Helpers (EOQ formula, format_money, …)
+│   ├── templates/               # Jinja2 templates
+│   │   ├── base.html            # Shared layout + CDN scripts
+│   │   ├── auth/                # login / register / forgot / reset
+│   │   ├── ai/                  # forecast / anomaly
+│   │   └── errors/              # 400 / 401 / 403 / 404 / 422 / 429 / 500
+│   └── static/
+│       ├── css/
+│       │   ├── style.css        # Main app styles (~3800 lines)
+│       │   ├── landing.css      # Landing page + theme tokens
+│       │   └── ai-features.css  # AI overlay styles
+│       ├── js/
+│       │   ├── auth-bg.js       # Three.js 3D background (all pages)
+│       │   ├── dashboard-3d.js  # Dashboard panel tilt + chart animation
+│       │   ├── saas-animations.js  # GSAP entrance animations
+│       │   ├── ai-features.js   # AI forecast/anomaly/portfolio UI
+│       │   ├── eoq.js           # EOQ calculator + cost curve chart
+│       │   ├── main.js          # IntersectionObserver, toast, theme
+│       │   └── landing.js       # Landing page animations
+│       └── img/                 # favicon.svg, logo.svg
+├── migrations/                  # Alembic migration system
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/
+│       ├── 001_initial.py
+│       └── 002_critical_fixes.py
+├── tests/                       # pytest suite
+├── scripts/                     # ops helpers
+├── run.py                       # Entry point
+├── migrate.py                   # Alembic helper CLI
+├── alembic.ini                  # Alembic config
+├── render.yaml                  # Render Blueprint
 ├── requirements.txt
+├── PRODUCT.md                   # Product requirements doc
 └── README.md
 ```
 
@@ -88,7 +116,7 @@ pip install -r requirements.txt
 
 ### 2. Configure environment
 
-Copy `.env.example` to `.env` (or export the variables in your shell):
+Copy `.env.example` to `.env`:
 
 ```
 DATABASE_URL=postgresql://postgres:your_password@localhost:5432/inventory_db
@@ -96,47 +124,14 @@ SECRET_KEY=replace-this-with-a-random-50-char-string
 FLASK_ENV=development
 ```
 
-### 3. Initialise the database
-
-The schema is applied and seeded automatically on first run, but you can also
-do it explicitly:
-
-```bash
-flask --app run.py init-db
-flask --app run.py seed-db --force
-```
-
-The seeder loads from `datasets/DataCoSupplyChainDataset.csv`. Place the
-dataset file there first (it is gitignored, so you must add it locally):
-
-```
-datasets/
-└── DataCoSupplyChainDataset.csv
-```
-
-On a fresh database this creates:
-
-- 3 demo users (admin / manager / viewer)
-- 36 suppliers
-- 118 products with realistic demand, ordering and holding costs (real EOQ
-  values) and deterministic, varied stock levels
-- If the dataset file is missing (e.g. on Render, where `datasets/` is not in
-  the repo), a deterministic synthetic product catalogue is seeded instead, so
-  every deployment gets demo data.
-
-### 4. Run the Flask app
+### 3. Run the Flask app
 
 ```bash
 python run.py
 # open http://localhost:5000
 ```
 
-In production (e.g. Render) `python run.py` automatically serves the app with
-**Gunicorn** (`--workers 1 --threads 2`), keeping a single process and one
-shared database connection pool. You can also start it explicitly with
-`gunicorn run:app --workers 1 --threads 2 --timeout 120`.
-
-Demo credentials:
+Schema is applied and seeded automatically on first run. Demo credentials:
 
 | User    | Password    | Role    |
 |---------|-------------|---------|
@@ -144,66 +139,83 @@ Demo credentials:
 | manager | Manager@123 | manager |
 | viewer  | Viewer@123  | viewer  |
 
-### 5. Reset a password
+### 4. Password reset
 
-Anyone can request a reset from the **Forgot password** link on the login page
-(`/auth/forgot-password`). Two paths:
-
-- **SMTP configured** (see `.env.example`) — a branded HTML email with the
-  InventoryLogix logo and a single-use reset link is sent to the account's
-  email address. Links expire after `PASSWORD_RESET_TTL_MINUTES` (default 30).
-- **No SMTP** — the reset link is shown directly on the confirmation page
-  under a "Dev mode (no SMTP)" notice, so you can click through without email.
-
-Reset links are single-use and are invalidated after first use. For Gmail you
-must create an **App Password** (Google Account → Security → 2-Step
-Verification → App passwords) and use it as `SMTP_PASSWORD`; your regular
-Gmail password will not work.
+- **SMTP configured** — branded HTML email with single-use reset link.
+- **No SMTP** — reset link shown directly on the confirmation page (dev mode).
 
 ---
 
-## Deploying to Render (GitHub)
+## Deploying to Render
 
-This repo ships a **Render Blueprint** (`render.yaml`) so you can deploy it
-straight from GitHub — no manual database setup required.
+1. Push to GitHub.
+2. Render dashboard → **New + → Blueprint** → pick repo → **Apply**.
+3. Render creates a PostgreSQL database + web service automatically.
+4. First boot applies schema + seeds demo data.
 
-1. Push this repository to GitHub.
-2. In the Render dashboard open **New + → Blueprint**, pick the repo and click
-   **Apply**.
-3. Render reads `render.yaml` and creates:
-   - a free PostgreSQL database (`inventory-logix-db`),
-   - a free web service (`inventory-logix`) that starts with
-     `gunicorn run:app --workers 1 --threads 2 --timeout 120`,
-   - a health check on `/api/health`,
-   - and wires `DATABASE_URL` (from the database) plus a generated
-     `SECRET_KEY` automatically.
-4. Wait for the deploy to finish, then open the service URL.
+`autoDeploy: true` redeploys on every push to `main`.
 
-On first boot the app applies its schema and seeds demo data automatically
-(3 users + 36 suppliers + 118 products + movements + purchase orders), so a
-fresh database is ready immediately. Log in with `admin` / `Admin@123`.
+---
 
-Notes:
+## Performance
 
-- `autoDeploy: true` redeploys the service on every push to `main`.
-- Environment variables like `DATABASE_URL` and `SECRET_KEY` are managed by
-  Render and never stored in the repository.
-- To use your own existing Render database instead of the Blueprint-created
-  one, unset the `fromDatabase` env var in `render.yaml` and set
-  `DATABASE_URL` (or the `DB_*` fields) in the Render dashboard instead.
+| Area | Before | After |
+|------|--------|-------|
+| Context processor | 1 DB query per page load | Cached 60s (global key) |
+| Plotly CDN | Loaded on every page (~3.5MB) | Lazy-loaded (dashboard, forecast, anomaly, EOQ only) |
+| Dashboard queries | 14 sequential | 11 (batched product agg + merged top demand/sales) |
+| Reports queries | 30+ sequential | 25+ (merged `_period_orders` 4→1, warehouse breakdown+status merged) |
+| Reports cache | 30s TTL | 300s TTL (10x fewer cold hits) |
+| AI portfolio | No caching | 1-hour TTL cache |
+| ETL rebuild | Synchronous (10-60s block) | Non-blocking thread |
+
+---
+
+## Security
+
+- **CSP nonces** — per-request nonces on all inline scripts + import maps; no
+  `unsafe-inline` for scripts.
+- **Account lockout** — 5 failed attempts → 15 minute lock with threading lock.
+- **Session cookies** — `Secure`, `HttpOnly`, `SameSite=Lax` by default;
+  `SESSION_COOKIE_SECURE` true in production.
+- **Password reset tokens** — single-use, TTL-based, only shown in debug mode.
+- **Role-based access** — `viewer` is read-only; write routes restricted to
+  `admin`/`manager`.
+- **Rate limiting** — Flask-Limiter on auth (10/min login, 5/min register),
+  API writes (30/min), movements (60/min).
+- **Parameterised SQL** — psycopg2 `%s` placeholders everywhere; all CRUD
+  goes through stored procedures.
+- **Audit log** — every mutating call writes to `audit_log`.
+- **HTTP headers** — `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, `Permissions-Policy`, CSP.
+- **Error pages** — user-safe pages for 400, 401, 403, 404, 422, 429, 500.
+
+---
+
+## Database
+
+### Operational tables
+`users`, `suppliers`, `products`, `movements`, `purchase_orders`, `audit_log`,
+`forecast_cache`, `anomaly_log`, `user_settings`, `etl_state`
+
+### Stored procedures (84+)
+All CRUD goes through `sp_*` functions to prevent SQL injection. Examples:
+`sp_product_list`, `sp_movement_create`, `sp_po_update_status`,
+`sp_settings_upsert_batch`.
+
+### Triggers
+- `trg_validate_movement` — auto-populates SKU from product_id, validates FK,
+  prevents negative stock on OUT/ADJUSTMENT.
+- `trg_audit_*` — audit log triggers on products, suppliers, movements, POs.
+
+### Data warehouse (Alembic-managed)
+- `dim_product` (SCD Type 2), `dim_supplier`, `dim_date`
+- `fact_inventory_daily`, `fact_movement_monthly`
+- ETL pipeline: `python migrate.py etl` or `/monitoring` → Run ETL
 
 ---
 
 ## REST API
-
-All endpoints return a consistent JSON envelope:
-
-```json
-{ "success": true, "data": {}, "message": "..." }
-```
-
-Auth is required for everything except `/api/health` and `/auth/*`. Include
-the Flask session cookie; CSRF is enforced on write requests.
 
 | Method | Endpoint                          | Description                       |
 |--------|-----------------------------------|-----------------------------------|
@@ -219,66 +231,61 @@ the Flask session cookie; CSRF is enforced on write requests.
 | GET    | `/api/movements/recent?days=14`   | Daily movement totals             |
 | POST   | `/api/eoq/calculate`              | Run EOQ math on supplied params   |
 | POST   | `/ai/forecast/run`                | Run Prophet/ARIMA/ensemble        |
-| GET    | `/ai/forecast/portfolio`          | Portfolio-level forecast snapshot |
+| GET    | `/ai/forecast/portfolio`          | Portfolio-level forecast (cached) |
 | POST   | `/ai/anomaly/run`                 | Run anomaly detection             |
-| GET    | `/ai/anomaly/portfolio`           | Portfolio anomalies               |
+| GET    | `/ai/anomaly/portfolio`           | Portfolio anomalies (cached)      |
 | GET    | `/ai/eoq/sensitivity`             | 3D EOQ sensitivity surface        |
-
----
-
-## Security
-
-- All write endpoints require an authenticated session.
-- Role-based access: `viewer` is read-only. Routes that create / edit / delete
-  products, suppliers, movements or purchase orders, and the settings page,
-  are restricted to `admin` and `manager` (see `app/security/roles.py`).
-- CSRF tokens are auto-injected into every Jinja form via `csrf_token()` and
-  verified by Flask-WTF on POST/PUT/DELETE.
-- Rate limits (Flask-Limiter) on `/auth/login` (10/min) and `/auth/register`
-  (5/min); API write endpoints (30/min); movement endpoint (60/min).
-- Parameterised SQL via psycopg2 (`%s` placeholders) — no string concatenation
-  anywhere.
-- Werkzeug password hashing (PBKDF2-SHA256 by default, with the `scrypt`
-  fallback available in newer Werkzeug versions).
-- HTTP security headers (`X-Content-Type-Options`, `X-Frame-Options`,
-  `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy`,
-  optional HSTS).
-- Per-request audit log entries for login, registration, product changes,
-  movement recording, and supplier CRUD.
-- Centralised error handling renders user-safe pages for 400, 401, 403, 404,
-  422, 429, 500. Internal tracebacks are never exposed.
 
 ---
 
 ## ML Module
 
-`app/ml/forecasting.py` exposes three forecast flavours:
+**Forecasting** (`app/ml/forecasting.py`):
+- `forecast_with_prophet` — Prophet with weekly seasonality
+- `forecast_with_arima` — ARIMA(1, 1, 1)
+- `forecast_ensemble` — averages the two
+- Graceful fallback to moving-average when libraries unavailable
 
-- `forecast_with_prophet(history, horizon)` — Prophet with weekly seasonality.
-- `forecast_with_arima(history, horizon)` — statsmodels ARIMA(1, 1, 1).
-- `forecast_ensemble(history, horizon)` — averages the two outputs.
+**Anomaly detection** (`app/ml/anomaly.py`):
+- `detect_anomalies_isoforest` — sklearn Isolation Forest
+- `spc_zscore_analysis` — mean/sigma/UCL/LCL for SPC charts
 
-Each returns:
+Portfolio endpoints are cached for 1 hour to avoid repeated model fitting.
 
-```json
-{
-  "predictions": [...], "lower": [...], "upper": [...],
-  "history": [...], "baseline": 12.4,
-  "accuracy": 91.3, "model": "prophet",
-  "dates": ["2026-08-13", ...]
-}
-```
+---
 
-`app/ml/anomaly.py` exposes:
+## UI Tour
 
-- `detect_anomalies_isoforest(series, contamination=0.05)` — sklearn Isolation
-  Forest with a z-score fallback.
-- `spc_zscore_analysis(series, limit=3.0)` — mean / sigma / UCL / LCL for SPC
-  charting.
+1. **Landing** — `/` — animated marketing page with live KPIs, 3D background,
+   movement chart, inventory mix, and Log in / Sign up.
+2. **Login / Register** — `/auth/*` — corporate card with demo credentials.
+3. **Dashboard** — `/` — KPI cards (stock health, AI savings YTD, reorder
+   count), inventory mix, stock movement chart, reorder queue, top demand/sales,
+   warehouse profile, ABC analysis, stock turnover, slow movers, 3D panel tilt.
+4. **Inventory** — `/inventory` — searchable, filterable, paginated table with
+   CSV export.
+5. **Reorder alerts** — `/reorder-alerts` — severity-sorted cards with
+   "Mark ordered" action.
+6. **Suppliers** — `/suppliers` — cards with reliability and lead time.
+7. **Purchase orders** — `/purchase-orders` — kanban board by status.
+8. **Warehouses** — `/warehouses` — capacity tiles.
+9. **Reports** — `/reports` — 5 tabs (Executive Summary, Warehouse Analytics,
+   Procurement & Suppliers, Sales Performance, Inventory Health) with 15+
+   interactive charts, filterable by warehouse/category/date range.
+10. **EOQ calculator** — `/eoq-calculator` — live form, cost curve, per-product
+    table, theme-aware datalabels.
+11. **AI forecast** — `/ai/forecast` — product selector, model choice, Plotly
+    chart with confidence intervals, portfolio snapshot.
+12. **Anomaly detection** — `/ai/anomaly` — Isolation Forest + SPC control
+    chart, portfolio table.
+13. **Monitoring** — `/monitoring` — DB stats, ETL status, daily logins,
+    warehouse health, Run ETL button (non-blocking).
+14. **Settings** — `/settings` — per-account preferences, AI defaults, alert
+    thresholds (admin/manager only).
+15. **Help / Contact** — `/help`, `/contact` — FAQ and support form.
 
-Both are wired through `services/forecast_service.py` and
-`services/anomaly_service.py`, which persist results to `forecast_cache` and
-`anomaly_log`.
+Dark/light theme toggle saved to localStorage. All pages have themed scrollbars,
+GSAP entrance animations, and the Three.js 3D wave background.
 
 ---
 
@@ -289,65 +296,8 @@ pip install pytest
 pytest
 ```
 
-The suite (89 tests) covers:
-
-- Auth flow (login, registration validation, protected routes)
-- Role-based access control (viewer is read-only, registration is always
-  viewer, admin/manager can write)
-- REST API (health, products, EOQ validation)
-- Security helpers + HTTP headers
-- ML helpers (forecast + anomaly smoke tests)
-- Service-layer validation (product + movement)
-
----
-
-## UI Tour
-
-1. **Landing** — `/` — animated, analytics-driven marketing page referencing
-   the real DataCo dataset, with live KPIs, a 14-day movement chart and
-   inventory mix, plus **Log in** / **Sign up** options. Authenticated users
-   skip straight to the dashboard.
-2. **Login** — `/auth/login` — corporate InventoryLogix card with seeded demo
-   credentials under a `<details>` block.
-3. **Dashboard** — `/` — KPI cards (incl. AI savings), AI recommendation
-   banner, AI forecast strip, inventory mix, reorder queue.
-4. **Inventory** — `/inventory` — searchable, filterable table with
-   pagination and CSV export.
-5. **Reorder queue** — `/reorder-alerts` — severity-sorted cards with
-   "Mark ordered" action (admin/manager only).
-6. **Suppliers** — `/suppliers` — cards with reliability and lead time.
-7. **Purchase orders** — `/purchase-orders` — kanban board by status.
-8. **Warehouses** — `/warehouses` — capacity tiles.
-9. **Reports** — `/reports` — category breakdown + insights.
-10. **EOQ calculator** — `/eoq-calculator` — live EOQ form, cost curve,
-    3D sensitivity surface, per-product table.
-11. **AI forecast** — `/ai/forecast` — product + horizon + model selector,
-    Plotly history/projection/confidence chart, KPIs, portfolio snapshot.
-12. **Anomaly detection** — `/ai/anomaly` — Isolation Forest + SPC chart.
-13. **Settings** — `/settings` — per-account preferences, AI defaults, alert
-    thresholds, and integrations (admin/manager only).
-14. **Dark mode** — saved preference (theme toggle was removed from the
-    sidebar; it is set under Settings).
-
-All pages are viewable by every role; create / edit / delete actions and the
-Settings page are hidden for `viewer` accounts.
-
----
-
-## Troubleshooting
-
-- **`psycopg2.OperationalError`** — make sure PostgreSQL is running and the
-  credentials in `.env` are correct. `python -c "import psycopg2; psycopg2.connect(...)"` 
-  is a quick way to verify.
-- **`ModuleNotFoundError: prophet`** — Prophet requires a working
-  `cmdstanpy` install. The app falls back to a moving-average forecast if
-  Prophet is unavailable, so this is non-fatal.
-- **Login keeps saying "Invalid"** — credentials may not be seeded. Run
-  `flask --app run.py seed-db --force`.
-- **Empty inventory / no products** — the `datasets/DataCoSupplyChainDataset.csv`
-  file is missing (it is gitignored). Add it and run `flask --app run.py
-  seed-db --force`. The app boots fine without it; pages simply have no
-  seeded data.
+Covers auth flow, role-based access, REST API, security helpers, ML smoke
+tests, and service-layer validation.
 
 ---
 
