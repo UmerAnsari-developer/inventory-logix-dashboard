@@ -135,8 +135,6 @@ Schema is applied and seeded automatically on first run. Demo credentials:
 
 | User    | Password    | Role    |
 |---------|-------------|---------|
-| admin   | Admin@123   | admin   |
-| manager | Manager@123 | manager |
 | viewer  | Viewer@123  | viewer  |
 
 ### 4. Password reset
