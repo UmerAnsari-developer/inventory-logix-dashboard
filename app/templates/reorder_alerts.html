@@ -1,11 +1,10 @@
 {% extends "base.html" %}
 {% set active_page = "reorder" %}
-{% block title %}Reorder Queue{% endblock %}
-{% block breadcrumb %}Reorder queue{% endblock %}
+{% block title %}Procurement Queue{% endblock %}
 {% block content %}
 <section>
   <div class="page-heading">
-    <div><div class="eyebrow">Action queue</div><h1>Reorder queue</h1><p class="heading-note">{{ alerts|length }} products below their reorder point</p></div>
+    <div><div class="eyebrow">Procurement</div><h1>Procurement Queue</h1><p class="heading-note">{{ alerts|length }} products below their reorder point</p></div>
   </div>
   <div class="alert-strip">
     <div class="alert-mark"></div>

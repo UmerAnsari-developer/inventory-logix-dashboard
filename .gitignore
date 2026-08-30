@@ -25,7 +25,9 @@ htmlcov/
 .nox/
 
 # Tooling / editor
+.agents/
 .claude/
+.opencode/
 .vscode/
 .idea/
 *.swp

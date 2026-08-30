@@ -22,7 +22,7 @@ class MovementService:
         if quantity is None or int(quantity) <= 0:
             raise MovementError("Quantity must be a positive integer.")
 
-        product = ProductRepository.find(product_id)
+        product = ProductRepository.find_for_update(product_id)
         if not product:
             raise MovementError("Product not found.")
 
@@ -31,6 +31,10 @@ class MovementService:
             if new_stock - int(quantity) < 0:
                 raise MovementError("Stock-out would create a negative balance.")
             new_stock -= int(quantity)
+        elif mtype == "ADJUSTMENT":
+            if new_stock + int(quantity) < 0:
+                raise MovementError("Adjustment would create a negative balance.")
+            new_stock += int(quantity)
         else:
             new_stock += int(quantity)
 

@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 {% set active_page = "forecast" %}
-{% block title %}AI Forecast{% endblock %}
-{% block breadcrumb %}Analytics / Forecast{% endblock %}
+{% block title %}Demand Forecasting{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+{% endblock %}
 {% block content %}
 <section>
   <div class="page-heading">
     <div>
-      <div class="eyebrow">Analytics & AI</div>
-      <h1>AI demand forecast</h1>
+      <div class="eyebrow">Intelligence</div>
+      <h1>Demand Forecasting</h1>
       <p class="heading-note">Train a Prophet, ARIMA or ensemble model against 180 days of movement history</p>
     </div>
   </div>
@@ -42,7 +44,7 @@
       <div class="panel-title">Demand forecast &mdash; history + projection</div>
       <span class="badge ai" id="forecastModelBadge">PROPHET</span>
     </div>
-    <div class="panel-content"><div id="forecastChart" style="height:420px"></div></div>
+    <div class="panel-content"><div id="forecastChart" class="ai-forecast-chart"></div></div>
   </article>
   <div class="metric-grid">
     <div class="metric-card"><div class="metric-label">Model accuracy</div><div class="metric-value" id="forecastAccuracy">&mdash;</div></div>
@@ -62,7 +64,7 @@
 </section>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', () => {
   if (window.StockflowForecast) window.StockflowForecast.init({
     product: document.getElementById('forecastProduct'),

@@ -1,209 +1,186 @@
-/* =============================================================================
-   InventoryLogix AI — Landing page animations.
-   Count-up KPIs, SVG line-chart draw, animated category bars, scroll reveals.
-   ============================================================================= */
-(function () {
-  'use strict';
+// ============================================================
+// INVENTORYLOGIX — ADAPTIVE INK + 3D SCENE + REVEAL ANIMATIONS
+// Ported from NexStock landing1.html with InventoryLogix data
+// ============================================================
 
-  var data = window.landingData || {};
-  var series = Array.isArray(data.series) ? data.series : [];
-  var dates = Array.isArray(data.dates) ? data.dates : [];
-  var categories = Array.isArray(data.categories) ? data.categories : [];
+(() => {
+  const $  = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
 
-  var prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* ============================================================
+     NAV SCROLL + MOBILE MENU
+     ============================================================ */
+  const nav = $('#nav');
+  addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 24), { passive: true });
 
-  // ----- Reveal on scroll -----
-  function initReveals() {
-    var els = document.querySelectorAll('.reveal');
-    if (!('IntersectionObserver' in window) || prefersReduced) {
-      els.forEach(function (el) { el.classList.add('in-view'); });
-      return;
+  $('#menuBtn')?.addEventListener('click', () => nav.classList.toggle('open'));
+  $$('#navLinks a').forEach(a => a.addEventListener('click', () => nav.classList.remove('open')));
+
+  /* ============================================================
+     PAGE LOAD TRANSITIONS — [data-anim] elements
+     ============================================================ */
+  requestAnimationFrame(() => $$('[data-anim]').forEach((el, i) => {
+    el.style.transitionDelay = (i * 90) + 'ms';
+    el.classList.add('loaded');
+  }));
+
+  /* ============================================================
+     SCROLL REVEAL — .reveal elements (IntersectionObserver)
+     ============================================================ */
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { threshold: .16, rootMargin: '0px 0px -40px' });
+  $$('.reveal').forEach(el => io.observe(el));
+
+  /* ============================================================
+     COUNTER ANIMATIONS (IntersectionObserver)
+     ============================================================ */
+  const count = el => {
+    const end = parseFloat(el.dataset.target), dec = +(el.dataset.decimals || 0);
+    const suf = el.dataset.suffix || '', pre = el.dataset.prefix || '';
+    const t0 = performance.now(), D = 1600;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { 
+      el.textContent = pre + end.toFixed(dec) + suf; 
+      return; 
     }
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('in-view');
-          io.unobserve(entry.target);
+    const step = n => {
+      const p = Math.min(1, (n - t0) / D), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = pre + (end * e).toFixed(dec) + suf;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
+  const io2 = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { count(e.target); io2.unobserve(e.target); }
+  }), { threshold: .6 });
+  $$('.m-num').forEach(el => io2.observe(el));
+
+  /* ============================================================
+     FEATURE HOVER EFFECT (mouse position for radial gradient)
+     ============================================================ */
+  $$('.feature').forEach(c => c.addEventListener('mousemove', e => {
+    const r = c.getBoundingClientRect();
+    c.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+    c.style.setProperty('--my', (e.clientY - r.top) + 'px');
+  }));
+
+  /* ============================================================
+     DASHBOARD STAGE 3D TILT (mouse parallax)
+     ============================================================ */
+  const stage = $('#stage');
+  if (stage && matchMedia('(hover:hover) and (pointer:fine)').matches) {
+    stage.addEventListener('mousemove', e => {
+      const r = stage.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
+      stage.style.transform = `perspective(1200px) rotateX(${(-y * 5).toFixed(2)}deg) rotateY(${(x * 7).toFixed(2)}deg)`;
+    });
+    stage.addEventListener('mouseleave', () => stage.style.transform = '');
+  }
+
+  /* ============================================================
+     INVENTORY MIX — populate SKU list from categories data
+     ============================================================ */
+  const catBars = $('#catBars');
+  if (catBars && window.LANDING_CATEGORIES) {
+    const cats = window.LANDING_CATEGORIES;
+    const maxCount = Math.max(...cats.map(c => c.count), 1);
+    const colors = ['#34d399', '#fbbf24', '#fb7185', '#38bdf8', '#818cf8', '#c084fc', '#f472b6'];
+    catBars.innerHTML = cats.slice(0, 7).map((c, i) => {
+      const pct = Math.round((c.count / maxCount) * 100);
+      const color = colors[i % colors.length];
+      return `<div class="sku">
+        <span class="dot" style="background:${color}"></span>
+        <div class="s-main">
+          <div class="s-name">${c.category}</div>
+          <div class="s-sub">${c.count} SKUs</div>
+        </div>
+        <div class="bar"><i style="--w:${pct}%"></i></div>
+      </div>`;
+    }).join('');
+  }
+
+  /* ============================================================
+     BAR ANIMATIONS (SKU velocity bars)
+     ============================================================ */
+  const barObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.querySelectorAll('.bar i').forEach(bar => {
+          bar.style.width = bar.style.getPropertyValue('--w') || '0%';
+        });
+        barObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.3 });
+  
+  const skuList = $('.sku-list');
+  if (skuList) barObserver.observe(skuList);
+
+  // Fallback for bars
+  setTimeout(() => {
+    if (skuList) {
+      skuList.querySelectorAll('.bar i').forEach(bar => {
+        if (bar.style.width === '0px' || bar.style.width === '0%' || !bar.style.width) {
+          bar.style.width = bar.style.getPropertyValue('--w') || '0%';
         }
       });
-    }, { threshold: 0.15 });
-    els.forEach(function (el) { io.observe(el); });
-  }
-
-  // ----- Number formatting -----
-  function formatNumber(n, prefix) {
-    n = Math.round(n || 0);
-    var out;
-    if (n >= 10000000) out = (n / 10000000).toFixed(1).replace(/\.0$/, '') + 'Cr';
-    else if (n >= 100000) out = (n / 100000).toFixed(1).replace(/\.0$/, '') + 'L';
-    else out = n.toLocaleString('en-IN');
-    return (prefix || '') + out;
-  }
-
-  // ----- Count-up animation -----
-  function animateCount(el) {
-    var target = parseFloat(el.dataset.count || '0');
-    var prefix = el.dataset.prefix || '';
-    var suffix = el.dataset.suffix || '';
-    if (prefersReduced) {
-      el.textContent = formatNumber(target, prefix) + suffix;
-      return;
     }
-    var duration = 1400;
-    var start = null;
-    function frame(ts) {
-      if (start === null) start = ts;
-      var p = Math.min((ts - start) / duration, 1);
-      var eased = 1 - Math.pow(1 - p, 3);
-      el.textContent = formatNumber(target * eased, prefix) + suffix;
-      if (p < 1) requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-  }
+  }, 800);
 
-  function initCountUps() {
-    var els = document.querySelectorAll('[data-count]');
-    if (!('IntersectionObserver' in window) || prefersReduced) {
-      els.forEach(animateCount);
-      return;
-    }
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry) {
-        if (entry.isIntersecting) {
-          animateCount(entry.target);
-          io.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.4 });
-    els.forEach(function (el) { io.observe(el); });
-  }
-
-  // ----- SVG line chart (draw-on animation) -----
-  function initLineChart() {
-    var svg = document.getElementById('lineChart');
-    if (!svg) return;
-    var W = 556, H = 210, padL = 20, padR = 540, padT = 20, padB = 186;
-    var values = series.length ? series : [0];
-    var max = Math.max.apply(null, values) || 1;
-    var stepX = values.length > 1 ? (padR - padL) / (values.length - 1) : 0;
-
-    var points = values.map(function (v, i) {
-      var x = padL + i * stepX;
-      var y = padB - (v / max) * (padB - padT);
-      return { x: x, y: y };
+  /* ============================================================
+     CHART ANIMATION (line chart draw-in)
+     ============================================================ */
+  const chartObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('in');
+        chartObserver.unobserve(entry.target);
+      }
     });
+  }, { threshold: 0.3 });
+  
+  const chartPanel = $('.panel.chart');
+  if (chartPanel) chartObserver.observe(chartPanel);
 
-    var line = points.map(function (p, i) {
-      return (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
-    }).join(' ');
-
-    var area = 'M' + padL + ' ' + padB + ' ' + line.slice(1) + ' L' + padR + ' ' + padB + ' Z';
-
-    var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-    defs.innerHTML =
-      '<linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">' +
-        '<stop offset="0%" stop-color="#7ed0af" stop-opacity="0.45"/>' +
-        '<stop offset="100%" stop-color="#7ed0af" stop-opacity="0"/>' +
-      '</linearGradient>';
-    svg.appendChild(defs);
-
-    var areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    areaPath.setAttribute('d', area);
-    areaPath.setAttribute('fill', 'url(#chartFill)');
-    areaPath.setAttribute('opacity', '0');
-
-    var linePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    linePath.setAttribute('d', line);
-    linePath.setAttribute('fill', 'none');
-    linePath.setAttribute('stroke', '#7ed0af');
-    linePath.setAttribute('stroke-width', '2.5');
-    linePath.setAttribute('stroke-linecap', 'round');
-    linePath.setAttribute('stroke-linejoin', 'round');
-
-    var len = linePath.getTotalLength ? linePath.getTotalLength() : 600;
-    if (!prefersReduced) {
-      linePath.style.strokeDasharray = len;
-      linePath.style.strokeDashoffset = len;
+  // Fallback for chart
+  setTimeout(() => {
+    if (chartPanel && !chartPanel.classList.contains('in')) {
+      chartPanel.classList.add('in');
     }
+  }, 1000);
 
-    svg.appendChild(areaPath);
-    svg.appendChild(linePath);
+  /* ============================================================
+     TOAST NOTIFICATION SYSTEM
+     ============================================================ */
+  const toast = $('#toast'), toastMsg = $('#toastMsg');
+  let tt;
+  const showToast = (msg, ok = true) => {
+    if (!toast || !toastMsg) return;
+    toastMsg.textContent = msg;
+    const svg = toast.querySelector('svg');
+    if (svg) svg.style.color = ok ? '#34d399' : '#fb7185';
+    toast.classList.add('show');
+    clearTimeout(tt); 
+    tt = setTimeout(() => toast.classList.remove('show'), 3400);
+  };
 
-    points.forEach(function (p, i) {
-      var c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      c.setAttribute('cx', p.x.toFixed(1));
-      c.setAttribute('cy', p.y.toFixed(1));
-      c.setAttribute('r', values[i] > 0 ? 3 : 1.8);
-      c.setAttribute('fill', '#0a1115');
-      c.setAttribute('stroke', '#7ed0af');
-      c.setAttribute('stroke-width', '2');
-      c.setAttribute('opacity', '0');
-      c.style.transition = 'opacity 400ms ease ' + (200 + i * 40) + 'ms';
-      svg.appendChild(c);
-      requestAnimationFrame(function () { c.setAttribute('opacity', '1'); });
+  /* ============================================================
+     CTA FORM HANDLING
+     ============================================================ */
+  const form = $('#signup'), email = $('#email');
+  if (form && email) {
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const v = email.value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+        email.classList.add('err'); email.focus();
+        showToast('Please enter a valid work email', false);
+        return;
+      }
+      email.classList.remove('err'); email.value = '';
+      showToast("You're on the list — check your inbox 🚀");
     });
-
-    if (!prefersReduced) {
-      setTimeout(function () {
-        linePath.style.transition = 'stroke-dashoffset 1500ms ease';
-        linePath.style.strokeDashoffset = '0';
-        areaPath.style.transition = 'opacity 900ms ease 600ms';
-        areaPath.setAttribute('opacity', '1');
-      }, 250);
-    } else {
-      areaPath.setAttribute('opacity', '1');
-    }
-
-    // X-axis labels (first, middle, last)
-    var tags = document.getElementById('chartTags');
-    if (tags && dates.length) {
-      var picks = [];
-      if (dates.length <= 6) picks = dates;
-      else picks = [dates[0], dates[Math.floor(dates.length / 2)], dates[dates.length - 1]];
-      picks.forEach(function (d) {
-        var span = document.createElement('span');
-        span.textContent = d;
-        tags.appendChild(span);
-      });
-    }
+    email.addEventListener('input', () => email.classList.remove('err'));
   }
 
-  // ----- Category bars -----
-  function initCatBars() {
-    var wrap = document.getElementById('catBars');
-    if (!wrap || !categories.length) {
-      if (wrap) wrap.innerHTML = '<p style="color:var(--lp-muted);font-size:0.8rem;">No category data yet.</p>';
-      return;
-    }
-    var max = Math.max.apply(null, categories.map(function (c) { return c.count; })) || 1;
-    var bars = [];
-    categories.forEach(function (c) {
-      var row = document.createElement('div');
-      row.className = 'cat-row';
-      row.innerHTML =
-        '<span class="cat-name"></span>' +
-        '<div class="cat-track"><div class="cat-fill"></div></div>' +
-        '<span class="cat-val"></span>';
-      row.querySelector('.cat-name').textContent = c.category;
-      row.querySelector('.cat-val').textContent = c.count;
-      wrap.appendChild(row);
-      bars.push(row.querySelector('.cat-fill'));
-    });
-    var t = 150;
-    bars.forEach(function (fill, i) {
-      setTimeout(function () {
-        fill.style.width = (categories[i].count / max) * 100 + '%';
-      }, t + i * 90);
-    });
-  }
-
-  function init() {
-    initReveals();
-    initCountUps();
-    initLineChart();
-    initCatBars();
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
 })();

@@ -108,21 +108,26 @@ def _open_conn():
 
 
 def _seed_users(cur) -> int:
-    """Insert the demo users when the users table is empty. Returns count."""
-    cur.execute("SELECT COUNT(*) AS c FROM users")
-    if (cur.fetchone() or {}).get("c", 0) == 0:
-        for username, email, password, role in USERS_SEED:
-            cur.execute(
-                """
-                INSERT INTO users (username, email, password_hash, role)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (username, email, generate_password_hash(password), role),
-            )
-        LOGGER.info("Seeded %s demo users.", len(USERS_SEED))
-        return len(USERS_SEED)
-    LOGGER.info("Seed skipped: users table already populated.")
-    return 0
+    """Ensure demo users exist. Inserts missing ones. Returns count of new inserts."""
+    inserted = 0
+    for username, email, password, role in USERS_SEED:
+        cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
+        if cur.fetchone():
+            continue
+        cur.execute(
+            """
+            INSERT INTO users (username, email, password_hash, role)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (username) DO NOTHING
+            """,
+            (username, email, generate_password_hash(password), role),
+        )
+        inserted += 1
+    if inserted:
+        LOGGER.info("Seeded %s missing demo users.", inserted)
+    else:
+        LOGGER.info("All demo users already present.")
+    return inserted
 
 
 def _seed_suppliers(cur) -> list[int]:
@@ -404,30 +409,41 @@ def _generate_purchase_orders(cur) -> int:
 
 
 def run_seed(force: bool = False) -> None:
-    """Load demo users, suppliers, products, movements and purchase orders."""
+    """Load demo users, suppliers, products, movements and purchase orders.
+
+    Each table seeds independently: if products exist but movements are empty,
+    only movements are generated. This prevents re-seeding already-populated
+    tables on partial restarts.
+    """
     conn = _open_conn()
     try:
         with conn.cursor() as cur:
             _seed_users(cur)
 
-            cur.execute("SELECT COUNT(*) AS c FROM products")
-            products_exist = (cur.fetchone() or {}).get("c", 0) > 0
-            if force or not products_exist:
+            cur.execute("SELECT COUNT(*) AS c FROM suppliers")
+            suppliers_exist = (cur.fetchone() or {}).get("c", 0) > 0
+            if force or not suppliers_exist:
                 supplier_ids = _seed_suppliers(cur)
-                _seed_products(cur, supplier_ids)
             else:
-                LOGGER.info("Seed skipped: products table already populated.")
+                LOGGER.info("Seed skipped: suppliers table already populated.")
                 cur.execute("SELECT id FROM suppliers ORDER BY id")
                 supplier_ids = [r["id"] for r in cur.fetchall()]
 
+            cur.execute("SELECT COUNT(*) AS c FROM products")
+            products_exist = (cur.fetchone() or {}).get("c", 0) > 0
+            if force or not products_exist:
+                _seed_products(cur, supplier_ids)
+            else:
+                LOGGER.info("Seed skipped: products table already populated.")
+
             cur.execute("SELECT COUNT(*) AS c FROM movements")
-            if (cur.fetchone() or {}).get("c", 0) == 0:
+            if force or (cur.fetchone() or {}).get("c", 0) == 0:
                 _generate_movements(cur)
             else:
                 LOGGER.info("Seed skipped: movements table already populated.")
 
             cur.execute("SELECT COUNT(*) AS c FROM purchase_orders")
-            if (cur.fetchone() or {}).get("c", 0) == 0:
+            if force or (cur.fetchone() or {}).get("c", 0) == 0:
                 _generate_purchase_orders(cur)
             else:
                 LOGGER.info("Seed skipped: purchase_orders table already populated.")

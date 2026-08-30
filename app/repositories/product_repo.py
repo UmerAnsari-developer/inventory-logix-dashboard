@@ -1,7 +1,5 @@
-"""Product repository: persistence for the ``products`` table."""
+"""Product repository: persistence for the ``products`` table via stored procedures."""
 from __future__ import annotations
-
-from typing import Any
 
 from ..database import get_cursor
 from ..utils import calculate_eoq, stock_status
@@ -12,7 +10,6 @@ def _decorate(row: dict) -> dict:
     low_pct, critical_pct = 20.0, 10.0
     try:
         from ..services.settings_service import SettingsService
-
         low_pct, critical_pct = SettingsService.threshold_pcts()
     except Exception:
         pass
@@ -44,64 +41,31 @@ def _decorate(row: dict) -> dict:
 
 
 class ProductRepository:
-    """CRUD operations for ``products``."""
-
-    _BASE_SELECT = (
-        "p.id, p.sku, p.name, p.category, p.warehouse, p.current_stock, "
-        "p.reorder_point, p.demand_rate, p.ordering_cost, p.holding_cost, "
-        "p.unit_price, p.supplier_id, p.on_order, p.created_at, p.updated_at, "
-        "s.name AS supplier_name, s.tone AS supplier_tone, s.lead_days"
-    )
-
-    @classmethod
-    def _join(cls) -> str:
-        return (
-            "FROM products p LEFT JOIN suppliers s ON s.id = p.supplier_id"
-        )
+    """CRUD operations for ``products`` via stored procedures."""
 
     @classmethod
     def list(cls, *, search: str = "", category: str = "", status: str = "",
              warehouse: str = "", limit: int = 100, offset: int = 0) -> tuple[list[dict], int]:
-        where, params = [], []
-        if search:
-            where.append("(p.sku ILIKE %s OR p.name ILIKE %s OR p.category ILIKE %s OR s.name ILIKE %s)")
-            params.extend([f"%{search}%"] * 4)
-        if category:
-            where.append("p.category = %s")
-            params.append(category)
-        if warehouse:
-            where.append("p.warehouse = %s")
-            params.append(warehouse)
-        if status == "ok":
-            where.append("p.current_stock > p.reorder_point")
-        elif status == "low":
-            where.append("p.current_stock <= p.reorder_point AND p.current_stock > 0")
-        elif status == "out":
-            where.append("p.current_stock <= 0")
-        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-
         with get_cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) AS c {cls._join()} {where_sql}", params)
-            total = cur.fetchone()["c"]
             cur.execute(
-                f"SELECT {cls._BASE_SELECT} {cls._join()} {where_sql} "
-                "ORDER BY p.sku LIMIT %s OFFSET %s",
-                params + [limit, offset],
+                "SELECT * FROM sp_product_list(%s, %s, %s, %s, %s, %s)",
+                (search, category, warehouse, status, limit, offset),
             )
-            rows = [_decorate(r) for r in cur.fetchall()]
-        return rows, total
+            rows = cur.fetchall()
+        total = rows[0]["total_count"] if rows else 0
+        return [_decorate(r) for r in rows], total
 
     @classmethod
     def find(cls, product_id: int) -> dict | None:
         with get_cursor() as cur:
-            cur.execute(f"SELECT {cls._BASE_SELECT} {cls._join()} WHERE p.id = %s", (product_id,))
+            cur.execute("SELECT * FROM sp_product_find(%s)", (product_id,))
             row = cur.fetchone()
         return _decorate(row) if row else None
 
     @classmethod
     def find_by_sku(cls, sku: str) -> dict | None:
         with get_cursor() as cur:
-            cur.execute(f"SELECT {cls._BASE_SELECT} {cls._join()} WHERE p.sku = %s", (sku,))
+            cur.execute("SELECT * FROM sp_product_find_by_sku(%s)", (sku,))
             row = cur.fetchone()
         return _decorate(row) if row else None
 
@@ -109,12 +73,7 @@ class ProductRepository:
     def create(cls, payload: dict) -> int:
         with get_cursor(commit=True) as cur:
             cur.execute(
-                """
-                INSERT INTO products
-                    (sku, name, category, warehouse, current_stock, reorder_point,
-                     demand_rate, ordering_cost, holding_cost, unit_price, supplier_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
-                """,
+                "SELECT sp_product_create(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
                     payload["sku"], payload["name"], payload.get("category"),
                     payload.get("warehouse") or "WH-Pune",
@@ -125,74 +84,60 @@ class ProductRepository:
                     payload.get("supplier_id"),
                 ),
             )
-            return cur.fetchone()["id"]
+            return cur.fetchone()["sp_product_create"]
 
     @classmethod
     def update(cls, product_id: int, payload: dict) -> None:
         with get_cursor(commit=True) as cur:
             cur.execute(
-                """
-                UPDATE products SET
-                    name = %s, category = %s, warehouse = %s,
-                    unit_price = %s, supplier_id = %s,
-                    current_stock = %s, reorder_point = %s,
-                    demand_rate = %s, ordering_cost = %s, holding_cost = %s,
-                    updated_at = NOW()
-                WHERE id = %s
-                """,
+                "SELECT sp_product_update(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
+                    product_id,
                     payload["name"], payload.get("category"),
                     payload.get("warehouse"), payload.get("unit_price"),
                     payload.get("supplier_id"), int(payload.get("current_stock") or 0),
                     int(payload.get("reorder_point") or 0),
                     payload.get("demand_rate"), payload.get("ordering_cost"),
-                    payload.get("holding_cost"), product_id,
+                    payload.get("holding_cost"),
                 ),
             )
 
     @classmethod
     def delete(cls, product_id: int) -> None:
         with get_cursor(commit=True) as cur:
-            cur.execute("DELETE FROM products WHERE id = %s", (product_id,))
+            cur.execute("SELECT sp_product_delete(%s)", (product_id,))
+
+    @classmethod
+    def find_for_update(cls, product_id: int) -> dict | None:
+        """Select product row with FOR UPDATE lock to prevent concurrent overdraw."""
+        with get_cursor() as cur:
+            cur.execute("SELECT * FROM products WHERE id = %s FOR UPDATE", (product_id,))
+            return cur.fetchone()
 
     @classmethod
     def set_stock(cls, product_id: int, value: int) -> None:
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                "UPDATE products SET current_stock = %s, updated_at = NOW() WHERE id = %s",
-                (value, product_id),
-            )
+            cur.execute("SELECT sp_product_set_stock(%s, %s)", (product_id, value))
 
     @classmethod
     def set_on_order(cls, product_id: int, qty: int) -> None:
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                "UPDATE products SET on_order = %s, updated_at = NOW() WHERE id = %s",
-                (qty, product_id),
-            )
+            cur.execute("SELECT sp_product_set_on_order(%s, %s)", (product_id, qty))
 
     @classmethod
     def categories(cls) -> list[str]:
         with get_cursor() as cur:
-            cur.execute(
-                "SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category"
-            )
+            cur.execute("SELECT * FROM sp_product_categories()")
             return [row["category"] for row in cur.fetchall()]
 
     @classmethod
     def warehouses(cls) -> list[str]:
         with get_cursor() as cur:
-            cur.execute(
-                "SELECT DISTINCT warehouse FROM products WHERE warehouse IS NOT NULL ORDER BY warehouse"
-            )
+            cur.execute("SELECT * FROM sp_product_warehouses()")
             return [row["warehouse"] for row in cur.fetchall()]
 
     @classmethod
     def low_stock(cls) -> list[dict]:
         with get_cursor() as cur:
-            cur.execute(
-                f"SELECT {cls._BASE_SELECT} {cls._join()} "
-                "WHERE p.current_stock <= p.reorder_point AND p.on_order <= 0 "
-                "ORDER BY (p.reorder_point - p.current_stock) DESC",
-            )
+            cur.execute("SELECT * FROM sp_product_low_stock()")
             return [_decorate(r) for r in cur.fetchall()]

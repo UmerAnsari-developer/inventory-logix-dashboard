@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 {% set active_page = "anomaly" %}
 {% block title %}Anomaly Detection{% endblock %}
-{% block breadcrumb %}Analytics / Anomaly{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+{% endblock %}
 {% block content %}
 <section>
   <div class="page-heading">
     <div>
-      <div class="eyebrow">Analytics & AI</div>
-      <h1>Anomaly detection</h1>
+      <div class="eyebrow">Intelligence</div>
+      <h1>Anomaly Detection</h1>
       <p class="heading-note">Isolation Forest + SPC z-score control chart</p>
     </div>
   </div>
@@ -64,7 +66,7 @@
 </section>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', () => {
   if (window.StockflowAnomaly && {{ 'true' if anomaly_enabled else 'false' }}) window.StockflowAnomaly.init({
     product: document.getElementById('anomalyProduct'),

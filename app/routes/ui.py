@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
+import threading
 import time
+from collections import OrderedDict
 from datetime import date, timedelta
 from functools import lru_cache
 
@@ -31,37 +34,67 @@ from ..utils import format_money_display
 
 LOGGER = logging.getLogger(__name__)
 
+_MAX_CACHE_ENTRIES = 20
+
 # Simple in-memory cache for reports data (TTL-based)
-_reports_cache: dict[str, tuple[float, dict]] = {}
-_REPORTS_CACHE_TTL = 30  # seconds
+_reports_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_REPORTS_CACHE_TTL = 300  # seconds (5 minutes)
 
 # Simple in-memory cache for dashboard data (TTL-based)
-_dashboard_cache: dict[str, tuple[float, dict]] = {}
+_dashboard_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
 _DASHBOARD_CACHE_TTL = 60  # seconds
+
+# Simple in-memory cache for global/shared data (TTL-based)
+_global_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_GLOBAL_CACHE_TTL = 60  # seconds
 
 
 def _cache_get(key: str):
     """Get cached value if not expired."""
     entry = _reports_cache.get(key)
     if entry and (time.time() - entry[0]) < _REPORTS_CACHE_TTL:
+        _reports_cache.move_to_end(key)
         return entry[1]
     return None
 
 
 def _cache_set(key: str, value: dict):
     _reports_cache[key] = (time.time(), value)
+    _reports_cache.move_to_end(key)
+    while len(_reports_cache) > _MAX_CACHE_ENTRIES:
+        _reports_cache.popitem(last=False)
 
 
 def _dashboard_cache_get(key: str):
     """Get cached dashboard value if not expired."""
     entry = _dashboard_cache.get(key)
     if entry and (time.time() - entry[0]) < _DASHBOARD_CACHE_TTL:
+        _dashboard_cache.move_to_end(key)
         return entry[1]
     return None
 
 
 def _dashboard_cache_set(key: str, value: dict):
     _dashboard_cache[key] = (time.time(), value)
+    _dashboard_cache.move_to_end(key)
+    while len(_dashboard_cache) > _MAX_CACHE_ENTRIES:
+        _dashboard_cache.popitem(last=False)
+
+
+def _global_cache_get(key: str):
+    """Get cached global value if not expired."""
+    entry = _global_cache.get(key)
+    if entry and (time.time() - entry[0]) < _GLOBAL_CACHE_TTL:
+        _global_cache.move_to_end(key)
+        return entry[1]
+    return None
+
+
+def _global_cache_set(key: str, value):
+    _global_cache[key] = (time.time(), value)
+    _global_cache.move_to_end(key)
+    while len(_global_cache) > _MAX_CACHE_ENTRIES:
+        _global_cache.popitem(last=False)
 
 
 def _make_cache_key(**kwargs) -> str:
@@ -74,8 +107,24 @@ ui_bp = Blueprint("ui", __name__)
 
 @ui_bp.context_processor
 def inject_user():
+    reorder_count = 0
+    if current_user.is_authenticated:
+        cached = _global_cache_get("reorder_count")
+        if cached is not None:
+            reorder_count = cached
+        else:
+            try:
+                with get_cursor() as cur:
+                    cur.execute(
+                        "SELECT COUNT(*) AS c FROM products WHERE current_stock <= reorder_point AND on_order <= 0"
+                    )
+                    reorder_count = int(cur.fetchone()["c"] or 0)
+                _global_cache_set("reorder_count", reorder_count)
+            except Exception:
+                pass
     return {
         "current_user": current_user,
+        "reorder_count": reorder_count,
     }
 
 
@@ -95,32 +144,27 @@ def dashboard():
         return render_template("dashboard.html", **cached)
 
     with get_cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS c FROM products")
-        total_skus = cur.fetchone()["c"]
-
-        cur.execute(
-            "SELECT COALESCE(SUM(current_stock * unit_price), 0) AS value FROM products"
-        )
-        inventory_value = float(cur.fetchone()["value"] or 0)
-
+        # --- Batch 1: product aggregates (1 query instead of 4) ---
         cur.execute(
             """
-            SELECT COUNT(*) AS c
-            FROM products WHERE current_stock <= reorder_point AND on_order <= 0
-            """
-        )
-        reorder_count = int(cur.fetchone()["c"] or 0)
-
-        cur.execute(
-            """
-            SELECT COUNT(*) AS c,
-                   SUM(CASE WHEN current_stock <= reorder_point * %s OR current_stock <= 0 THEN 1 ELSE 0 END) AS critical,
-                   SUM(CASE WHEN current_stock <= reorder_point THEN 1 ELSE 0 END) AS at_risk
-            FROM products WHERE current_stock <= reorder_point AND on_order <= 0
+            SELECT
+                COUNT(*) AS total_skus,
+                COALESCE(SUM(current_stock * unit_price), 0) AS inventory_value,
+                COUNT(*) FILTER (WHERE current_stock <= reorder_point AND on_order <= 0) AS reorder_count,
+                COUNT(*) FILTER (WHERE current_stock <= reorder_point AND on_order <= 0
+                    AND (current_stock <= reorder_point * %s OR current_stock <= 0)) AS critical,
+                COUNT(*) FILTER (WHERE current_stock <= reorder_point AND on_order <= 0
+                    AND current_stock > reorder_point * %s) AS warning
+            FROM products
             """,
-            (critical_ratio,),
+            (critical_ratio, critical_ratio),
         )
-        risk = cur.fetchone()
+        agg = cur.fetchone()
+        total_skus = agg["total_skus"]
+        inventory_value = float(agg["inventory_value"] or 0)
+        reorder_count = int(agg["reorder_count"] or 0)
+        critical_count = int(agg["critical"] or 0)
+        warning_count = int(agg["warning"] or 0)
 
         cur.execute("SELECT COALESCE(SUM(quantity), 0) AS units FROM movements WHERE created_at::date = %s", (today,))
         units_today = int(cur.fetchone()["units"] or 0) or 1248
@@ -129,15 +173,17 @@ def dashboard():
         series, dates = _series_for_last_days(rows, 14)
         chart = _chart_geometry(series, dates)
 
+        # --- Batch 2: category counts (same products scan, separate query for grouping) ---
         cur.execute("SELECT category, COUNT(*) AS cnt FROM products WHERE category IS NOT NULL GROUP BY category ORDER BY cnt DESC")
         raw = cur.fetchall()
+        max_cat = max((r["cnt"] for r in raw), default=1) or 1
         tones = ["", "amber", "blue", "ink"]
         category_counts = []
         for i, row in enumerate(raw):
             category_counts.append({
                 "category": row["category"],
                 "count": row["cnt"],
-                "pct": round((row["cnt"] / max(total_skus, 1)) * 100),
+                "pct": round((row["cnt"] / max_cat) * 100),
                 "tone": tones[i % len(tones)],
             })
 
@@ -178,7 +224,7 @@ def dashboard():
         for row in slow_movers:
             row["days_idle"] = max((today_dt - row["last_out"]).days, 0)
 
-        # --- Top demand & top sales (last 90 days) --------------------------
+        # --- Top demand & top sales (last 90 days, 1 query instead of 2) -----
         cur.execute(
             """
             SELECT p.sku, p.name, p.category,
@@ -189,29 +235,12 @@ def dashboard():
             JOIN movements m ON m.product_id = p.id
             WHERE m.created_at >= %s
             GROUP BY p.sku, p.name, p.category
-            ORDER BY units DESC
-            LIMIT 10
             """,
             (today - timedelta(days=90),),
         )
-        top_demand = list(cur.fetchall())
-
-        cur.execute(
-            """
-            SELECT p.sku, p.name, p.category,
-                   COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS units,
-                   COALESCE(SUM(CASE WHEN m.type = 'OUT'
-                                     THEN m.quantity * p.unit_price ELSE 0 END), 0) AS value
-            FROM products p
-            JOIN movements m ON m.product_id = p.id
-            WHERE m.created_at >= %s
-            GROUP BY p.sku, p.name, p.category
-            ORDER BY value DESC
-            LIMIT 10
-            """,
-            (today - timedelta(days=90),),
-        )
-        top_sales = list(cur.fetchall())
+        top_rows = list(cur.fetchall())
+        top_demand = sorted(top_rows, key=lambda r: int(r["units"] or 0), reverse=True)[:10]
+        top_sales = sorted(top_rows, key=lambda r: float(r["value"] or 0), reverse=True)[:10]
 
         # --- Top supplier by procurement spend (this year) -------------------
         cur.execute(
@@ -301,10 +330,41 @@ def dashboard():
                 "class": cls,
             })
 
-    critical_count = int(risk["critical"] or 0)
-    warning_count = int((risk["at_risk"] or 0) - critical_count)
     healthy_count = max(total_skus - reorder_count, 0)
     health_pct = round(healthy_count / max(total_skus, 1) * 100) if total_skus else 0
+
+    # --- AI savings (YTD): EOQ-optimized vs manual ordering cost ---
+    import math
+    ai_savings = 0.0
+    try:
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT demand_rate, ordering_cost, holding_cost, unit_price
+                FROM products
+                WHERE demand_rate > 0 AND ordering_cost > 0 AND holding_cost > 0
+                """
+            )
+            eoq_rows = cur.fetchall()
+        for row in eoq_rows:
+            D = float(row["demand_rate"])
+            S = float(row["ordering_cost"])
+            H = float(row["holding_cost"])
+            # Manual: order monthly (D/12 per order)
+            manual_qty = D / 12.0
+            if manual_qty > 0:
+                manual_cost = (D / manual_qty) * S + (manual_qty / 2) * H
+            else:
+                manual_cost = 0
+            # EOQ-optimized
+            eoq = math.sqrt(2 * D * S / H) if H > 0 else 0
+            if eoq > 0:
+                eoq_cost = (D / eoq) * S + (eoq / 2) * H
+            else:
+                eoq_cost = manual_cost
+            ai_savings += max(manual_cost - eoq_cost, 0)
+    except Exception:
+        pass
 
     template_context = {
         "total_skus": total_skus,
@@ -327,6 +387,7 @@ def dashboard():
         "warehouse_profile": warehouse_profile,
         "turnover_by_category": turnover_by_category,
         "abc_data": abc_data,
+        "ai_savings": ai_savings,
         "today": today,
         "format_money": format_money_display,
     }
@@ -481,6 +542,11 @@ def auto_draft_pos():
                             product.get("holding_cost"))
         deficit = max(int(product["reorder_point"] or 0) - int(product["current_stock"] or 0), 1)
         qty = max(int(round(eoq)) if eoq else deficit, deficit)
+        # Cap at 6 months of demand to prevent over-ordering
+        demand = float(product.get("demand_rate") or 0)
+        if demand > 0:
+            demand_cap = int(round(demand / 2))
+            qty = min(qty, demand_cap)
         po_number = f"AUTO-{date.today():%Y%m%d}-{product['sku']}"
         PurchaseOrderRepository.create({
             "po_number": po_number,
@@ -711,7 +777,6 @@ def reports():
     warehouse_json = request.values.get("warehouse_json")
     category_json = request.values.get("category_json")
     
-    import json
     try:
         parsed_warehouses = json.loads(warehouse_json) if warehouse_json else []
     except (TypeError, ValueError):
@@ -930,13 +995,18 @@ def reports():
         status_total = int(st["total_count"] or 0)
         status_healthy = max(0, status_total - status_out - status_critical - status_warning)
 
-        # --- Warehouse breakdown ---
+        # --- Warehouse breakdown (1 query instead of 2) ---
         cur.execute(
             f"""
             SELECT COALESCE(warehouse, 'Unassigned') AS warehouse,
                    COUNT(*) AS sku_count,
                    COALESCE(SUM(current_stock), 0) AS units,
-                   COALESCE(SUM(current_stock * unit_price), 0) AS value
+                   COALESCE(SUM(current_stock * unit_price), 0) AS value,
+                   SUM(CASE WHEN current_stock <= 0 THEN 1 ELSE 0 END) AS out_count,
+                   SUM(CASE WHEN current_stock > 0 AND reorder_point > 0
+                            AND current_stock <= reorder_point THEN 1 ELSE 0 END) AS low_count,
+                   SUM(CASE WHEN current_stock > 0 AND reorder_point > 0
+                            AND current_stock > reorder_point THEN 1 ELSE 0 END) AS healthy_count
             FROM products p
             {product_where}
             GROUP BY warehouse ORDER BY value DESC
@@ -944,6 +1014,7 @@ def reports():
             tuple(product_params)
         )
         warehouse_breakdown = list(cur.fetchall())
+        warehouse_stock_status = warehouse_breakdown
 
         # Get distinct warehouses and categories for filter dropdowns
         cur.execute("SELECT DISTINCT warehouse FROM products WHERE warehouse IS NOT NULL ORDER BY warehouse")
@@ -1398,37 +1469,47 @@ def reports():
         )
 
         # --- Sales analysis: OUT movements = sales ---
-        def _period_orders(start, end):
-            cur.execute(
-                f"""
-                SELECT COUNT(*) AS c FROM movements m
-                JOIN products p ON p.id = m.product_id
-                WHERE m.type = 'OUT' AND m.created_at >= %s AND m.created_at < %s {filter_clause}
-                """,
-                tuple([start, end] + filter_params),
-            )
-            return int(cur.fetchone()["c"] or 0)
+        # Combined period order counts (1 query instead of 4)
+        cur.execute(
+            f"""
+            SELECT
+                COUNT(*) FILTER (WHERE m.created_at >= %s AND m.created_at < %s) AS mtd_orders,
+                COUNT(*) FILTER (WHERE m.created_at >= %s AND m.created_at < %s) AS ytd_orders,
+                COUNT(*) FILTER (WHERE m.created_at >= %s AND m.created_at < %s) AS prev_mtd_orders,
+                COUNT(*) FILTER (WHERE m.created_at >= %s AND m.created_at < %s) AS prev_ytd_orders
+            FROM movements m
+            JOIN products p ON p.id = m.product_id
+            WHERE m.type = 'OUT' {filter_clause}
+            """,
+            tuple([
+                mtd_start, tomorrow,
+                ytd_start, tomorrow,
+                prev_mtd_start, mtd_start,
+                prev_ytd_start, prev_ytd_end,
+            ] + filter_params),
+        )
+        order_counts = cur.fetchone()
 
         sales = {
             "mtd": {
                 "revenue": round(mtd["value_out"]),
                 "units": mtd["units_out"],
-                "orders": _period_orders(mtd_start, tomorrow),
+                "orders": int(order_counts["mtd_orders"] or 0),
             },
             "ytd": {
                 "revenue": round(ytd["value_out"]),
                 "units": ytd["units_out"],
-                "orders": _period_orders(ytd_start, tomorrow),
+                "orders": int(order_counts["ytd_orders"] or 0),
             },
             "prev_mtd": {
                 "revenue": round(prev_mtd["value_out"]),
                 "units": prev_mtd["units_out"],
-                "orders": _period_orders(prev_mtd_start, mtd_start),
+                "orders": int(order_counts["prev_mtd_orders"] or 0),
             },
             "prev_ytd": {
                 "revenue": round(prev_ytd["value_out"]),
                 "units": prev_ytd["units_out"],
-                "orders": _period_orders(prev_ytd_start, prev_ytd_end),
+                "orders": int(order_counts["prev_ytd_orders"] or 0),
             },
         }
 
@@ -1623,6 +1704,47 @@ def reports():
         )
         top_sellers = list(cur.fetchall())
 
+        # --- Monthly PO spend trend (last 12 months) ---
+        cur.execute(
+            """
+            SELECT DATE_TRUNC('month', created_at)::date AS month,
+                   COALESCE(SUM(quantity * unit_cost), 0) AS spend,
+                   COUNT(*) AS po_count
+            FROM purchase_orders
+            WHERE created_at >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
+              AND status NOT IN ('cancelled')
+            GROUP BY 1 ORDER BY 1
+            """
+        )
+        po_monthly_rows = {r["month"]: r for r in cur.fetchall()}
+        po_month_cursor = today.replace(day=1)
+        po_month_labels = []
+        for _ in range(12):
+            po_month_labels.append(po_month_cursor)
+            po_month_cursor = (po_month_cursor - timedelta(days=1)).replace(day=1)
+        po_month_labels.reverse()
+        po_monthly_trend = {"labels": [], "spend": [], "count": []}
+        for lm in po_month_labels:
+            row = po_monthly_rows.get(lm)
+            po_monthly_trend["labels"].append(lm.strftime("%b %y"))
+            po_monthly_trend["spend"].append(round(float(row["spend"] or 0)) if row else 0)
+            po_monthly_trend["count"].append(int(row["po_count"] or 0) if row else 0)
+
+        # --- Supplier lead time distribution ---
+        cur.execute(
+            """
+            SELECT s.name, s.lead_days, s.reliability,
+                   COUNT(p.id) AS product_count
+            FROM suppliers s
+            LEFT JOIN products p ON p.supplier_id = s.id
+            GROUP BY s.id ORDER BY s.lead_days ASC
+            """
+        )
+        supplier_lead_times = list(cur.fetchall())
+
+        # --- Warehouse SKU count + stock status per warehouse ---
+        # Already computed above as part of warehouse_breakdown
+
     report_data = {
         "status": {
             "labels": ["Healthy", "Low stock", "Critical", "Out of stock"],
@@ -1701,6 +1823,24 @@ def reports():
             "values": [round(float(r["value"] or 0)) for r in top_sellers],
             "units": [int(r["units"] or 0) for r in top_sellers],
         },
+        "categoryCount": {
+            "labels": [r["category"] for r in category_counts],
+            "values": [int(r["c"] or 0) for r in category_counts],
+        },
+        "poMonthlyTrend": po_monthly_trend,
+        "supplierLeadTimes": {
+            "labels": [r["name"] for r in supplier_lead_times],
+            "leadDays": [int(r["lead_days"] or 0) for r in supplier_lead_times],
+            "reliability": [round(float(r["reliability"] or 0)) for r in supplier_lead_times],
+            "productCount": [int(r["product_count"] or 0) for r in supplier_lead_times],
+        },
+        "warehouseStockStatus": {
+            "labels": [r["warehouse"] for r in warehouse_stock_status],
+            "skuCount": [int(r["sku_count"] or 0) for r in warehouse_stock_status],
+            "healthy": [int(r["healthy_count"] or 0) for r in warehouse_stock_status],
+            "low": [int(r["low_count"] or 0) for r in warehouse_stock_status],
+            "out": [int(r["out_count"] or 0) for r in warehouse_stock_status],
+        },
 }
     # Cache the template context for reuse
     template_context = {
@@ -1764,6 +1904,9 @@ def reports():
             {"sku": r["sku"], "coverage": round((r["coverage"] or 0) * 100)}
             for r in reorder_pressure
         ],
+        "po_monthly_trend": po_monthly_trend,
+        "supplier_lead_times": supplier_lead_times,
+        "warehouse_stock_status": warehouse_stock_status,
     }
     _cache_set(cache_key, template_context)
 
@@ -1801,83 +1944,98 @@ def contact():
     return render_template("contact.html")
 
 
-def _landing_stats():
-    """Lightweight analytics snapshot rendered on the public landing page."""
-    today = date.today()
-    stats = {
-        "total_skus": 0,
-        "inventory_value": 0.0,
-        "reorder_count": 0,
-        "suppliers": 0,
-        "warehouses": 0,
-        "units_today": 0,
-        "stock_health": 0,
-        "categories": [],
-        "series": [],
-        "dates": [],
-        "movements": 0,
-        "first_movement": None,
-        "last_movement": None,
-        "open_pos": 0,
-    }
+# ── Warehouse Monitoring Routes ──────────────────────────────────────────────
+
+@ui_bp.route("/monitoring")
+@login_required
+@write_roles_required
+def monitoring():
+    """Session & login monitoring dashboard."""
+    from ..database import get_cursor
+
+    active_sessions = []
+    login_history = []
+    signup_history = []
+    user_summary = []
+    daily_logins = []
+    etl_status = {}
+
     try:
         with get_cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS c FROM products")
-            stats["total_skus"] = int(cur.fetchone()["c"] or 0)
+            cur.execute("SELECT * FROM sp_monitor_active_sessions()")
+            active_sessions = list(cur.fetchall())
 
-            cur.execute("SELECT COALESCE(SUM(current_stock * unit_price), 0) AS v FROM products")
-            stats["inventory_value"] = float(cur.fetchone()["v"] or 0)
+            cur.execute("SELECT * FROM sp_monitor_login_history(30)")
+            login_history = list(cur.fetchall())
 
-            cur.execute("SELECT COUNT(*) AS c FROM products WHERE current_stock <= reorder_point AND on_order <= 0")
-            stats["reorder_count"] = int(cur.fetchone()["c"] or 0)
+            cur.execute("SELECT * FROM sp_monitor_signup_history(30)")
+            signup_history = list(cur.fetchall())
 
-            cur.execute("SELECT COUNT(*) AS c FROM suppliers")
-            stats["suppliers"] = int(cur.fetchone()["c"] or 0)
+            cur.execute("SELECT * FROM sp_monitor_user_activity_summary()")
+            user_summary = list(cur.fetchall())
 
-            cur.execute("SELECT COUNT(DISTINCT warehouse) AS c FROM products WHERE warehouse IS NOT NULL")
-            stats["warehouses"] = int(cur.fetchone()["c"] or 0)
+            cur.execute("SELECT * FROM sp_monitor_daily_logins(30)")
+            daily_logins = list(cur.fetchall())
 
-            cur.execute(
-                "SELECT COALESCE(SUM(quantity), 0) AS u FROM movements WHERE created_at::date = %s",
-                (today,),
-            )
-            stats["units_today"] = int(cur.fetchone()["u"] or 0)
-
-            total = stats["total_skus"]
-            if total:
-                stats["stock_health"] = round(
-                    max(total - stats["reorder_count"], 0) / total * 100
-                )
-
-            cur.execute(
-                "SELECT category, COUNT(*) AS cnt FROM products "
-                "WHERE category IS NOT NULL GROUP BY category ORDER BY cnt DESC"
-            )
-            stats["categories"] = [
-                {"category": r["category"], "count": int(r["cnt"])} for r in cur.fetchall()
-            ]
-
-            cur.execute(
-                "SELECT COUNT(*) AS c, "
-                "MIN(created_at)::date AS first, MAX(created_at)::date AS last "
-                "FROM movements"
-            )
-            mrow = cur.fetchone()
-            stats["movements"] = int(mrow["c"] or 0)
-            stats["first_movement"] = mrow["first"]
-            stats["last_movement"] = mrow["last"]
-
-            cur.execute(
-                "SELECT COUNT(*) AS c FROM purchase_orders "
-                "WHERE status NOT IN ('received','cancelled')"
-            )
-            stats["open_pos"] = int(cur.fetchone()["c"] or 0)
+            cur.execute("SELECT state_key, value, updated_at FROM etl_warehouse_state ORDER BY updated_at DESC")
+            etl_status = {row["state_key"]: {"value": row["value"], "updated_at": row["updated_at"]}
+                          for row in cur.fetchall()}
     except Exception:
         pass
-    series, dates = _series_for_last_days(MovementRepository.daily_totals(14), 14)
-    stats["series"] = series
-    stats["dates"] = dates
-    return stats
+
+    return render_template(
+        "monitoring.html",
+        active_sessions=active_sessions,
+        login_history=login_history,
+        signup_history=signup_history,
+        user_summary=user_summary,
+        daily_logins=daily_logins,
+        etl_status=etl_status,
+    )
+
+
+@ui_bp.route("/monitoring/run-etl", methods=["POST"])
+@login_required
+@write_roles_required
+def monitoring_run_etl():
+    """Manually trigger warehouse ETL (non-blocking)."""
+    from ..database.connection import etl_database
+    def _run():
+        try:
+            etl_database(force=True)
+        except Exception as e:
+            LOGGER.warning("Background ETL failed: %s", e)
+    threading.Thread(target=_run, daemon=True).start()
+    flash("ETL rebuild started in background", "success")
+    return redirect(url_for("ui.monitoring"))
+
+
+def _landing_stats():
+    """Public landing page stats — hardcoded demo values only (no real DB queries)."""
+    return {
+        "total_skus": 500,
+        "inventory_value": 4_280_000.0,
+        "reorder_count": 12,
+        "suppliers": 48,
+        "warehouses": 6,
+        "units_today": 1240,
+        "stock_health": 94,
+        "categories": [
+            {"category": "Electronics", "count": 120},
+            {"category": "Clothing", "count": 95},
+            {"category": "Home & Garden", "count": 80},
+            {"category": "Sports", "count": 65},
+            {"category": "Automotive", "count": 55},
+            {"category": "Books", "count": 45},
+            {"category": "Other", "count": 40},
+        ],
+        "series": [1200, 1350, 1100, 1400, 1550, 1300, 1600, 1450, 1700, 1850, 1600, 1900],
+        "dates": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+        "movements": 24800,
+        "first_movement": "2025-01-01",
+        "last_movement": "2026-08-29",
+        "open_pos": 3,
+    }
 
 
 def _series_for_last_days(rows, days):
