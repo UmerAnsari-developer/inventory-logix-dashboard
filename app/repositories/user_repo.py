@@ -1,8 +1,5 @@
-"""User repository: persistence for the ``users`` table."""
+"""User repository: persistence via stored procedures."""
 from __future__ import annotations
-
-from datetime import datetime
-from typing import Any
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -11,38 +8,35 @@ from ..models import UserProxy
 
 
 class UserRepository:
-    """Encapsulates all SQL touching the ``users`` table."""
+    """All SQL via stored procedures."""
 
     @staticmethod
     def create(username: str, email: str, password: str, role: str = "viewer") -> int:
         with get_cursor(commit=True) as cur:
             cur.execute(
-                """
-                INSERT INTO users (username, email, password_hash, role)
-                VALUES (%s, %s, %s, %s) RETURNING id
-                """,
-                (username.lower(), email.lower(), generate_password_hash(password), role),
+                "SELECT sp_user_create(%s, %s, %s, %s)",
+                (username, email, generate_password_hash(password), role),
             )
-            return cur.fetchone()["id"]
+            return cur.fetchone()["sp_user_create"]
 
     @staticmethod
     def find_by_username(username: str) -> UserProxy | None:
         with get_cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE username = %s", (username.lower(),))
+            cur.execute("SELECT * FROM sp_user_find_by_username(%s)", (username,))
             row = cur.fetchone()
         return UserProxy(row) if row else None
 
     @staticmethod
     def find_by_email(email: str) -> UserProxy | None:
         with get_cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE email = %s", (email.lower(),))
+            cur.execute("SELECT * FROM sp_user_find_by_email(%s)", (email,))
             row = cur.fetchone()
         return UserProxy(row) if row else None
 
     @staticmethod
     def find_by_id(user_id: int) -> UserProxy | None:
         with get_cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+            cur.execute("SELECT * FROM sp_user_find_by_id(%s)", (user_id,))
             row = cur.fetchone()
         return UserProxy(row) if row else None
 
@@ -56,154 +50,85 @@ class UserRepository:
     @staticmethod
     def record_login(user_id: int) -> None:
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                "UPDATE users SET last_login = %s WHERE id = %s",
-                (datetime.utcnow(), user_id),
-            )
+            cur.execute("SELECT sp_user_record_login(%s)", (user_id,))
 
     @staticmethod
     def list_all() -> list[dict]:
         with get_cursor() as cur:
-            cur.execute(
-                "SELECT id, username, email, role, is_active, last_login, created_at "
-                "FROM users ORDER BY created_at DESC"
-            )
+            cur.execute("SELECT * FROM sp_user_list_all()")
             return list(cur.fetchall())
 
     @staticmethod
     def set_active(user_id: int, active: bool) -> None:
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                "UPDATE users SET is_active = %s WHERE id = %s", (bool(active), user_id)
-            )
+            cur.execute("SELECT sp_user_set_active(%s, %s)", (user_id, active))
 
     @staticmethod
     def change_role(user_id: int, role: str) -> None:
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                "UPDATE users SET role = %s WHERE id = %s", (role, user_id)
-            )
+            cur.execute("SELECT sp_user_change_role(%s, %s)", (user_id, role))
 
     @staticmethod
     def set_password(user_id: int, password: str) -> None:
         with get_cursor(commit=True) as cur:
             cur.execute(
-                "UPDATE users SET password_hash = %s WHERE id = %s",
-                (generate_password_hash(password), user_id),
+                "SELECT sp_user_set_password(%s, %s)",
+                (user_id, generate_password_hash(password)),
             )
 
     @staticmethod
-    def create_reset_token(user_id: int, token_hash: str, expires_at: datetime) -> None:
+    def create_reset_token(user_id: int, token_hash: str, expires_at) -> None:
         with get_cursor(commit=True) as cur:
             cur.execute(
-                """
-                INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
-                VALUES (%s, %s, %s)
-                """,
+                "SELECT sp_reset_token_create(%s, %s, %s)",
                 (user_id, token_hash, expires_at),
             )
 
     @staticmethod
     def find_valid_reset_token(token_hash: str) -> dict | None:
         with get_cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, user_id, token_hash, expires_at, used
-                FROM password_reset_tokens
-                WHERE token_hash = %s
-                """,
-                (token_hash,),
-            )
+            cur.execute("SELECT * FROM sp_reset_token_find(%s)", (token_hash,))
             return cur.fetchone()
 
     @staticmethod
     def consume_reset_token(token_id: int) -> None:
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                "UPDATE password_reset_tokens SET used = TRUE WHERE id = %s",
-                (token_id,),
-            )
+            cur.execute("SELECT sp_reset_token_consume(%s)", (token_id,))
 
     @staticmethod
     def purge_reset_tokens(user_id: int) -> None:
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                "DELETE FROM password_reset_tokens WHERE user_id = %s", (user_id,)
-            )
+            cur.execute("SELECT sp_reset_token_purge(%s)", (user_id,))
 
     @staticmethod
     def create_session(user_id: int, ip_address: str | None, user_agent: str | None) -> str:
-        """Create a new session record and return the session token."""
         import secrets
         token = secrets.token_urlsafe(32)
         with get_cursor(commit=True) as cur:
             cur.execute(
-                """
-                INSERT INTO user_sessions (user_id, session_token, ip_address, user_agent)
-                VALUES (%s, %s, %s, %s)
-                """,
+                "SELECT sp_session_create(%s, %s, %s, %s)",
                 (user_id, token, ip_address, user_agent),
             )
         return token
 
     @staticmethod
     def end_session(token: str) -> None:
-        """Mark a session as ended (logout)."""
-        from datetime import datetime
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                "UPDATE user_sessions SET is_active = FALSE, logout_at = %s WHERE session_token = %s",
-                (datetime.utcnow(), token),
-            )
+            cur.execute("SELECT sp_session_end(%s)", (token,))
 
     @staticmethod
     def update_session_activity(token: str) -> None:
-        """Update the last activity timestamp for a session."""
-        from datetime import datetime
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                "UPDATE user_sessions SET last_activity = %s WHERE session_token = %s",
-                (datetime.utcnow(), token),
-            )
+            cur.execute("SELECT sp_session_update_activity(%s)", (token,))
 
     @staticmethod
     def get_active_sessions(user_id: int | None = None) -> list[dict]:
-        """Get active sessions, optionally filtered by user_id."""
         with get_cursor() as cur:
-            if user_id is not None:
-                cur.execute(
-                    """
-                    SELECT id, user_id, session_token, ip_address, user_agent,
-                           login_at, last_activity
-                    FROM user_sessions
-                    WHERE is_active = TRUE AND user_id = %s
-                    ORDER BY last_activity DESC
-                    """,
-                    (user_id,),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT id, user_id, session_token, ip_address, user_agent,
-                           login_at, last_activity
-                    FROM user_sessions
-                    WHERE is_active = TRUE
-                    ORDER BY last_activity DESC
-                    """,
-                )
+            cur.execute("SELECT * FROM sp_session_get_active(%s)", (user_id,))
             return list(cur.fetchall())
 
     @staticmethod
     def cleanup_stale_sessions(hours: int = 24) -> int:
-        """Mark sessions as inactive if no activity for specified hours."""
         with get_cursor(commit=True) as cur:
-            cur.execute(
-                """
-                UPDATE user_sessions
-                SET is_active = FALSE, logout_at = NOW()
-                WHERE is_active = TRUE
-                  AND last_activity < NOW() - INTERVAL '%s hours'
-                """,
-                (hours,),
-            )
-            return cur.rowcount
+            cur.execute("SELECT sp_session_cleanup_stale(%s)", (hours,))
+            return cur.fetchone()["sp_session_cleanup_stale"]

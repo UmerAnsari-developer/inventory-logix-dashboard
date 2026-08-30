@@ -8,13 +8,20 @@ CREATE TABLE IF NOT EXISTS users (
     id              SERIAL PRIMARY KEY,
     username        VARCHAR(60) UNIQUE NOT NULL,
     email           VARCHAR(150) UNIQUE NOT NULL,
-    password_hash   VARCHAR(256) NOT NULL,
+    password_hash   VARCHAR(256),
     role            VARCHAR(20) NOT NULL DEFAULT 'viewer',
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
     last_login      TIMESTAMP,
     created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    oauth_provider  VARCHAR(20),
+    oauth_id        VARCHAR(200),
     CONSTRAINT users_role_chk CHECK (role IN ('admin','manager','viewer'))
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_provider VARCHAR(20);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_id VARCHAR(200);
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth ON users(oauth_provider, oauth_id) WHERE oauth_provider IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS suppliers (
     id              SERIAL PRIMARY KEY,
@@ -248,5 +255,5 @@ CREATE INDEX IF NOT EXISTS idx_user_sessions_active ON user_sessions(is_active) 
 CREATE TABLE IF NOT EXISTS etl_state (
     state_key       VARCHAR(60) PRIMARY KEY,
     value           TEXT,
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at      TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')
 );

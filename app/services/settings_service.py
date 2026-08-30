@@ -62,7 +62,9 @@ class SettingsService:
         data = dict(DEFAULTS)
         if user_id:
             try:
-                data.update(SettingsRepository.all(user_id))
+                stored = SettingsRepository.all(user_id)
+                # Filter out any keys not in the schema to prevent silent misconfiguration
+                data.update({k: v for k, v in stored.items() if k in DEFAULTS})
             except Exception:
                 pass
         g.user_settings = data
@@ -81,7 +83,8 @@ class SettingsService:
         if cleaned:
             SettingsRepository.set_many(current_user.id, cleaned)
             merged = dict(DEFAULTS)
-            merged.update(SettingsRepository.all(current_user.id))
+            stored = SettingsRepository.all(current_user.id)
+            merged.update({k: v for k, v in stored.items() if k in DEFAULTS})
             g.user_settings = merged
         else:
             merged = SettingsService.get_settings()

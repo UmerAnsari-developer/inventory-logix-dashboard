@@ -72,7 +72,7 @@ def _iter_dates(start: date, end: date):
 
 
 def _read_state(cur, key: str, default=None):
-    cur.execute("SELECT value FROM etl_state WHERE key = %s", (key,))
+    cur.execute("SELECT value FROM etl_state WHERE state_key = %s", (key,))
     row = cur.fetchone()
     return row["value"] if row else default
 
@@ -80,9 +80,9 @@ def _read_state(cur, key: str, default=None):
 def _write_state(cur, key: str, value) -> None:
     cur.execute(
         """
-        INSERT INTO etl_state (key, value, updated_at)
+        INSERT INTO etl_state (state_key, value, updated_at)
         VALUES (%s, %s, NOW())
-        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+        ON CONFLICT (state_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
         """,
         (key, str(value)),
     )
@@ -292,6 +292,7 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
         for i in range((end_day - start_day).days + 1)
     ]
     rows: list[tuple[date, int, int, float, float, float]] = []
+    negative_clamped = 0
     for p in products:
         wh_key = wh_keys.get(p["warehouse"])
         prod_key = prod_keys.get(p["sku"])
@@ -303,6 +304,14 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
         for d in days_list:
             rows.append((d, wh_key, prod_key, stock, rop, stock * price))
             stock -= net_by_sku_day.get((p["sku"], d), 0)
+            if stock < 0:
+                negative_clamped += 1
+                stock = 0.0
+    if negative_clamped:
+        LOGGER.warning(
+            "Inventory backward walk: clamped %d negative stock values to 0 "
+            "(data inconsistency in movement history)", negative_clamped,
+        )
     if rows:
         execute_values(
             cur,
@@ -396,4 +405,28 @@ def run_etl(force: bool = False) -> dict:
         raise
     finally:
         conn.close()
+
+    # Run warehouse layer ETL (SCD merges + event fact loads)
+    try:
+        _run_warehouse_etl()
+    except Exception:
+        LOGGER.warning("Warehouse ETL failed (non-fatal):", exc_info=True)
+
     return summary
+
+
+def _run_warehouse_etl():
+    """Call warehouse stored procedures for SCD merges and event fact loads."""
+    conn = _open_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM etl_full_build()")
+            results = cur.fetchall()
+            for row in results:
+                LOGGER.info("Warehouse ETL: %s = %s rows", row["step_name"], row["rows_affected"])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()

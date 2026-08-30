@@ -1,28 +1,17 @@
 {% extends "base.html" %}
 {% set active_page = "dashboard" %}
-{% block title %}Overview{% endblock %}
-{% block breadcrumb %}Overview{% endblock %}
+{% block title %}Dashboard{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+{% endblock %}
 {% block content %}
-{% if app_settings.get('ai_recommendations') != 'off' %}
-<section class="ai-banner">
-  <span class="ai-icon">AI</span>
-  <div>
-    <strong>AI Recommendation</strong>
-    <span id="aiRecommendation">Analysing live data</span>
-    <span class="ai-confidence" id="aiConfidence"></span>
-  </div>
-  <a class="ai-banner-btn" href="{{ url_for('ai.forecast_page') }}">View forecast</a>
-</section>
-{% endif %}
 
-<section class="alert-strip">
-  <div class="alert-mark"></div>
-  <div class="alert-copy">
-    <div class="alert-title">{{ reorder_count }} products need attention today</div>
-    <div class="alert-subtitle">{{ critical_count }} are below their reorder point. Review the queue before the next dispatch cycle</div>
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Operations</div>
+    <h1>Dashboard Overview</h1>
   </div>
-  <a href="{{ url_for('ui.reorder_alerts') }}" class="btn btn-secondary">Review reorder queue &rarr</a>
-</section>
+</div>
 
 <section class="metric-grid">
   <div class="metric-card"><div class="metric-label">Inventory value <span class="metric-index">A1</span></div><div class="metric-value" id="liveInventoryValue">{{ '{:,.0f}'.format(inventory_value) }}</div><div class="metric-foot"><strong>+6.2%</strong> vs last month</div></div>
@@ -30,7 +19,7 @@
   <div class="metric-card"><div class="metric-label">Units moved today <span class="metric-index">A3</span></div><div class="metric-value" id="liveUnitsToday">{{ '{:,}'.format(units_today) }}</div><div class="metric-foot"><strong>+14.8%</strong> vs daily average</div></div>
   <div class="metric-card"><div class="metric-label">Stock health <span class="metric-index">A4</span></div><div class="metric-value" id="liveHealthPct">{{ health_pct }}<span style="font-size:1.1rem">%</span></div><div class="metric-foot"><strong>{{ 'Good' if health_pct >= 80 else 'Monitor' }}</strong> &middot; target is 80%</div></div>
   {% if app_settings.get('ai_recommendations') != 'off' %}
-  <div class="metric-card ai-card"><div class="metric-label">AI savings (YTD) <span class="metric-index">AI</span></div><div class="metric-value" id="aiSavingsKpi">&mdash;</div><div class="metric-foot"><strong>vs manual ordering</strong></div></div>
+  <div class="metric-card ai-card"><div class="metric-label">AI savings (YTD) <span class="metric-index">AI</span></div><div class="metric-value" id="aiSavingsKpi">{{ format_money(ai_savings) }}</div><div class="metric-foot"><strong>vs manual ordering</strong></div></div>
   {% endif %}
 </section>
 
@@ -42,7 +31,9 @@
     </div>
     <span class="badge ai">AI &middot; PROPHET</span>
   </div>
-  <div class="ai-forecast-chart" id="dashboardForecastChart"></div>
+  <div class="panel-content">
+    <div class="ai-forecast-chart" id="dashboardForecastChart"></div>
+  </div>
 </section>
 
 <section class="dashboard-grid">
@@ -71,6 +62,7 @@
           <polyline class="chart-line" points="{{ chart.points }}"/>
           {% for x, y in chart.circles %}
           <circle class="chart-point" cx="{{ x }}" cy="{{ y }}" r="3.5"/>
+          <text x="{{ x }}" y="{{ y - 10 }}" text-anchor="middle" fill="#1e293b" font-size="9" font-family="JetBrains Mono, Consolas, monospace" font-weight="600" paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">{{ chart.values[loop.index0] }}</text>
           {% endfor %}
           <text class="chart-label" x="18" y="205">{{ d0 }}</text>
           <text class="chart-label" x="190" y="205">{{ d1 }}</text>
@@ -102,7 +94,9 @@
       </div>
     </div>
   </article>
+</section>
 
+<section class="dashboard-grid">
   <article class="panel queue-panel">
     <div class="panel-header">
       <div>
@@ -231,7 +225,9 @@
       </div>
     </div>
   </article>
+</section>
 
+<section class="dashboard-grid">
   <article class="panel">
     <div class="panel-header">
       <div>
@@ -268,22 +264,7 @@
     </div>
   </article>
 
-  <article class="panel queue-panel">
-    <div class="panel-header">
-      <div>
-        <div class="panel-title">Warehouse profile</div>
-        <div class="panel-caption">Stock level and average price per warehouse</div>
-      </div>
-      <div class="chart-legend"><span class="legend-key"><span class="legend-dot" style="background:var(--green)"></span>Units on hand</span><span class="legend-key"><span class="legend-dot" style="background:var(--ink-3)"></span>Avg price</span></div>
-    </div>
-    <div class="panel-content">
-      <div class="warehouse-chart-wrap">
-        <canvas id="warehouseProfileChart" height="220"></canvas>
-      </div>
-    </div>
-  </article>
-
-<article class="panel queue-panel" style="grid-column: 1 / -1;">
+  <article class="panel">
     <div class="panel-header">
       <div>
         <div class="panel-title">Top suppliers</div>
@@ -294,7 +275,7 @@
       <div class="table-scroll compact">
         <table>
           <thead>
-            <tr><th>#</th><th>Supplier</th><th>Location</th><th>Units supplied</th><th>SKUs</th><th>Procurement value</th></tr>
+            <tr><th>#</th><th>Supplier</th><th>Units supplied</th><th>SKUs</th></tr>
           </thead>
           <tbody>
             {% for s in top_suppliers %}
@@ -309,16 +290,31 @@
                   </div>
                 </div>
               </td>
-              <td>{{ s.location or '—' }}</td>
               <td><span class="number">{{ '{:,}'.format(s.units_in) }}</span></td>
               <td><span class="number">{{ s.skus }}</span></td>
-              <td><span class="number">{{ format_money(s.spend) }}</span></td>
             </tr>
             {% else %}
-            <tr><td colspan="6"><div class="empty-state">No supplier deliveries yet</div></td></tr>
+            <tr><td colspan="4"><div class="empty-state">No supplier deliveries yet</div></td></tr>
             {% endfor %}
           </tbody>
         </table>
+      </div>
+    </div>
+  </article>
+</section>
+
+<section class="dashboard-grid">
+  <article class="panel queue-panel">
+    <div class="panel-header">
+      <div>
+        <div class="panel-title">Warehouse profile</div>
+        <div class="panel-caption">Stock level and average price per warehouse</div>
+      </div>
+      <div class="chart-legend"><span class="legend-key"><span class="legend-dot" style="background:var(--green)"></span>Units on hand</span><span class="legend-key"><span class="legend-dot" style="background:var(--ink-3)"></span>Avg price</span></div>
+    </div>
+    <div class="panel-content">
+      <div class="warehouse-chart-wrap">
+        <canvas id="warehouseProfileChart" height="220"></canvas>
       </div>
     </div>
   </article>
@@ -354,7 +350,7 @@
     </div>
   </article>
 
-  <article class="panel queue-panel" style="grid-column: 1 / -1;">
+  <article class="panel">
     <div class="panel-header">
       <div>
         <div class="panel-title">ABC Analysis (Pareto)</div>
@@ -387,7 +383,7 @@
 </section>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', function () {
   var profileData = {{ (warehouse_profile|tojson) if warehouse_profile else 'null' }};
   var profEl = document.getElementById('warehouseProfileChart');
@@ -400,9 +396,6 @@ document.addEventListener('DOMContentLoaded', function () {
         datasets: [
           { label: 'Units on hand', data: profileData.map(function (w) { return w.total_units; }),
             backgroundColor: 'rgba(61,153,124,0.75)', borderColor: '#3d997c', borderWidth: 1, yAxisID: 'y' },
-          { label: 'Avg price', data: profileData.map(function (w) { return Math.round(w.avg_price); }),
-            type: 'line', backgroundColor: 'rgba(31,41,55,0.1)', borderColor: '#1f2937',
-            borderWidth: 2, pointBackgroundColor: '#1f2937', tension: 0.25, yAxisID: 'y1' },
         ],
       },
       options: {
@@ -410,7 +403,6 @@ document.addEventListener('DOMContentLoaded', function () {
         maintainAspectRatio: false,
         scales: {
           y: { beginAtZero: true, title: { display: true, text: 'Units' } },
-          y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'Avg price' } },
         },
         plugins: { legend: { labels: { boxWidth: 10 } } },
       },
@@ -467,4 +459,5 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 });
 </script>
+<script src="{{ url_for('static', filename='js/dashboard-3d.js') }}"></script>
 {% endblock %}

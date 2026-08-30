@@ -169,19 +169,43 @@
   });
 
   // Password show/hide toggle
+  // Eye open (aria-pressed=false) → password hidden
+  // Eye closed (aria-pressed=true) → password shown
   document.querySelectorAll(".password-toggle").forEach(function (btn) {
     const target = document.getElementById(btn.dataset.target);
     if (!target) return;
+    // Set initial: password hidden, eye open
+    btn.setAttribute("aria-pressed", "false");
     btn.addEventListener("click", function () {
-      const isPassword = target.type === "password";
-      target.type = isPassword ? "text" : "password";
-      btn.setAttribute("aria-pressed", isPassword ? "true" : "false");
+      const isHidden = target.type === "password";
+      target.type = isHidden ? "text" : "password";
+      // aria-pressed="true" when password is SHOWN (eye closed)
+      btn.setAttribute("aria-pressed", target.type === "text");
     });
   });
 
   const eoqForm = document.getElementById("eoqForm");
   if (eoqForm && window.initEoqCalculator) {
     window.initEoqCalculator(eoqForm);
+  }
+
+  // Scroll reveal — matches landing page animation style
+  if ("IntersectionObserver" in window) {
+    var revealObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("in");
+          revealObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.16, rootMargin: "0px 0px -40px 0px" });
+    document.querySelectorAll(".reveal").forEach(function (el) {
+      revealObserver.observe(el);
+    });
+  } else {
+    document.querySelectorAll(".reveal").forEach(function (el) {
+      el.classList.add("in");
+    });
   }
 });
 

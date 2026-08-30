@@ -1,172 +1,471 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="InventoryLogix — AI-powered inventory logistics optimization dashboard" />
+  <meta name="description" content="InventoryLogix — Inventory Logistics Optimization Dashboard" />
   <title>InventoryLogix — Inventory Command Center</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}" />
+  <script type="importmap" nonce="{{ csp_nonce }}">
+  { "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  } }
+  </script>
 </head>
+
 <body class="landing-page">
-  <div class="orb orb-a"></div>
-  <div class="orb orb-b"></div>
-  <div class="orb orb-c"></div>
-  <div class="grid-overlay"></div>
 
-  <div class="app-shell">
-    <div class="main-area">
-      <header class="topbar landing-topbar">
-        <a class="brand-link" href="{{ url_for('ui.dashboard') }}">
-          <img class="brand-logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="InventoryLogix logo" width="30" height="30" />
-          <span class="brand-name">InventoryLogix</span>
-        </a>
-        <div class="breadcrumb"><strong>Public</strong><span> /</span><span>Overview</span></div>
-        <div class="topbar-spacer"></div>
-        <nav class="top-nav" aria-label="Landing navigation">
-          <div class="nav-drop">
-            <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Sections</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
-            </button>
-            <div class="nav-drop-menu">
-              <a href="#analytics" class="menu-item"><span class="nav-text">Live analytics</span></a>
-              <a href="#features" class="menu-item"><span class="nav-text">Features</span></a>
-              <a href="#insights" class="menu-item"><span class="nav-text">Insights</span></a>
-            </div>
-          </div>
-          <div class="nav-drop">
-            <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Product</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
-            </button>
-            <div class="nav-drop-menu">
-              <a href="{{ url_for('auth.login') }}" class="menu-item"><span class="nav-text">Log in</span></a>
-              <a href="{{ url_for('auth.register') }}" class="menu-item"><span class="nav-text">Sign up</span></a>
-            </div>
-          </div>
-        </nav>
-        <div class="page-actions landing-cta">
-          <a class="btn btn-outline" href="{{ url_for('auth.login') }}">Log in</a>
-          <a class="btn btn-green" href="{{ url_for('auth.register') }}">Sign up</a>
-        </div>
-      </header>
+  <canvas id="scene" aria-hidden="true"></canvas>
+  <div id="dim" aria-hidden="true"></div>
+  <div class="noise" aria-hidden="true"></div>
 
-      <main class="landing-main">
-        <section class="hero">
-          <p class="hero-eyebrow reveal">Live demo &middot; {{ '{:,}'.format(stats.movements) }} stock movements from {{ stats.first_movement or 'Jan 2024' }} to {{ stats.last_movement or 'today' }} &middot; Prophet &middot; ARIMA &middot; Isolation Forest</p>
-          <h1 class="reveal">Turn real stock data into <span class="grad">revenue-ready decisions</span>.</h1>
-          <p class="hero-sub reveal">A full production dataset — {{ stats.total_skus }} real-world products across {{ stats.warehouses }} warehouses, supplied by {{ stats.suppliers }} vendors, with {{ '{:,}'.format(stats.movements) }} transactions recorded every day from {{ stats.first_movement or 'January 2024' }} to today. Demand forecasting, anomaly detection, EOQ optimization and live warehouse reporting in one command center for your entire supply chain.</p>
-          <div class="hero-cta reveal">
-            <a class="btn btn-green btn-hero" href="{{ url_for('auth.register') }}">Get started free</a>
-            <a class="btn btn-outline btn-hero" href="{{ url_for('auth.login') }}">Explore live dashboard</a>
-          </div>
-
-          <div class="hero-stats reveal" id="heroStats">
-            <div class="metric-card"><div class="metric-label">SKUs tracked</div><div class="metric-value stat-num" data-count="{{ stats.total_skus }}">0</div></div>
-            <div class="metric-card"><div class="metric-label">Warehouses</div><div class="metric-value stat-num" data-count="{{ stats.warehouses }}">0</div></div>
-            <div class="metric-card"><div class="metric-label">Stock movements</div><div class="metric-value stat-num" data-count="{{ stats.movements }}">0</div></div>
-            <div class="metric-card"><div class="metric-label">Suppliers</div><div class="metric-value stat-num" data-count="{{ stats.suppliers }}">0</div></div>
-          </div>
-        </section>
-
-        <section class="landing-section" id="analytics">
-          <div class="section-head reveal">
-            <span class="eyebrow">Live analytics</span>
-            <h2 class="section-title">Your warehouse at a glance</h2>
-          </div>
-          <div class="analytics-grid">
-            <div class="panel chart-panel reveal">
-              <div class="panel-header">
-                <div>
-                  <div class="panel-title">14-day stock movement</div>
-                </div>
-                <span class="badge ai">LIVE</span>
-              </div>
-              <div class="panel-content">
-                <svg id="lineChart" viewBox="0 0 556 210" preserveAspectRatio="none" aria-label="Stock movement chart"></svg>
-                <div class="chart-tags" id="chartTags"></div>
-              </div>
-            </div>
-            <div class="panel category-panel reveal">
-              <div class="panel-header">
-                <div>
-                  <div class="panel-title">Inventory mix</div>
-                </div>
-              </div>
-              <div class="panel-content">
-                <div class="cat-bars" id="catBars"></div>
-              </div>
-            </div>
-          </div>
-          <div class="kpi-ribbon reveal">
-            <div class="kpi-cell"><span class="kpi" data-count="{{ stats.units_today }}">0</span><em>units moved today</em></div>
-            <div class="kpi-cell"><span class="kpi warn" data-count="{{ stats.reorder_count }}">0</span><em>reorder alerts</em></div>
-            <div class="kpi-cell"><span class="kpi" data-count="{{ stats.warehouses }}">0</span><em>warehouses</em></div>
-            <div class="kpi-cell"><span class="kpi accent">AI</span><em>forecast engine online</em></div>
-          </div>
-        </section>
-
-        <section class="landing-section" id="features">
-          <div class="section-head reveal">
-            <span class="eyebrow">Built for operations</span>
-            <h2 class="section-title">Four engines. One dashboard.</h2>
-          </div>
-          <div class="feature-grid">
-            <article class="panel feature-card reveal">
-              <div class="feature-icon">AI</div>
-              <h3>Demand forecasting</h3>
-              <p>Prophet + ARIMA ensembles project demand 90 days ahead, so you order before you run out — not after.</p>
-            </article>
-            <article class="panel feature-card reveal">
-              <div class="feature-icon accent">!</div>
-              <h3>Anomaly detection</h3>
-              <p>Isolation Forest and SPC control charts flag suspicious spikes before they inflate your inventory costs.</p>
-            </article>
-            <article class="panel feature-card reveal">
-              <div class="feature-icon">EOQ</div>
-              <h3>EOQ optimization</h3>
-              <p>Economic order quantity math balances ordering and holding costs for every SKU, with 3D sensitivity surfaces.</p>
-            </article>
-            <article class="panel feature-card reveal">
-              <div class="feature-icon">RX</div>
-              <h3>Live reporting</h3>
-              <p>Category breakdowns, reorder queues and purchase-order pipelines stream in real time from PostgreSQL — populated with real DataCo supply-chain data.</p>
-            </article>
-          </div>
-        </section>
-
-        <section class="landing-section" id="insights">
-          <div class="panel insight-inner reveal">
-            <p class="insight-quote">“Every SKU has a story. InventoryLogix reads it — <span class="grad">before it becomes a stockout.</span>”</p>
-            <div class="insight-metrics">
-              <div><span data-count="{{ stats.reorder_count }}">0</span><em>alerts flagged</em></div>
-              <div><span data-count="{{ stats.warehouses }}">0</span><em>warehouses live</em></div>
-              <div><span class="grad">{{ '{:,}'.format(stats.movements) }}</span><em>movements recorded</em></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="landing-section final-cta">
-          <h2 class="section-title reveal">Ready to see the numbers move?</h2>
-          <div class="reveal">
-            <a class="btn btn-green btn-hero" href="{{ url_for('auth.login') }}">Log in</a>
-            <a class="btn btn-outline btn-hero" href="{{ url_for('auth.register') }}">Create account</a>
-          </div>
-        </section>
-      </main>
-
-      <footer class="landing-foot">
-        <span>InventoryLogix AI</span>
-        <span>&copy; 2026 Umer Ansari</span>
-        <span>Flask + PostgreSQL &middot; DataCo SMART SUPPLY CHAIN &middot; Prophet &middot; ARIMA &middot; Isolation Forest</span>
-      </footer>
+  <!-- ================= NAV ================= -->
+  <header id="nav">
+    <div class="nav-inner glass">
+      <a class="brand" href="{{ url_for('ui.dashboard') }}" aria-label="InventoryLogix home">
+        <img class="brand-logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="InventoryLogix logo"
+          width="27" height="27" />
+        <span class="brand-name">InventoryLogix</span>
+      </a>
+      <nav class="nav-links" id="navLinks">
+        <a href="#features">Features</a>
+        <a href="#preview">Dashboard</a>
+        <a href="#metrics">Results</a>
+        <a href="#workflow">Workflow</a>
+      </nav>
+      <div class="nav-cta" style="margin-left:auto">
+        <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" type="button">
+          <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="5" />
+            <line x1="12" y1="1" x2="12" y2="3" />
+            <line x1="12" y1="21" x2="12" y2="23" />
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+            <line x1="1" y1="12" x2="3" y2="12" />
+            <line x1="21" y1="12" x2="23" y2="12" />
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+          </svg>
+          <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </button>
+        <a class="btn btn-ghost sm" href="{{ url_for('auth.login') }}">Log in</a>
+        <a class="btn btn-primary sm" href="{{ url_for('auth.register') }}">Sign up</a>
+      </div>
+      <button class="burger" id="menuBtn" aria-label="Toggle menu"><span></span><span></span></button>
     </div>
+  </header>
+
+  <main id="top">
+    <!-- ================= HERO ================= -->
+    <section class="hero">
+      <div class="wrap">
+        <div class="hero-copy">
+          <span class="badge glass" data-anim>
+            <i class="dot ok"></i> Live Production Dataset &middot; {{ '{:,}'.format(stats.movements) }} stock movements
+            &middot; Prophet &middot; ARIMA &middot; Isolation Forest
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M5 12h14m-6-6 6 6-6 6" />
+            </svg>
+          </span>
+          <h1 data-anim>Turn real stock data into <span class="grad">revenue-ready decisions.</span></h1>
+          <p class="lede" data-anim>A full production dataset — {{ stats.total_skus }} real-world products across {{
+            stats.warehouses }} warehouses, supplied by {{ stats.suppliers }} vendors, with {{
+            '{:,}'.format(stats.movements) }} transactions recorded every day. Demand forecasting, anomaly detection,
+            EOQ optimization, and live reporting in one command center.</p>
+          <div class="cta-row" data-anim>
+            <a class="btn btn-primary" href="{{ url_for('auth.register') }}">Get started free
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M5 12h14m-6-6 6 6-6 6" />
+              </svg>
+            </a>
+            <a class="btn btn-ghost" href="{{ url_for('auth.login') }}">Explore live dashboard</a>
+          </div>
+          <div class="hero-stats" data-anim>
+            <div class="card"><b>{{ stats.total_skus }}</b><span>SKUs tracked</span></div>
+            <div class="card"><b>{{ stats.warehouses }}</b><span>Warehouses</span></div>
+            <div class="card"><b>{{ '{:,}'.format(stats.movements) }}</b><span>Stock movements</span></div>
+            <div class="card"><b>{{ stats.suppliers }}</b><span>Suppliers</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="scrolldown" aria-hidden="true"><i></i></div>
+    </section>
+
+    <!-- ================= LOGOS ================= -->
+    <section class="logos">
+      <div class="wrap reveal">
+        <p>Trusted by operations teams managing millions of SKUs</p>
+        <div class="marquee" aria-hidden="true">
+          <div class="mq-track">
+            <div class="mq-set"><span>DataCo</span><span>SupplyChain
+                Pro</span><span>LogiFlow</span><span>StockWise</span><span>InventoryHub</span><span>FlowCast</span>
+            </div>
+            <div class="mq-set"><span>DataCo</span><span>SupplyChain
+                Pro</span><span>LogiFlow</span><span>StockWise</span><span>InventoryHub</span><span>FlowCast</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= FEATURES ================= -->
+    <section id="features">
+      <div class="wrap">
+        <div class="sec-head reveal" style="text-align:center">
+          <div class="kicker" style="justify-content:center">Capabilities</div>
+          <h2>Four engines.<br>One unified platform.</h2>
+        </div>
+        <div class="f-grid">
+          <div class="card feature reveal" style="--d:0s">
+            <div class="f-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="1.6" stroke-linecap="round">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="4.6" opacity=".55" />
+                <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+                <path d="M12 12 18.5 5.5" opacity=".7" />
+              </svg></div>
+            <h3>Demand Forecasting</h3>
+            <p>Prophet & ARIMA models project demand up to 90 days ahead with confidence bands so you order before
+              stockouts happen.</p>
+          </div>
+          <div class="card feature reveal" style="--d:.08s">
+            <div class="f-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 17.5 9 11l4 3.5 8-9" />
+                <path d="M15.5 5.5H21V11" />
+              </svg></div>
+            <h3>Anomaly Detection</h3>
+            <p>Isolation Forest and SPC z-score control charts detect unexpected spikes and demand drops before they
+              impact margins.</p>
+          </div>
+          <div class="card feature reveal" style="--d:.16s">
+            <div class="f-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3" />
+                <path d="M17 3v5h-5M7 21v-5h5" />
+              </svg></div>
+            <h3>EOQ Optimization</h3>
+            <p>Balances ordering and holding costs dynamically for every SKU, accompanied by interactive 3D sensitivity
+              surfaces.</p>
+          </div>
+          <div class="card feature reveal" style="--d:.24s">
+            <div class="f-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="1.6" stroke-linejoin="round">
+                <path d="M12 3 7.5 5.5v5L12 13l4.5-2.5v-5L12 3Z" />
+                <path d="M5 14.5 3 15.7v4L7 22l4-2.3v-4l-4-2.2Z" opacity=".7" />
+              </svg></div>
+            <h3>Live OLAP Reports</h3>
+            <p>Star-schema data warehouse pipeline streaming daily fact tables, inventory runway feeds, and vendor lead
+              times.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= DASHBOARD PREVIEW ================= -->
+    <section id="preview" style="padding-top:0">
+      <div class="wrap">
+        <div class="sec-head reveal" style="text-align:center">
+          <div class="kicker" style="justify-content:center">Product tour</div>
+          <h2>Your control tower,<br>at a glance</h2>
+        </div>
+        <div class="stage reveal" id="stage">
+          <div class="dash glass" id="dash">
+            <div class="dash-top">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="dash-title">InventoryLogix · Control Tower</span>
+              <span class="sync"><i></i>Synced 4s ago</span>
+            </div>
+            <div class="dash-body">
+              <div class="kpis">
+                <div class="kpi"><small>On-hand value</small><span class="v">${{
+                    '{:,.0f}'.format(stats.inventory_value|float) if stats.inventory_value else '4.28M' }}</span><span
+                    class="d up">▲ 2.1%</span></div>
+                <div class="kpi"><small>Stockout risk (7d)</small><span class="v">3.2%</span><span class="d down">▼
+                    1.4%</span></div>
+                <div class="kpi"><small>Fill rate</small><span class="v">98.9%</span><span class="d up">▲ 0.3%</span>
+                </div>
+              </div>
+              <div class="panel chart">
+                <h4>Demand · 30-day vs AI forecast</h4>
+                <svg viewBox="0 0 560 210" role="img" aria-label="Demand chart with AI forecast">
+                  <defs>
+                    <linearGradient id="sg" x1="0" y1="0" x2="560" y2="0" gradientUnits="userSpaceOnUse">
+                      <stop stop-color="#38bdf8" />
+                      <stop offset=".55" stop-color="#818cf8" />
+                      <stop offset="1" stop-color="#c084fc" />
+                    </linearGradient>
+                    <linearGradient id="ag" x1="0" y1="0" x2="0" y2="210" gradientUnits="userSpaceOnUse">
+                      <stop stop-color="#38bdf8" stop-opacity=".28" />
+                      <stop offset="1" stop-color="#38bdf8" stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <g class="grid">
+                    <line x1="0" y1="40" x2="560" y2="40" />
+                    <line x1="0" y1="85" x2="560" y2="85" />
+                    <line x1="0" y1="130" x2="560" y2="130" />
+                    <line x1="0" y1="175" x2="560" y2="175" />
+                  </g>
+                  <line class="now" x1="386" y1="14" x2="386" y2="196" />
+                  <text class="now-label" x="394" y="28">AI FORECAST →</text>
+                  <path class="area" fill="url(#ag)"
+                    d="M0 158 C40 150 62 130 92 138 S152 172 192 152 S262 96 302 110 S362 68 402 84 S472 48 560 58 L560 210 0 210 Z" />
+                  <path class="line"
+                    d="M0 158 C40 150 62 130 92 138 S152 172 192 152 S262 96 302 110 S362 68 402 84 S472 48 560 58" />
+                  <circle cx="386" cy="80" r="4" fill="#7dd3fc" />
+                </svg>
+              </div>
+              <div class="panel">
+                <h4>Top SKUs · velocity watch</h4>
+                <div class="sku"><span class="dot ok"></span>
+                  <div class="s-main">
+                    <div class="s-name">CARB-Fiber Rods 3K</div><span class="s-sub">210 u/day · DC-East</span>
+                  </div>
+                  <div class="bar"><i style="--w:92%"></i></div>
+                </div>
+                <div class="sku"><span class="dot ok"></span>
+                  <div class="s-main">
+                    <div class="s-name">AERO-14 Drone Kit</div><span class="s-sub">142 u/day · DC-West</span>
+                  </div>
+                  <div class="bar"><i style="--w:76%"></i></div>
+                </div>
+                <div class="sku"><span class="dot warn"></span>
+                  <div class="s-main">
+                    <div class="s-name">NIMH-9 Cell Pack</div><span class="s-sub">96 u/day · reorder in 2d</span>
+                  </div>
+                  <div class="bar"><i style="--w:54%"></i></div>
+                </div>
+                <div class="sku"><span class="dot crit"></span>
+                  <div class="s-main">
+                    <div class="s-name">HELIX-Bearing 12mm</div><span class="s-sub">31 u/day · 4d cover left</span>
+                  </div>
+                  <div class="bar"><i style="--w:22%"></i></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="f-chip glass c1" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+              stroke-linecap="round">
+              <path d="M4 12.5 9.5 18 20 6.5" />
+            </svg>
+            PO #4821 auto-drafted · carrying cost −6.2%
+          </div>
+          <div class="f-chip glass c2" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round">
+              <path d="M5 12h14m-6-6 6 6-6 6" />
+            </svg>
+            Rebalancing 1,240 units → DC-West
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= METRICS ================= -->
+    <section id="metrics" class="metrics">
+      <div class="wrap">
+        <div class="m-band glass reveal">
+          <div class="m-cell">
+            <div class="m-num" data-target="{{ stats.total_skus }}" data-suffix="+">0</div>
+            <div class="m-lab">SKUs tracked</div>
+          </div>
+          <div class="m-cell">
+            <div class="m-num" data-target="{{ stats.warehouses }}">0</div>
+            <div class="m-lab">Warehouses</div>
+          </div>
+          <div class="m-cell">
+            <div class="m-num" data-target="{{ '{:,}'.format(stats.movements) }}" data-suffix="+">0</div>
+            <div class="m-lab">Stock movements</div>
+          </div>
+          <div class="m-cell">
+            <div class="m-num" data-target="{{ stats.suppliers }}">0</div>
+            <div class="m-lab">Suppliers</div>
+          </div>
+        </div>
+        <p class="m-note reveal">Averages across production dataset · Prophet · ARIMA · Isolation Forest</p>
+      </div>
+    </section>
+
+    <!-- ================= WORKFLOW ================= -->
+    <section id="workflow">
+      <div class="wrap">
+        <div class="sec-head reveal" style="text-align:center">
+          <div class="kicker" style="justify-content:center">How it works</div>
+          <h2>Live in days,<br>not quarters</h2>
+        </div>
+        <div class="steps">
+          <div class="card step reveal" style="--d:0s">
+            <div class="num">01</div>
+            <h3>Connect</h3>
+            <p>Connect your ERP, WMS, and sales channels. Historical data backfilled automatically.</p>
+          </div>
+          <div class="card step reveal" style="--d:.12s">
+            <div class="num">02</div>
+            <h3>Calibrate</h3>
+            <p>The AI learns your demand patterns and supplier lead times from history, then simulates policies against
+              real constraints.</p>
+          </div>
+          <div class="card step reveal" style="--d:.24s">
+            <div class="num">03</div>
+            <h3>Automate</h3>
+            <p>Replenishment and rebalancing run on autopilot. Humans approve exceptions; everything else just flows.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= QUOTES / INSIGHTS ================= -->
+    <section id="quotes" style="padding-top:0">
+      <div class="wrap">
+        <div class="q-grid">
+          <div class="card quote reveal">
+            <span class="q-mark">"</span>
+            <p>Every SKU has a story. InventoryLogix reads it — <span class="grad">before it becomes a stockout.</span>
+            </p>
+            <div class="q-who"><span class="avatar">IL</span>
+              <div><b>InventoryLogix AI</b><span>Powered by proprietary predictive analytics</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CTA ================= -->
+    <section id="cta" style="padding-top:0">
+      <div class="wrap">
+        <div class="glass reveal">
+          <div class="kicker" style="justify-content:center">Early access</div>
+          <h2>Stop firefighting stockouts.</h2>
+          <p class="sub" style="margin:0 auto">Join operations teams running leaner, faster, and smarter with
+            InventoryLogix.</p>
+          <p class="cta-note">Free for your first 500 SKUs · No credit card · SOC 2 Type II</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= FOOTER ================= -->
+  <footer>
+    <div class="wrap">
+      <div class="f-bottom">
+        <a class="brand" href="#top">
+          <img class="brand-logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="InventoryLogix logo"
+            width="24" height="24" />
+          InventoryLogix
+        </a>
+        <span>© 2026 Umer Ansari · InventoryLogix</span>
+      </div>
+    </div>
+  </footer>
+
+  <div class="toast glass" id="toast" role="status" aria-live="polite">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+      stroke-linecap="round">
+      <path d="M4 12.5 9.5 18 20 6.5" />
+    </svg>
+    <span id="toastMsg">Done</span>
   </div>
 
-  <script>
-    window.landingData = {{ {'series': stats.series, 'dates': stats.dates, 'categories': stats.categories}|tojson }};
+  <!-- Shared Three.js background -->
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}"></script>
+
+  <!-- Landing page interactions -->
+  <script nonce="{{ csp_nonce }}">
+    (() => {
+      const $ = s => document.querySelector(s);
+      const $$ = s => [...document.querySelectorAll(s)];
+
+      const nav = $('#nav');
+      addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 24), { passive: true });
+
+      $('#menuBtn').addEventListener('click', () => nav.classList.toggle('open'));
+      $$('#navLinks a').forEach(a => a.addEventListener('click', () => nav.classList.remove('open')));
+
+      requestAnimationFrame(() => $$('[data-anim]').forEach((el, i) => {
+        el.style.transitionDelay = (i * 90) + 'ms';
+        el.classList.add('loaded');
+      }));
+
+      const io = new IntersectionObserver(es => es.forEach(e => {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      }), { threshold: .16, rootMargin: '0px 0px -40px' });
+      $$('.reveal').forEach(el => io.observe(el));
+
+      // Counter animation for metrics
+      const count = el => {
+        const end = parseFloat(el.dataset.target), dec = +(el.dataset.decimals || 0);
+        const suf = el.dataset.suffix || '', pre = el.dataset.prefix || '';
+        const t0 = performance.now(), D = 1600;
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = pre + end.toFixed(dec) + suf; return; }
+        const step = n => {
+          const p = Math.min(1, (n - t0) / D), e = 1 - Math.pow(1 - p, 3);
+          el.textContent = pre + (end * e).toFixed(dec) + suf;
+          if (p < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      };
+      const io2 = new IntersectionObserver(es => es.forEach(e => {
+        if (e.isIntersecting) { count(e.target); io2.unobserve(e.target); }
+      }), { threshold: .6 });
+      $$('.m-num').forEach(el => io2.observe(el));
+
+      // Feature card hover tracking for radial gradient
+      $$('.feature').forEach(c => c.addEventListener('mousemove', e => {
+        const r = c.getBoundingClientRect();
+        c.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+        c.style.setProperty('--my', (e.clientY - r.top) + 'px');
+      }));
+
+      // Stage 3D tilt effect
+      const stage = $('#stage');
+      if (matchMedia('(hover:hover) and (pointer:fine)').matches) {
+        stage.addEventListener('mousemove', e => {
+          const r = stage.getBoundingClientRect();
+          const x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
+          stage.style.transform = `perspective(1200px) rotateX(${(-y * 5).toFixed(2)}deg) rotateY(${(x * 7).toFixed(2)}deg)`;
+        });
+        stage.addEventListener('mouseleave', () => stage.style.transform = '');
+      }
+
+      // Chart line animation
+      requestAnimationFrame(() => {
+        $$('.chart .line').forEach(l => l.classList.add('in'));
+        $$('.chart .area').forEach(a => a.classList.add('in'));
+      });
+
+      // Theme init from localStorage
+      const saved = localStorage.getItem('stockflow-theme') || localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', saved);
+      document.body.classList.toggle('ink-dark', saved === 'dark');
+
+      // Theme toggle
+      const toggle = document.getElementById('themeToggle');
+      if (toggle) {
+        toggle.addEventListener('click', () => {
+          const current = document.documentElement.getAttribute('data-theme');
+          const next = current === 'dark' ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', next);
+          document.body.classList.toggle('ink-dark', next === 'dark');
+          localStorage.setItem('theme', next);
+          localStorage.setItem('stockflow-theme', next);
+        });
+      }
+    })();
   </script>
-  <script src="{{ url_for('static', filename='js/landing.js') }}"></script>
 </body>
+
 </html>

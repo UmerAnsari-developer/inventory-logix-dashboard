@@ -1,10 +1,9 @@
 {% extends "base.html" %}
 {% set active_page = "warehouses" %}
-{% block title %}Warehouses{% endblock %}
-{% block breadcrumb %}Warehouses{% endblock %}
+{% block title %}Warehouse Operations{% endblock %}
 {% block content %}
 <section>
-  <div class="page-heading"><div><div class="eyebrow">Capacity</div><h1>Warehouses</h1></div></div>
+  <div class="page-heading"><div><div class="eyebrow">Warehouses</div><h1>Warehouse Operations</h1></div></div>
   <div class="warehouse-grid">
     {% for w in warehouses %}
     <article class="warehouse-card-detail">
@@ -42,7 +41,7 @@
 </section>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', function () {
   var rows = {{ (chart_data|tojson) if chart_data else 'null' }};
   if (!rows || !window.Chart) return;

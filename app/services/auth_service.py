@@ -4,7 +4,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+import threading
 from datetime import datetime, timedelta
+from collections import defaultdict
 
 from flask import current_app
 from flask_login import login_user
@@ -18,6 +20,13 @@ from ..security.validators import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_MINUTES = 15
+
+# In-memory failed-login tracker: {user_id: [(timestamp, ip), ...]}
+_failed_logins: dict[int, list[tuple[datetime, str | None]]] = defaultdict(list)
+_lockout_mutex = threading.Lock()
 
 
 class AuthError(Exception):
@@ -51,10 +60,31 @@ class AuthService:
         user = UserRepository.find_by_username(username)
         if not user or not user.get("is_active"):
             raise AuthError("Invalid username or password.")
+        if not user.get("password_hash"):
+            raise AuthError("Invalid username or password.")
+
+        # Check account lockout
+        uid = user["id"]
+        cutoff = datetime.utcnow() - timedelta(minutes=LOCKOUT_MINUTES)
+        with _lockout_mutex:
+            attempts = _failed_logins[uid]
+            # Prune old attempts
+            _failed_logins[uid] = attempts = [a for a in attempts if a[0] > cutoff]
+            if len(attempts) >= MAX_FAILED_ATTEMPTS:
+                remaining = int((attempts[0][0] + timedelta(minutes=LOCKOUT_MINUTES) - datetime.utcnow()).total_seconds()) + 1
+                raise AuthError(f"Account locked. Try again in {remaining // 60 + 1} minutes.")
+
         if not UserRepository.verify_password(password, user["password_hash"]):
+            with _lockout_mutex:
+                _failed_logins[uid].append((datetime.utcnow(), ip))
             AuditRepository.record(user["id"], "user.login_failed",
                                    target_type="user", target_id=user["id"], ip_address=ip)
             raise AuthError("Invalid username or password.")
+
+        # Clear failed attempts on success
+        with _lockout_mutex:
+            _failed_logins.pop(uid, None)
+
         UserRepository.record_login(user["id"])
         AuditRepository.record(user["id"], "user.login",
                                target_type="user", target_id=user["id"], ip_address=ip)

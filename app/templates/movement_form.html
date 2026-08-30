@@ -1,10 +1,9 @@
 {% extends "base.html" %}
 {% set active_page = "inventory" %}
-{% block title %}Movement{% endblock %}
-{% block breadcrumb %}Inventory / Movement{% endblock %}
+{% block title %}Record Movement{% endblock %}
 {% block content %}
 <section>
-  <div class="page-heading"><div><div class="eyebrow">Stock ledger</div><h1>Record a movement</h1></div></div>
+  <div class="page-heading"><div><div class="eyebrow">Inventory</div><h1>Stock Movement</h1></div></div>
   <form method="post" class="form-card">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
     <div class="form-grid">
@@ -26,7 +25,7 @@
     </label>
       <label><span>Quantity *</span><input type="number" name="quantity" min="1" required></label>
       <label><span>Reference</span><input type="text" name="reference" maxlength="100"></label>
-      <label class="full"><span>Notes</span><textarea name="notes" rows="3" maxlength="500></textarea></label>
+      <label class="full"><span>Notes</span><textarea name="notes" rows="3" maxlength="500"></textarea></label>
   </div>
     <div class="form-actions">
       <button class="btn btn-primary" type="submit">Save movement</button>

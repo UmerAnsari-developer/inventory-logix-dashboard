@@ -1,4 +1,5 @@
 window.initEoqCalculator = function (form) {
+  function getDlColor() { return document.documentElement.getAttribute('data-theme') === 'dark' ? '#e2e8f0' : '#1e293b'; }
   const resultEOQ = document.getElementById("resEOQ");
   const resultOrders = document.getElementById("resOrders");
   const resultDays = document.getElementById("resDays");
@@ -96,7 +97,7 @@ window.initEoqCalculator = function (form) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: "top", labels: { boxWidth: 12, font: { size: 11 } } } },
+        plugins: { legend: { position: "top", labels: { boxWidth: 12, font: { size: 11 } } }, datalabels: { display: function(ctx) { var i = ctx.dataIndex; var n = ctx.dataset.data.length; return i === 0 || i === n - 1 || i === Math.floor(n / 2); }, formatter: function(v) { return '$' + Number(v).toLocaleString(); }, anchor: 'end', align: 'top', color: getDlColor, font: { size: 9, weight: '600' } } },
         scales: {
           x: { title: { display: true, text: "Order quantity (Q)" } },
           y: { title: { display: true, text: "Annual cost ($)" }, beginAtZero: true }

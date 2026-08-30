@@ -8,8 +8,23 @@
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <title>{% block title %}InventoryLogix{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}" />
+  <script type="importmap" nonce="{{ csp_nonce }}">
+  { "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  } }
+  </script>
+  <!-- Theme init from localStorage (syncs with landing page) -->
+  <script nonce="{{ csp_nonce }}">
+    (function() {
+      var theme = localStorage.getItem('stockflow-theme') || localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+      localStorage.setItem('stockflow-theme', theme);
+    })();
+  </script>
   {% if current_user.is_authenticated %}
-  <script>
+  <script nonce="{{ csp_nonce }}">
     window.appSettings = {{ app_settings | tojson | safe }};
     (function() {
       var t = window.appSettings && window.appSettings.dark_mode;
@@ -17,18 +32,25 @@
         var theme = t === 'on' ? 'dark' : 'light';
         try { localStorage.setItem('stockflow-theme', theme); } catch (e) { }
         document.documentElement.setAttribute('data-theme', theme);
+        document.body.classList.toggle('ink-dark', theme === 'dark');
       }
     })();
   </script>
   {% endif %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20.1" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=9.0" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=9.1" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" defer></script>
-  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
+  {% block extra_head %}{% endblock %}
 </head>
 
 <body class="{{ 'app' if current_user.is_authenticated else 'auth' }}">
+<canvas id="scene" aria-hidden="true"></canvas>
+<div id="dim" aria-hidden="true"></div>
+<div class="noise" aria-hidden="true"></div>
   {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
   <div class="flash-stack" role="status">
@@ -49,70 +71,68 @@
           <img class="brand-logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="InventoryLogix logo" width="30" height="30" />
           <span class="brand-name">InventoryLogix</span>
         </a>
-        <div class="breadcrumb"><strong>WH-Pune</strong><span> /</span><span>{% block breadcrumb %}Overview{%
-            endblock %}</span></div>
         <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-haspopup="true" aria-expanded="false">&#9776;</button>
         <div class="topbar-spacer"></div>
         <nav class="top-nav" aria-label="Primary navigation">
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Workspace</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
+              <span class="nav-drop-label">Operations</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
             </button>
             <div class="nav-drop-menu">
               <a href="{{ url_for('ui.dashboard') }}" class="menu-item {{ 'active' if active_page == 'dashboard' else '' }}">
-                <span class="nav-text">Overview</span>
+                <span class="nav-text">Dashboard Overview</span>
               </a>
               <a href="{{ url_for('ui.inventory') }}" class="menu-item {{ 'active' if active_page == 'inventory' else '' }}">
-                <span class="nav-text">Inventory</span>
+                <span class="nav-text">Inventory Ledger</span>
               </a>
               <a href="{{ url_for('ui.reorder_alerts') }}" class="menu-item {{ 'active' if active_page == 'reorder' else '' }}">
-                <span class="nav-text">Reorder queue</span>
+                <span class="nav-text">Procurement Queue</span>
                 <span class="nav-count">{{ '%02d'|format(reorder_count) }}</span>
               </a>
               <a href="{{ url_for('ui.suppliers') }}" class="menu-item {{ 'active' if active_page == 'suppliers' else '' }}">
-                <span class="nav-text">Suppliers</span>
+                <span class="nav-text">Supplier Directory</span>
               </a>
               <a href="{{ url_for('ui.purchase_orders') }}" class="menu-item {{ 'active' if active_page == 'orders' else '' }}">
-                <span class="nav-text">Purchase orders</span>
+                <span class="nav-text">Purchase Orders</span>
               </a>
               <a href="{{ url_for('ui.warehouses') }}" class="menu-item {{ 'active' if active_page == 'warehouses' else '' }}">
-                <span class="nav-text">Warehouses</span>
+                <span class="nav-text">Warehouse Operations</span>
               </a>
               <a href="{{ url_for('ui.reports') }}" class="menu-item {{ 'active' if active_page == 'reports' else '' }}">
-                <span class="nav-text">Reports</span>
+                <span class="nav-text">Analytics & Reports</span>
               </a>
             </div>
           </div>
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Analytics &amp; AI</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
+              <span class="nav-drop-label">Intelligence</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
             </button>
             <div class="nav-drop-menu">
               <a href="{{ url_for('ai.forecast_page') }}" class="menu-item {{ 'active' if active_page == 'forecast' else '' }}">
-                <span class="nav-icon">AI</span><span class="nav-text">AI Forecast</span>
+                <span class="nav-icon">AI</span><span class="nav-text">Demand Forecasting</span>
                 <span class="badge new">NEW</span>
               </a>
               {% if app_settings.get('anomaly_detection') != 'off' %}
               <a href="{{ url_for('ai.anomaly_page') }}" class="menu-item {{ 'active' if active_page == 'anomaly' else '' }}">
-                <span class="nav-icon">AI</span><span class="nav-text">Anomaly detection</span>
+                <span class="nav-icon">AI</span><span class="nav-text">Anomaly Detection</span>
               </a>
               {% endif %}
             </div>
           </div>
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">EOQ</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
+              <span class="nav-drop-label">Optimization</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
             </button>
             <div class="nav-drop-menu">
               <a href="{{ url_for('ui.eoq_calculator') }}" class="menu-item {{ 'active' if active_page == 'eoq' else '' }}">
-                <span class="nav-text">EOQ calculator</span>
+                <span class="nav-text">EOQ Calculator</span>
               </a>
             </div>
           </div>
           {% if current_user.role in ['admin', 'manager'] %}
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Settings</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
+              <span class="nav-drop-label">Administration</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
             </button>
             <div class="nav-drop-menu">
               <a href="{{ url_for('ui.settings') }}" class="menu-item {{ 'active' if active_page == 'settings' else '' }}">
@@ -123,14 +143,14 @@
           {% endif %}
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Others</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
+              <span class="nav-drop-label">Support</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
             </button>
             <div class="nav-drop-menu">
               <a href="{{ url_for('ui.help') }}" class="menu-item {{ 'active' if active_page == 'help' else '' }}">
-                <span class="nav-icon">?</span><span class="nav-text">Help</span>
+                <span class="nav-icon">?</span><span class="nav-text">Help Center</span>
               </a>
               <a href="{{ url_for('ui.contact') }}" class="menu-item {{ 'active' if active_page == 'contact' else '' }}">
-                <span class="nav-icon">@</span><span class="nav-text">Contact</span>
+                <span class="nav-icon">@</span><span class="nav-text">Contact Support</span>
               </a>
             </div>
           </div>
@@ -188,12 +208,33 @@
   {% endblock %}
   {% endif %}
 
-  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+<div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   <script src="{{ url_for('static', filename='js/ai-features.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/saas-animations.js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}"></script>
+  {% if not current_user.is_authenticated %}
+  <!-- Theme toggle for auth pages + localStorage sync -->
+  <script nonce="{{ csp_nonce }}">
+    (function() {
+      var saved = localStorage.getItem('stockflow-theme') || localStorage.getItem('theme') || 'dark';
+      document.body.classList.toggle('ink-dark', saved === 'dark');
+
+      document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.auth-theme-toggle');
+        if (!btn) return;
+        var current = document.documentElement.getAttribute('data-theme');
+        var next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        document.body.classList.toggle('ink-dark', next === 'dark');
+        localStorage.setItem('theme', next);
+        localStorage.setItem('stockflow-theme', next);
+      });
+    })();
+  </script>
+  {% endif %}
   {% block scripts %}
   {% endblock %}
 </body>
-
 </html>

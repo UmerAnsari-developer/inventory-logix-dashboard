@@ -23,6 +23,10 @@ from flask import current_app, g
 LOGGER = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+PROCEDURES_PATH = Path(__file__).with_name("procedures.sql")
+WAREHOUSE_PATH = Path(__file__).with_name("warehouse.sql")
+ETL_PROCEDURES_PATH = Path(__file__).with_name("etl_procedures.sql")
+TRIGGERS_PATH = Path(__file__).with_name("triggers.sql")
 
 # A small per-config pool so requests reuse connections instead of redoing
 # the (potentially SSL) handshake for every page load.
@@ -128,15 +132,25 @@ def close_connection(_exc=None):
 
 
 def init_schema() -> None:
-    """Apply schema.sql against the configured database."""
-    sql_text = SCHEMA_PATH.read_text(encoding="utf-8")
+    """Apply schema.sql, procedures.sql, warehouse.sql, etl_procedures.sql, triggers.sql."""
+    sql_files = [
+        ("schema", SCHEMA_PATH),
+        ("procedures", PROCEDURES_PATH),
+        ("warehouse", WAREHOUSE_PATH),
+        ("etl_procedures", ETL_PROCEDURES_PATH),
+        ("triggers", TRIGGERS_PATH),
+    ]
     params = current_app.config["psycopg2_params"]()
     conn = _make_conn(params)
     try:
         with conn.cursor() as cur:
-            cur.execute(sql_text)
+            for name, path in sql_files:
+                if path.exists():
+                    sql_text = path.read_text(encoding="utf-8")
+                    cur.execute(sql_text)
+                    LOGGER.info("Applied %s.sql", name)
         conn.commit()
-        LOGGER.info("Database schema initialised.")
+        LOGGER.info("Database schema initialised (all files).")
     finally:
         conn.close()
 

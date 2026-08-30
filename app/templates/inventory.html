@@ -1,13 +1,12 @@
 {% extends "base.html" %}
 {% set active_page = "inventory" %}
-{% block title %}Inventory{% endblock %}
-{% block breadcrumb %}Inventory{% endblock %}
+{% block title %}Inventory Management{% endblock %}
 {% block content %}
 <section>
   <div class="page-heading">
     <div>
-      <div class="eyebrow">Live stock ledger</div>
-      <h1>Inventory</h1>
+      <div class="eyebrow">Inventory</div>
+      <h1>Inventory Ledger</h1>
       <p class="heading-note">Filter, search and update SKUs in real time</p>
     </div>
     <div class="page-actions">
@@ -77,11 +76,11 @@
     <span>Showing {{ products|length }} of {{ pagination.total }} products</span>
     <div class="pagination-btns">
       {% if pagination.has_prev %}
-      <a class="btn btn-outline btn-sm" href="?page={{ pagination.prev_num }}">&laquo</a>
+      <a class="btn btn-outline btn-sm" href="?page={{ pagination.prev_num }}">&laquo;</a>
       {% endif %}
-      <span class="btn btn-primary btn-sm">{{ pagination.page }} / {{ pagination.pages or 1 }}</span>
+      <span class="btn btn-outline btn-sm" style="cursor:default;opacity:1">{{ pagination.page }} / {{ pagination.pages or 1 }}</span>
       {% if pagination.has_next %}
-      <a class="btn btn-outline btn-sm" href="?page={{ pagination.next_num }}">&raquo</a>
+      <a class="btn btn-outline btn-sm" href="?page={{ pagination.next_num }}">&raquo;</a>
       {% endif %}
     </div>
   </div>

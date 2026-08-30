@@ -1,7 +1,7 @@
 """Authentication blueprint — login, register, logout."""
 from __future__ import annotations
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
 from ..extensions import limiter
@@ -78,7 +78,7 @@ def forgot_password():
         return render_template(
             "auth/forgot_password.html",
             email="",
-            reset_link=result.get("reset_link") or "",
+            reset_link=result.get("reset_link") if current_app.debug else "",
         )
     return render_template("auth/forgot_password.html", email="", reset_link="")
 

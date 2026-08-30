@@ -3,6 +3,7 @@
    Adds: theme persistence, toast helper, AI forecast, anomaly, EOQ 3D surface.
    ============================================================================= */
 (function () {
+  function getDlColor() { return document.documentElement.getAttribute('data-theme') === 'dark' ? '#e2e8f0' : '#1e293b'; }
     'use strict';
 
     const $ = (sel, root) => (root || document).querySelector(sel);
@@ -372,7 +373,7 @@
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    plugins: { legend: { display: false }, datalabels: { display: function(ctx) { var i = ctx.dataIndex; var n = ctx.dataset.data.length; return i === 0 || i === n - 1 || i === Math.floor(n / 2); }, formatter: function(v) { return '₹' + Number(v.y).toLocaleString('en-IN'); }, anchor: 'end', align: 'top', font: { size: 9, weight: '600' }, color: getDlColor } },
                     scales: {
                         x: { type: 'linear', title: { display: true, text: 'Order quantity' } },
                         y: { title: { display: true, text: 'Annual cost (₹)' } },
@@ -443,9 +444,6 @@
                 conf.textContent = 'Confidence: 92%';
             }
         } catch (e) {}
-        // AI savings KPI
-        const savings = document.getElementById('aiSavingsKpi');
-        if (savings) savings.textContent = '₹ 12.7L';
     });
 
     // ----- Search quick navigation -----

@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}Monitoring — InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">System Monitoring</h1>
+    <p class="page-subtitle">Session activity, login history, and ETL status</p>
+  </div>
+  <div class="page-actions">
+    <form method="POST" action="{{ url_for('ui.monitoring_run_etl') }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-primary">Run Warehouse ETL</button>
+    </form>
+  </div>
+</div>
+
+<!-- Active Sessions -->
+<section class="card" style="margin-bottom:1.5rem">
+  <div class="card-header">
+    <h2 class="card-title">Active Sessions</h2>
+    <span class="badge badge-green">{{ active_sessions|length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Login Time</th>
+          <th>Last Activity</th>
+          <th>Duration (min)</th>
+          <th>IP Address</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in active_sessions %}
+        <tr>
+          <td><strong>{{ s.username }}</strong></td>
+          <td>{{ s.login_at.strftime('%d %b %Y, %H:%M') if s.login_at else '—' }}</td>
+          <td>{{ s.last_activity.strftime('%d %b %Y, %H:%M') if s.last_activity else '—' }}</td>
+          <td>{{ s.duration_min or '—' }}</td>
+          <td><code>{{ s.ip_address or '—' }}</code></td>
+          <td>
+            {% if s.is_active %}
+              <span class="badge badge-green">Active</span>
+            {% else %}
+              <span class="badge badge-gray">Ended</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not active_sessions %}
+        <tr><td colspan="6" class="text-muted text-center">No active sessions</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- User Activity Summary -->
+<section class="card" style="margin-bottom:1.5rem">
+  <div class="card-header">
+    <h2 class="card-title">User Activity Summary</h2>
+  </div>
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Role</th>
+          <th>Total Logins</th>
+          <th>Total Sessions</th>
+          <th>Last Login</th>
+          <th>Avg Session (min)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in user_summary %}
+        <tr>
+          <td><strong>{{ u.username }}</strong></td>
+          <td><span class="badge badge-blue">{{ u.role }}</span></td>
+          <td>{{ u.total_logins or 0 }}</td>
+          <td>{{ u.total_sessions or 0 }}</td>
+          <td>{{ u.last_login.strftime('%d %b %Y, %H:%M') if u.last_login else 'Never' }}</td>
+          <td>{{ u.avg_session_min or '—' }}</td>
+        </tr>
+        {% endfor %}
+        {% if not user_summary %}
+        <tr><td colspan="6" class="text-muted text-center">No user data yet</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+  <!-- Login History -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Login History</h2>
+    </div>
+    <div class="table-responsive" style="max-height:400px;overflow-y:auto">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Time</th>
+            <th>Method</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in login_history %}
+          <tr>
+            <td>{{ l.username }}</td>
+            <td>{{ l.login_at.strftime('%d %b, %H:%M') if l.login_at else '—' }}</td>
+            <td><code>{{ l.login_method }}</code></td>
+            <td>
+              {% if l.success %}
+                <span class="badge badge-green">OK</span>
+              {% else %}
+                <span class="badge badge-red" title="{{ l.failure_reason }}">Failed</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not login_history %}
+          <tr><td colspan="4" class="text-muted text-center">No login events</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Signup History -->
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Signup History</h2>
+    </div>
+    <div class="table-responsive" style="max-height:400px;overflow-y:auto">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Time</th>
+            <th>Method</th>
+            <th>Provider</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in signup_history %}
+          <tr>
+            <td>{{ s.username }}</td>
+            <td>{{ s.signup_at.strftime('%d %b, %H:%M') if s.signup_at else '—' }}</td>
+            <td><code>{{ s.signup_method }}</code></td>
+            <td>{{ s.signup_method or '—' }}</td>
+          </tr>
+          {% endfor %}
+          {% if not signup_history %}
+          <tr><td colspan="4" class="text-muted text-center">No signup events</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<!-- ETL Status -->
+<section class="card" style="margin-top:1.5rem">
+  <div class="card-header">
+    <h2 class="card-title">Warehouse ETL Status</h2>
+  </div>
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>State Key</th>
+          <th>Value</th>
+          <th>Last Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for key, val in etl_status.items() %}
+        <tr>
+          <td><code>{{ key }}</code></td>
+          <td>{{ val.value }}</td>
+          <td>{{ val.updated_at.strftime('%d %b %Y, %H:%M') if val.updated_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+        {% if not etl_status %}
+        <tr><td colspan="3" class="text-muted text-center">No ETL state recorded</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Daily Login Chart -->
+<section class="card" style="margin-top:1.5rem">
+  <div class="card-header">
+    <h2 class="card-title">Daily Logins (30 days)</h2>
+  </div>
+  <div style="padding:1rem">
+    <canvas id="dailyLoginsChart" height="200"></canvas>
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function() {
+  const data = {{ daily_logins | tojson }};
+  if (!data.length) return;
+
+  const labels = data.map(d => {
+    const dt = new Date(d.day);
+    return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  });
+
+  new Chart(document.getElementById('dailyLoginsChart'), {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Successful',
+          data: data.map(d => parseInt(d.successful_logins) || 0),
+          backgroundColor: 'rgba(16,185,129,0.7)',
+          borderRadius: 4
+        },
+        {
+          label: 'Failed',
+          data: data.map(d => parseInt(d.failed_logins) || 0),
+          backgroundColor: 'rgba(239,68,68,0.7)',
+          borderRadius: 4
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true, beginAtZero: true }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}

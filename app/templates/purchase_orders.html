@@ -1,10 +1,9 @@
 {% extends "base.html" %}
 {% set active_page = "orders" %}
 {% block title %}Purchase Orders{% endblock %}
-{% block breadcrumb %}Purchase orders{% endblock %}
 {% block content %}
 <section>
-  <div class="page-heading"><div><div class="eyebrow">Procurement</div><h1>Purchase orders</h1></div></div>
+  <div class="page-heading"><div><div class="eyebrow">Procurement</div><h1>Purchase Orders</h1></div></div>
 
   {% if current_user.role in ['admin', 'manager'] %}
   <article class="panel" style="margin-bottom: 24px;">
@@ -44,16 +43,18 @@
 
   <div class="kanban-grid">
     {% for label, status in [('Draft','draft'),('Approved','approved'),('In transit','in_transit'),('Received','received')] %}
-    <article class="kanban-column">
-      <header><h3>{{ label }}</h3><span class="count">{{ counts.get(status, 0) }}</span></header>
+    <article class="kanban-column status-{{ status }}">
       <div class="kanban-list">
-        {% for po in (draft if status == 'draft' else approved if status == 'approved' else in_transit if status == 'in_transit' else received) %}
+        {% set po_list = draft if status == 'draft' else approved if status == 'approved' else in_transit if status == 'in_transit' else received %}
+        {% for po in po_list %}
         <div class="kanban-card">
           <div class="kanban-title">{{ po.po_number }}</div>
           <div class="kanban-meta">{{ po.product_name or po.sku or '' }}</div>
           <div class="kanban-meta">{{ po.supplier_name or 'No supplier' }}</div>
           <div class="kanban-meta">Qty {{ po.quantity }} &middot; ₹ {{ '{:,.2f}'.format(po.unit_cost or 0) if po.unit_cost else '0.00' }}</div>
-          <div class="kanban-meta">ETA {{ po.eta_date }}</div>
+          {% if po.eta_date %}
+          <div class="kanban-meta">ETA {{ po.eta_date.strftime('%d %b %Y') }}</div>
+          {% endif %}
           {% if current_user.role in ['admin', 'manager'] %}
           <form method="post" action="{{ url_for('ui.update_po_status', po_id=po.id) }}" class="po-status-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
@@ -66,6 +67,9 @@
           {% endif %}
         </div>
         {% endfor %}
+        {% if not po_list %}
+        <div class="kanban-empty">No {{ label|lower }} orders</div>
+        {% endif %}
       </div>
     </article>
     {% endfor %}
