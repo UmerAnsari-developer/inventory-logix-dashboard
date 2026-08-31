@@ -7,6 +7,9 @@ const dimEl  = document.getElementById('dim');
 const root   = document.documentElement;
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const isLanding = !!document.getElementById('hero');
+const isMobile = innerWidth < 768;
+// On non-landing app pages, disable Three.js entirely on mobile
+const isNonLanding = !isLanding && !!document.querySelector('.app-shell');
 
 // ============================================================
 // THEME CONFIGURATION
@@ -88,7 +91,14 @@ function sampleLuminance(renderer) {
   } catch { return null; }
 }
 
-if (!canvas) {
+// Mobile: disable Three.js on non-landing pages
+if (isNonLanding && isMobile) {
+  canvas.style.display = 'none';
+  dimEl.style.opacity = '0';
+  root.style.setProperty('--ink', '238 242 251');
+  root.style.setProperty('--scrim-o', '0');
+  document.body.classList.add('ink-dark');
+} else if (!canvas) {
   console.warn('Three.js background: canvas#scene not found');
 } else {
   let sceneOK = false;
@@ -111,10 +121,9 @@ if (!canvas) {
     const theme = getTheme();
     
     renderer = new THREE.WebGLRenderer({
-      canvas, antialias: true, powerPreference: 'high-performance',
-      preserveDrawingBuffer: true
+      canvas, antialias: !isMobile, powerPreference: isMobile ? 'default' : 'high-performance'
     });
-    const dpr = () => Math.min(devicePixelRatio, innerWidth < 768 ? 1.5 : 2);
+    const dpr = () => Math.min(devicePixelRatio, isMobile ? 1 : innerWidth < 768 ? 1.5 : 2);
     renderer.setPixelRatio(dpr());
     renderer.setSize(innerWidth, innerHeight);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -167,7 +176,7 @@ if (!canvas) {
           gl_FragColor = vec4(col, uOp * vFade * edge);
         }`
     });
-    const waveGeo = new THREE.PlaneGeometry(64, 60, innerWidth < 768 ? 72 : 110, innerWidth < 768 ? 72 : 110);
+    const waveGeo = new THREE.PlaneGeometry(64, 60, isMobile ? 36 : innerWidth < 768 ? 72 : 110, isMobile ? 36 : innerWidth < 768 ? 72 : 110);
     waves = new THREE.Mesh(waveGeo, waveMat);
     waves.rotation.x = -Math.PI / 2;
     waves.position.set(0, -2.6, -6);
@@ -184,7 +193,7 @@ if (!canvas) {
       return new THREE.CanvasTexture(c);
     })();
 
-    const CN = innerWidth < 768 ? 44 : 64;
+    const CN = isMobile ? 20 : innerWidth < 768 ? 44 : 64;
     const nodes = [];
     for (let i = 0; i < CN; i++) {
       nodes.push({
@@ -204,7 +213,7 @@ if (!canvas) {
     }));
     scene.add(net);
 
-    const MAXSEG = 200;
+    const MAXSEG = isMobile ? 60 : 200;
     const lPos = new Float32Array(MAXSEG * 6);
     const lGeo = new THREE.BufferGeometry();
     lGeo.setAttribute('position', new THREE.BufferAttribute(lPos, 3));
@@ -240,7 +249,7 @@ if (!canvas) {
     horizon.position.set(0, -1.6, -14);
     scene.add(horizon);
 
-    const DN = innerWidth < 768 ? 260 : 420;
+    const DN = isMobile ? 80 : innerWidth < 768 ? 260 : 420;
     const dPos = new Float32Array(DN * 3), dSpd = new Float32Array(DN);
     for (let i = 0; i < DN; i++) {
       dPos[i*3] = (Math.random() - .5) * 26;
@@ -263,15 +272,18 @@ if (!canvas) {
     }, { passive: true });
     addEventListener('scroll', () => scY = scrollY, { passive: true });
 
-    setInterval(() => { 
-      if (sceneOK) {
-        const sampled = sampleLuminance(renderer);
-        if (sampled !== null) {
-          lum += (sampled - lum) * .12;
-          applyInk(lum, scrim);
+    // Disable luminance sampling on mobile (expensive canvas readback)
+    if (!isMobile) {
+      setInterval(() => { 
+        if (sceneOK) {
+          const sampled = sampleLuminance(renderer);
+          if (sampled !== null) {
+            lum += (sampled - lum) * .12;
+            applyInk(lum, scrim);
+          }
         }
-      }
-    }, 400);
+      }, 400);
+    }
 
     const clock = new THREE.Clock();
     function frame() {

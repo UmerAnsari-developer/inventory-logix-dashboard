@@ -3774,6 +3774,36 @@ th:has(+ th.number) {
   }
 }
 
+/* ── Mobile Performance Overrides ──────────────────────────────── */
+@media (max-width: 768px) {
+  /* Disable expensive backdrop-filter blur on mobile */
+  .glass, .panel, .metric-card, .topbar, .report-filters,
+  .kpi-group, .filter-bar, .kanban-card, .supplier-card,
+  .warehouse-card-detail, .user-dropdown, .nav-drop-menu,
+  .search-global, .ai-banner, .toast {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  /* Remove 3D transforms that cause compositing overhead */
+  .metric-card, .panel, .kanban-card, .supplier-card,
+  .warehouse-card-detail, .btn {
+    transform-style: flat !important;
+    perspective: none !important;
+  }
+
+  /* Disable will-change on mobile */
+  .panel, .metric-card {
+    will-change: auto !important;
+  }
+
+  /* Simplify hover effects */
+  .metric-card:hover, .panel:hover, .kanban-card:hover,
+  .supplier-card:hover, .warehouse-card-detail:hover {
+    transform: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   *,
