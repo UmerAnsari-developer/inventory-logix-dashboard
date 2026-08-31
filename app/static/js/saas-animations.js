@@ -9,6 +9,17 @@
   var mq = window.matchMedia("(prefers-reduced-motion: reduce)");
   if (mq && mq.matches) return;
 
+  /* ── Bail on mobile — keep it light ──────────────────────────── */
+  var isMobile = window.innerWidth < 768;
+  if (isMobile) {
+    /* Just show everything without animation */
+    document.querySelectorAll('.metric-card, .panel, .kanban-card, .supplier-card, .warehouse-card-detail, .report-tab, .filter-bar, .page-heading, .chart-wrap, .report-chart, .ai-forecast-chart, .warehouse-chart-wrap').forEach(function(el) {
+      el.style.opacity = '1';
+      el.style.transform = 'none';
+    });
+    return;
+  }
+
   /* ── Wait for GSAP ────────────────────────────────────────────── */
   function whenReady(fn) {
     if (typeof gsap !== "undefined" && typeof ScrollTrigger !== "undefined") {

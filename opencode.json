@@ -1,0 +1,93 @@
+{
+  "$schema": "https://opencode.ai/schema.json",
+  "name": "inventory-logistics-dashboard",
+  "version": "1.0.0",
+  "providers": {
+    "nvidia": {
+      "apiKey": "${NVIDIA_API_KEY}",
+      "baseUrl": "https://integrate.api.nvidia.com/v1"
+    }
+  },
+  "agents": {
+    "default": "orchestrator",
+    "definitions": {
+      "orchestrator": {
+        "path": ".opencode/agents/orchestrator.md"
+      },
+      "planner": {
+        "path": ".opencode/agents/planner.md"
+      },
+      "frontend-lead": {
+        "path": ".opencode/agents/frontend-lead.md"
+      },
+      "backend-lead": {
+        "path": ".opencode/agents/backend-lead.md"
+      },
+      "reviewer": {
+        "path": ".opencode/agents/reviewer.md"
+      },
+      "tester": {
+        "path": ".opencode/agents/tester.md"
+      },
+      "documentarian": {
+        "path": ".opencode/agents/documentarian.md"
+      },
+      "devops": {
+        "path": ".opencode/agents/devops.md"
+      },
+      "researcher": {
+        "path": ".opencode/agents/researcher.md"
+      }
+    }
+  },
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    }
+  },
+  "skills": [
+    ".opencode/skills/**",
+    ".agents/skills/**"
+  ],
+  "plugins": {
+    "ponytail": {
+      "enabled": true,
+      "level": "full"
+    },
+    "impeccable": {
+      "enabled": true
+    },
+    "gsap": {
+      "enabled": true
+    }
+  },
+  "settings": {
+    "theme": "dark",
+    "editor": {
+      "formatOnSave": true,
+      "lintOnSave": true
+    },
+    "permissions": {
+      "default": "ask"
+    }
+  }
+}

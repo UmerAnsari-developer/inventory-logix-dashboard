@@ -1557,6 +1557,16 @@ html[data-theme="light"] .icon-moon {
   border-radius: 8px;
 }
 
+/* ── Mobile Performance: disable blur on landing ──────────────── */
+@media (max-width: 768px) {
+  .glass, .stat-card, .step-card, .feature-card,
+  .hero-badge, .hero-cta, .nav-float, footer,
+  .auth-card, .auth-theme-toggle {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: .01ms !important;
