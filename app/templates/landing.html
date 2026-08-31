@@ -40,6 +40,10 @@
         <a href="#preview">Dashboard</a>
         <a href="#metrics">Results</a>
         <a href="#workflow">Workflow</a>
+        <div class="nav-mobile-cta">
+          <a class="btn btn-ghost sm" href="{{ url_for('auth.login') }}">Log in</a>
+          <a class="btn btn-primary sm" href="{{ url_for('auth.register') }}">Sign up</a>
+        </div>
       </nav>
       <div class="nav-cta" style="margin-left:auto">
         <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" type="button">
@@ -393,7 +397,7 @@
       addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 24), { passive: true });
 
       $('#menuBtn').addEventListener('click', () => nav.classList.toggle('open'));
-      $$('#navLinks a').forEach(a => a.addEventListener('click', () => nav.classList.remove('open')));
+      $$('#navLinks a, #navLinks .btn').forEach(a => a.addEventListener('click', () => nav.classList.remove('open')));
 
       requestAnimationFrame(() => $$('[data-anim]').forEach((el, i) => {
         el.style.transitionDelay = (i * 90) + 'ms';

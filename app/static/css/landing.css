@@ -458,6 +458,11 @@ header.scrolled .nav-inner {
     box-shadow: var(--shadow-lg)
   }
 
+  /* Show nav dropdown when burger is clicked */
+  header.open .nav-links {
+    display: flex
+  }
+
   .nav-links a {
     padding: 13px 16px;
     color: var(--text-primary)
@@ -467,8 +472,26 @@ header.scrolled .nav-inner {
     display: flex
   }
 
-  .nav-cta .btn-ghost {
+  .nav-cta {
     display: none
+  }
+
+  /* Show CTA buttons inside the dropdown on mobile */
+  header.open .nav-cta-mobile {
+    display: flex
+  }
+
+  .nav-mobile-cta {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px 4px;
+    border-top: 1px solid var(--border);
+    margin-top: 8px
+  }
+
+  .nav-mobile-cta .btn {
+    flex: 1;
+    text-align: center
   }
 }
 
