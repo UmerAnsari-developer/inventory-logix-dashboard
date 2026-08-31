@@ -403,6 +403,10 @@ header.scrolled .nav-inner {
   margin-left: auto
 }
 
+.nav-mobile-cta {
+  display: none
+}
+
 .nav-links a {
   font: 500 14px var(--font-b);
   color: var(--text-secondary);
@@ -472,13 +476,12 @@ header.scrolled .nav-inner {
     display: flex
   }
 
-  .nav-cta {
+  .nav-cta .btn {
     display: none
   }
 
-  /* Show CTA buttons inside the dropdown on mobile */
-  header.open .nav-cta-mobile {
-    display: flex
+  .nav-cta {
+    margin-left: 0 !important
   }
 
   .nav-mobile-cta {
