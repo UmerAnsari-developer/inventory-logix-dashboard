@@ -1,6 +1,8 @@
 /* Dashboard 3D animations — panels, charts, tables */
 (function () {
   if (document.body.classList.contains('landing')) return;
+  /* Skip 3D effects on mobile — no hover, saves GPU */
+  if (window.innerWidth < 768 || matchMedia('(hover: none)').matches) return;
 
   /* ── 3D Panel Tilt on Hover ──────────────────────────────────── */
   document.querySelectorAll('.panel').forEach(function (panel) {
