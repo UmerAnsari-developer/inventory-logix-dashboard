@@ -49,3 +49,8 @@ SESSION_SUMMARY.md
 
 # Data
 datasets/
+
+# Generated artifacts (one-off, not needed in repo)
+graphify-out/
+project_report.pdf
+generate_report.py

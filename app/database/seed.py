@@ -438,7 +438,16 @@ def run_seed(force: bool = False) -> None:
 
             cur.execute("SELECT COUNT(*) AS c FROM movements")
             if force or (cur.fetchone() or {}).get("c", 0) == 0:
-                _generate_movements(cur)
+                # The movement generator tracks stock in Python and writes the
+                # final balance AFTER the bulk insert, so the per-row
+                # trg_validate_movement trigger (which reads the stale
+                # products.current_stock mid-stream) would reject legitimate
+                # OUT rows. Suspend it for the ledger insert, re-enable after.
+                cur.execute("ALTER TABLE movements DISABLE TRIGGER trg_validate_movement")
+                try:
+                    _generate_movements(cur)
+                finally:
+                    cur.execute("ALTER TABLE movements ENABLE TRIGGER trg_validate_movement")
             else:
                 LOGGER.info("Seed skipped: movements table already populated.")
 
