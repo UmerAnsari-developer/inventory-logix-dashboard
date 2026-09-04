@@ -10,10 +10,7 @@ import io
 import json
 import logging
 import threading
-import time
-from collections import OrderedDict
 from datetime import date, timedelta
-from functools import lru_cache
 
 from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -31,75 +28,24 @@ from ..repositories import (
 )
 from ..services import MovementService, ProductService, SettingsService, SupplierService
 from ..utils import format_money_display
+from ..utils.cache import (
+    api_cache,
+    dashboard_cache,
+    global_cache,
+    landing_cache,
+    make_key,
+    monitoring_cache,
+    products_cache,
+    reports_cache,
+    suppliers_cache,
+    cache_bust_products,
+    cache_bust_suppliers,
+    cache_bust_movements,
+    cache_bust_purchase_orders,
+    cache_bust_settings,
+)
 
 LOGGER = logging.getLogger(__name__)
-
-_MAX_CACHE_ENTRIES = 20
-
-# Simple in-memory cache for reports data (TTL-based)
-_reports_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
-_REPORTS_CACHE_TTL = 300  # seconds (5 minutes)
-
-# Simple in-memory cache for dashboard data (TTL-based)
-_dashboard_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
-_DASHBOARD_CACHE_TTL = 60  # seconds
-
-# Simple in-memory cache for global/shared data (TTL-based)
-_global_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
-_GLOBAL_CACHE_TTL = 60  # seconds
-
-
-def _cache_get(key: str):
-    """Get cached value if not expired."""
-    entry = _reports_cache.get(key)
-    if entry and (time.time() - entry[0]) < _REPORTS_CACHE_TTL:
-        _reports_cache.move_to_end(key)
-        return entry[1]
-    return None
-
-
-def _cache_set(key: str, value: dict):
-    _reports_cache[key] = (time.time(), value)
-    _reports_cache.move_to_end(key)
-    while len(_reports_cache) > _MAX_CACHE_ENTRIES:
-        _reports_cache.popitem(last=False)
-
-
-def _dashboard_cache_get(key: str):
-    """Get cached dashboard value if not expired."""
-    entry = _dashboard_cache.get(key)
-    if entry and (time.time() - entry[0]) < _DASHBOARD_CACHE_TTL:
-        _dashboard_cache.move_to_end(key)
-        return entry[1]
-    return None
-
-
-def _dashboard_cache_set(key: str, value: dict):
-    _dashboard_cache[key] = (time.time(), value)
-    _dashboard_cache.move_to_end(key)
-    while len(_dashboard_cache) > _MAX_CACHE_ENTRIES:
-        _dashboard_cache.popitem(last=False)
-
-
-def _global_cache_get(key: str):
-    """Get cached global value if not expired."""
-    entry = _global_cache.get(key)
-    if entry and (time.time() - entry[0]) < _GLOBAL_CACHE_TTL:
-        _global_cache.move_to_end(key)
-        return entry[1]
-    return None
-
-
-def _global_cache_set(key: str, value):
-    _global_cache[key] = (time.time(), value)
-    _global_cache.move_to_end(key)
-    while len(_global_cache) > _MAX_CACHE_ENTRIES:
-        _global_cache.popitem(last=False)
-
-
-def _make_cache_key(**kwargs) -> str:
-    """Create a cache key from filter parameters."""
-    return "|".join(f"{k}={v}" for k, v in sorted(kwargs.items()) if v)
 
 
 ui_bp = Blueprint("ui", __name__)
@@ -109,22 +55,19 @@ ui_bp = Blueprint("ui", __name__)
 def inject_user():
     reorder_count = 0
     if current_user.is_authenticated:
-        cached = _global_cache_get("reorder_count")
-        if cached is not None:
-            reorder_count = cached
-        else:
-            try:
-                with get_cursor() as cur:
-                    cur.execute(
-                        "SELECT COUNT(*) AS c FROM products WHERE current_stock <= reorder_point AND on_order <= 0"
-                    )
-                    reorder_count = int(cur.fetchone()["c"] or 0)
-                _global_cache_set("reorder_count", reorder_count)
-            except Exception:
-                pass
+        def _count():
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS c FROM products WHERE current_stock <= reorder_point AND on_order <= 0"
+                )
+                return int(cur.fetchone()["c"] or 0)
+        try:
+            reorder_count = global_cache.get_or_set("reorder_count", _count)
+        except Exception:
+            pass
     return {
         "current_user": current_user,
-        "reorder_count": reorder_count,
+        "reorder_count": reorder_count or 0,
     }
 
 
@@ -139,7 +82,7 @@ def dashboard():
 
     # Dashboard cache key - per user + date (resets daily)
     dash_key = f"dashboard:{current_user.id}:{today.isoformat()}"
-    cached = _dashboard_cache_get(dash_key)
+    cached = dashboard_cache.get(dash_key)
     if cached:
         return render_template("dashboard.html", **cached)
 
@@ -391,7 +334,7 @@ def dashboard():
         "today": today,
         "format_money": format_money_display,
     }
-    _dashboard_cache_set(dash_key, template_context)
+    dashboard_cache.set(dash_key, template_context)
 
     return render_template("dashboard.html", **template_context)
 
@@ -407,15 +350,25 @@ def inventory():
         "page": max(1, int(request.args.get("page", 1))),
         "per_page": 20,
     }
-    data = ProductService.list_products(**query)
-    categories = ProductRepository.categories()
-    warehouses = ProductRepository.warehouses()
+    cache_key = make_key(view="inventory", **query)
+
+    def _load():
+        d = ProductService.list_products(**query)
+        # Render-serializable snapshot: rows are plain dicts from RealDictCursor
+        return {
+            "products": d["rows"],
+            "pagination": d["pagination"],
+            "categories": ProductRepository.categories(),
+            "warehouses": ProductRepository.warehouses(),
+        }
+
+    cached = products_cache.get_or_set(cache_key, _load)
     return render_template(
         "inventory.html",
-        products=data["rows"],
-        pagination=data["pagination"],
-        categories=categories,
-        warehouses=warehouses,
+        products=cached["products"],
+        pagination=cached["pagination"],
+        categories=cached["categories"],
+        warehouses=cached["warehouses"],
         query=query,
         format_money=format_money_display,
     )
@@ -471,6 +424,7 @@ def product_form(product_id: int | None = None):
             else:
                 new_id = ProductService.create(payload)
                 flash(f"Product created with ID {new_id}", "success")
+            cache_bust_products()
         except Exception as exc:
             flash(str(exc), "error")
             return render_template(
@@ -492,6 +446,7 @@ def delete_product(product_id: int):
     ProductService.delete(product_id)
     AuditRepository.record(current_user.id, "product.delete",
                            target_type="product", target_id=product_id)
+    cache_bust_products()
     flash("Product deleted", "success")
     return redirect(url_for("ui.inventory"))
 
@@ -511,12 +466,14 @@ def product_detail(product_id: int):
 @ui_bp.route("/reorder-alerts")
 @login_required
 def reorder_alerts():
-    alerts = ProductRepository.low_stock()
-    critical_count = sum(1 for a in alerts if a.get("status") == "critical")
+    def _load():
+        alerts = ProductRepository.low_stock()
+        return {"alerts": alerts, "critical_count": sum(1 for a in alerts if a.get("status") == "critical")}
+    cached = products_cache.get_or_set("reorder_alerts", _load)
     return render_template(
         "reorder_alerts.html",
-        alerts=alerts,
-        critical_count=critical_count,
+        alerts=cached["alerts"],
+        critical_count=cached["critical_count"],
         auto_reorder=SettingsService.is_on("auto_reorder"),
     )
 
@@ -561,6 +518,7 @@ def auto_draft_pos():
                                target_type="product", target_id=product["id"],
                                detail={"quantity": qty, "po_number": po_number})
         created += 1
+    cache_bust_purchase_orders()
     flash(f"Auto-reorder drafted {created} purchase order(s) for critical stock", "success")
     return redirect(url_for("ui.reorder_alerts"))
 
@@ -581,6 +539,7 @@ def mark_ordered(product_id: int):
     AuditRepository.record(current_user.id, "po.create",
                            target_type="product", target_id=product_id,
                            detail={"quantity": qty})
+    cache_bust_purchase_orders()
     flash(f"PO recorded for {product['sku']}: {qty} units on order", "success")
     return redirect(url_for("ui.reorder_alerts"))
 
@@ -608,6 +567,7 @@ def movement_form():
                 user_id=current_user.id,
             )
             flash("Movement saved.", "success")
+            cache_bust_movements()
             return redirect(url_for("ui.inventory"))
         except Exception as exc:
             flash(str(exc), "error")
@@ -630,10 +590,11 @@ def suppliers():
                 "tone": request.form.get("tone", "amber"),
             })
             flash("Supplier added", "success")
+            cache_bust_suppliers()
         except Exception as exc:
             flash(str(exc), "error")
         return redirect(url_for("ui.suppliers"))
-    rows = SupplierRepository.list_all()
+    rows = suppliers_cache.get_or_set("list_all", SupplierRepository.list_all)
     return render_template("suppliers.html", suppliers=rows)
 
 
@@ -642,6 +603,7 @@ def suppliers():
 @write_roles_required
 def delete_supplier(supplier_id: int):
     SupplierService.delete(supplier_id)
+    cache_bust_suppliers()
     flash("Supplier removed", "success")
     return redirect(url_for("ui.suppliers"))
 
@@ -670,25 +632,36 @@ def purchase_orders():
             flash("PO quantity must be greater than zero", "warning")
             return redirect(url_for("ui.purchase_orders"))
         PurchaseOrderRepository.create(payload)
+        cache_bust_purchase_orders()
         flash("Purchase order %s created" % po_number, "success")
         return redirect(url_for("ui.purchase_orders"))
 
-    with get_cursor() as cur:
-        cur.execute("SELECT id, name FROM suppliers ORDER BY name")
-        suppliers = list(cur.fetchall())
-        cur.execute("SELECT id, sku, name FROM products ORDER BY sku")
-        products = list(cur.fetchall())
+    def _load_board():
+        with get_cursor() as cur:
+            cur.execute("SELECT id, name FROM suppliers ORDER BY name")
+            sup = list(cur.fetchall())
+            cur.execute("SELECT id, sku, name FROM products ORDER BY sku")
+            prods = list(cur.fetchall())
+        return {
+            "counts": PurchaseOrderRepository.counts_by_status(),
+            "suppliers": sup,
+            "products": prods,
+            "draft": PurchaseOrderRepository.list_by_status("draft"),
+            "approved": PurchaseOrderRepository.list_by_status("approved"),
+            "in_transit": PurchaseOrderRepository.list_by_status("in_transit"),
+            "received": PurchaseOrderRepository.list_by_status("received"),
+        }
 
-    counts = PurchaseOrderRepository.counts_by_status()
+    board = api_cache.get_or_set("po_board", _load_board)
     return render_template("purchase_orders.html",
-                           counts=counts,
-                           suppliers=suppliers,
-                           products=products,
+                           counts=board["counts"],
+                           suppliers=board["suppliers"],
+                           products=board["products"],
                            today=date.today(),
-                           draft=PurchaseOrderRepository.list_by_status("draft"),
-                           approved=PurchaseOrderRepository.list_by_status("approved"),
-                           in_transit=PurchaseOrderRepository.list_by_status("in_transit"),
-                           received=PurchaseOrderRepository.list_by_status("received"))
+                           draft=board["draft"],
+                           approved=board["approved"],
+                           in_transit=board["in_transit"],
+                           received=board["received"])
 
 
 @ui_bp.route("/purchase-orders/<int:po_id>/status", methods=["POST"])
@@ -698,6 +671,7 @@ def update_po_status(po_id: int):
     status = request.form.get("status")
     if status in ("draft", "approved", "in_transit", "received", "cancelled"):
         PurchaseOrderRepository.update_status(po_id, status)
+        cache_bust_purchase_orders()
         flash("Purchase order status updated to " + status, "success")
     return redirect(url_for("ui.purchase_orders"))
 
@@ -709,31 +683,34 @@ def warehouses():
 
     Falls back to the operational tables if the ETL hasn't run yet.
     """
-    rows = WarehouseRepository.analytics()
-    if rows is None:
-        rows = _warehouses_legacy()
-    active_warehouse = rows[0]["warehouse"] if rows else None
+    def _load():
+        rows = WarehouseRepository.analytics()
+        if rows is None:
+            rows = _warehouses_legacy()
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT warehouse,
+                       COUNT(*) AS sku_count,
+                       COALESCE(SUM(current_stock), 0) AS total_units,
+                       COALESCE(AVG(unit_price), 0) AS avg_price,
+                       COALESCE(SUM(current_stock * unit_price), 0) AS total_value
+                FROM products
+                WHERE warehouse IS NOT NULL
+                GROUP BY warehouse
+                ORDER BY total_units DESC
+                """
+            )
+            return {"rows": rows, "chart_data": list(cur.fetchall())}
 
-    with get_cursor() as cur:
-        cur.execute(
-            """
-            SELECT warehouse,
-                   COUNT(*) AS sku_count,
-                   COALESCE(SUM(current_stock), 0) AS total_units,
-                   COALESCE(AVG(unit_price), 0) AS avg_price,
-                   COALESCE(SUM(current_stock * unit_price), 0) AS total_value
-            FROM products
-            WHERE warehouse IS NOT NULL
-            GROUP BY warehouse
-            ORDER BY total_units DESC
-            """
-        )
-        chart_data = list(cur.fetchall())
+    cached = products_cache.get_or_set("warehouses_page", _load)
+    rows = cached["rows"]
+    active_warehouse = rows[0]["warehouse"] if rows else None
 
     return render_template("warehouses.html", warehouses=rows,
                            format_money=format_money_display,
                            active_warehouse=active_warehouse,
-                           chart_data=chart_data)
+                           chart_data=cached["chart_data"])
 
 
 def _warehouses_legacy():
@@ -861,13 +838,13 @@ def reports():
     movement_where = ("WHERE " + " AND ".join(movement_conditions)) if movement_conditions else "WHERE 1=1"
 
     # --- Cache key for reports data ---
-    cache_key = _make_cache_key(
+    cache_key = make_key(
         date_from=date_from or "",
         date_to=date_to or "",
         warehouses=",".join(selected_warehouses) if selected_warehouses else "",
         categories=",".join(selected_categories) if selected_categories else "",
     )
-    cached = _cache_get(cache_key)
+    cached = reports_cache.get(cache_key)
     if cached:
         # Unpack cached data and render
         return render_template(
@@ -1908,7 +1885,7 @@ def reports():
         "supplier_lead_times": supplier_lead_times,
         "warehouse_stock_status": warehouse_stock_status,
     }
-    _cache_set(cache_key, template_context)
+    reports_cache.set(cache_key, template_context)
 
     return render_template("reports.html", **template_context)
 
@@ -1953,45 +1930,46 @@ def monitoring():
     """Session & login monitoring dashboard."""
     from ..database import get_cursor
 
-    active_sessions = []
-    login_history = []
-    signup_history = []
-    user_summary = []
-    daily_logins = []
-    etl_status = {}
+    def _load():
+        active_sessions = []
+        login_history = []
+        signup_history = []
+        user_summary = []
+        daily_logins = []
+        etl_status = {}
+        try:
+            with get_cursor() as cur:
+                cur.execute("SELECT * FROM sp_monitor_active_sessions()")
+                active_sessions = list(cur.fetchall())
 
-    try:
-        with get_cursor() as cur:
-            cur.execute("SELECT * FROM sp_monitor_active_sessions()")
-            active_sessions = list(cur.fetchall())
+                cur.execute("SELECT * FROM sp_monitor_login_history(30)")
+                login_history = list(cur.fetchall())
 
-            cur.execute("SELECT * FROM sp_monitor_login_history(30)")
-            login_history = list(cur.fetchall())
+                cur.execute("SELECT * FROM sp_monitor_signup_history(30)")
+                signup_history = list(cur.fetchall())
 
-            cur.execute("SELECT * FROM sp_monitor_signup_history(30)")
-            signup_history = list(cur.fetchall())
+                cur.execute("SELECT * FROM sp_monitor_user_activity_summary()")
+                user_summary = list(cur.fetchall())
 
-            cur.execute("SELECT * FROM sp_monitor_user_activity_summary()")
-            user_summary = list(cur.fetchall())
+                cur.execute("SELECT * FROM sp_monitor_daily_logins(30)")
+                daily_logins = list(cur.fetchall())
 
-            cur.execute("SELECT * FROM sp_monitor_daily_logins(30)")
-            daily_logins = list(cur.fetchall())
+                cur.execute("SELECT state_key, value, updated_at FROM etl_warehouse_state ORDER BY updated_at DESC")
+                etl_status = {row["state_key"]: {"value": row["value"], "updated_at": row["updated_at"]}
+                              for row in cur.fetchall()}
+        except Exception:
+            pass
+        return {
+            "active_sessions": active_sessions,
+            "login_history": login_history,
+            "signup_history": signup_history,
+            "user_summary": user_summary,
+            "daily_logins": daily_logins,
+            "etl_status": etl_status,
+        }
 
-            cur.execute("SELECT state_key, value, updated_at FROM etl_warehouse_state ORDER BY updated_at DESC")
-            etl_status = {row["state_key"]: {"value": row["value"], "updated_at": row["updated_at"]}
-                          for row in cur.fetchall()}
-    except Exception:
-        pass
-
-    return render_template(
-        "monitoring.html",
-        active_sessions=active_sessions,
-        login_history=login_history,
-        signup_history=signup_history,
-        user_summary=user_summary,
-        daily_logins=daily_logins,
-        etl_status=etl_status,
-    )
+    cached = monitoring_cache.get_or_set("monitoring", _load)
+    return render_template("monitoring.html", **cached)
 
 
 @ui_bp.route("/monitoring/run-etl", methods=["POST"])
@@ -2006,6 +1984,7 @@ def monitoring_run_etl():
         except Exception as e:
             LOGGER.warning("Background ETL failed: %s", e)
     threading.Thread(target=_run, daemon=True).start()
+    monitoring_cache.invalidate("")  # bust so the page shows fresh ETL state
     flash("ETL rebuild started in background", "success")
     return redirect(url_for("ui.monitoring"))
 

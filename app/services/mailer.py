@@ -145,7 +145,7 @@ class Mailer:
     @staticmethod
     def _html_body(username: str, reset_link: str) -> str:
         """Render the HTML email body with the embedded logo CID reference."""
-        ttl = current_app.config.get("PASSWORD_RESET_TTL_MINUTES", 30)
+        ttl = current_app.config.get("PASSWORD_RESET_TTL_MINUTES", 5)
         return f"""\
         <html>
         <body style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 1rem;">

@@ -48,7 +48,7 @@ class Config:
     SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
     MAIL_FROM = os.environ.get("MAIL_FROM", "no-reply@inventorylogix.local")
     MAIL_USE_TLS = _bool(os.environ.get("MAIL_USE_TLS"), True)
-    PASSWORD_RESET_TTL_MINUTES = int(os.environ.get("PASSWORD_RESET_TTL_MINUTES", "30"))
+    PASSWORD_RESET_TTL_MINUTES = int(os.environ.get("PASSWORD_RESET_TTL_MINUTES", "5"))
 
     # SendGrid API (HTTPS) — works on platforms that block outbound SMTP (e.g. Render free tier)
     SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
