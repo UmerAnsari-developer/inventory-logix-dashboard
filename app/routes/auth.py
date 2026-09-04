@@ -87,7 +87,33 @@ def forgot_password():
 def reset_password(token: str):
     if current_user.is_authenticated:
         return redirect(_role_home(current_user.role))
+
+    # Validate the token on GET too: an expired or used link must never
+    # render the password-setup form (it would only fail on submit).
+    from ..services.auth_service import AuthError
+    from ..repositories import UserRepository
+    import hashlib
+    from datetime import datetime
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    row = UserRepository.find_valid_reset_token(token_hash)
+    token_state = "ok"
+    if not row or row.get("used"):
+        token_state = "invalid"
+    elif row["expires_at"] is None:
+        token_state = "invalid"
+    else:
+        exp = row["expires_at"]
+        now = datetime.utcnow()
+        if exp.tzinfo is not None:  # DB returned TIMESTAMPTZ despite schema
+            from datetime import timezone
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if exp <= now:
+            token_state = "expired"
+
     if request.method == "POST":
+        if token_state != "ok":
+            flash("This reset link is invalid or has expired. Please request a new one.", "error")
+            return redirect(url_for("auth.forgot_password"))
         new_password = request.form.get("password", "")
         confirm = request.form.get("confirm", "")
         if new_password != confirm:
@@ -104,6 +130,13 @@ def reset_password(token: str):
             ), 400
         flash("Password updated — please log in.", "success")
         return redirect(url_for("auth.login"))
+
+    if token_state == "expired":
+        flash("This reset link has expired (5-minute limit). Please request a new one.", "error")
+        return redirect(url_for("auth.forgot_password"))
+    if token_state == "invalid":
+        flash("This reset link is invalid or has already been used.", "error")
+        return redirect(url_for("auth.forgot_password"))
     return render_template("auth/reset_password.html", token=token)
 
 

@@ -405,7 +405,10 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     SELECT t.id, t.user_id, t.token_hash, t.expires_at, t.used
-    FROM password_reset_tokens t WHERE t.token_hash = p_token_hash;
+    FROM password_reset_tokens t
+    WHERE t.token_hash = p_token_hash
+      AND t.used = FALSE
+      AND t.expires_at > (NOW() AT TIME ZONE 'UTC');
 END;
 $$ LANGUAGE plpgsql;
 
