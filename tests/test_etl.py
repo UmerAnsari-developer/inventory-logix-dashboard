@@ -1,11 +1,11 @@
-"""ETL pipeline tests: full rebuild, incremental runs, and high-water marks."""
+﻿"""ETL pipeline tests: full rebuild, incremental runs, and high-water marks."""
 from __future__ import annotations
 
 import pytest
 
 
 def _etl_state(cur):
-    cur.execute("SELECT key, value FROM etl_state ORDER BY key")
+    cur.execute("SELECT state_key, value FROM etl_state ORDER BY state_key")
     return {r["key"]: r["value"] for r in cur.fetchall()}
 
 
@@ -41,7 +41,7 @@ def test_etl_incremental_processes_new_movements(app):
     with app.app_context():
         etl_database(force=True)
         with get_cursor() as cur:
-            cur.execute("SELECT value FROM etl_state WHERE key='last_movement_id'")
+            cur.execute("SELECT value FROM etl_state WHERE state_key='last_movement_id'")
             before = int(cur.fetchone()["value"])
 
         with get_cursor(commit=True) as cur:
@@ -60,7 +60,7 @@ def test_etl_incremental_processes_new_movements(app):
         assert result["skipped"] is False
 
         with get_cursor() as cur:
-            cur.execute("SELECT value FROM etl_state WHERE key='last_movement_id'")
+            cur.execute("SELECT value FROM etl_state WHERE state_key='last_movement_id'")
             after = int(cur.fetchone()["value"])
             assert after > before
             # The affected day's OUT qty for this sku must have grown.

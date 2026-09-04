@@ -257,3 +257,27 @@ CREATE TABLE IF NOT EXISTS etl_state (
     value           TEXT,
     updated_at      TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')
 );
+
+-- ─────────────────────────────────────────────────────────────────
+-- Row-Level Security: enable on every table with NO policies.
+-- Supabase exposes all tables via its auto-generated REST API
+-- (PostgREST); with RLS disabled, anyone holding the project URL
+-- can read/modify all data — including users.password_hash and
+-- password_reset_tokens. With RLS enabled and zero policies, the
+-- public API is deny-by-default for every role except table owners.
+-- The Flask app connects as the table owner (postgres), which
+-- bypasses RLS, so the application is unaffected.
+-- ─────────────────────────────────────────────────────────────────
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOR t IN
+        SELECT tablename FROM pg_tables
+        WHERE schemaname = 'public'
+          AND tablename NOT LIKE 'pg_%'
+          AND tablename NOT LIKE 'schema_%'
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+    END LOOP;
+END $$;

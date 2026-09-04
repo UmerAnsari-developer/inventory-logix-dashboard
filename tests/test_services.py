@@ -194,6 +194,10 @@ def _patch_movement(monkeypatch, current_stock=10, sku="SKU-MV-001"):
             return {"id": product_id, "sku": sku, "current_stock": current_stock}
 
         @staticmethod
+        def find_for_update(product_id):
+            return {"id": product_id, "sku": sku, "current_stock": current_stock}
+
+        @staticmethod
         def set_stock(product_id, stock):
             FakeProductRepo.last_stock = stock
 

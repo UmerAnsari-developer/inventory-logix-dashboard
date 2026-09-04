@@ -14,6 +14,15 @@ from ..repositories import (
 from ..security import write_roles_required
 from ..services import MovementService, ProductService, SupplierService
 from ..utils import api_error, api_response
+from ..utils.cache import (
+    api_cache,
+    cache_bust_movements,
+    cache_bust_products,
+    cache_bust_purchase_orders,
+    cache_bust_settings,
+    cache_bust_suppliers,
+    make_key,
+)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -46,6 +55,7 @@ def update_settings():
         saved = SettingsService.save_settings(payload)
     except ValueError as exc:
         return api_error("AUTH_REQUIRED", str(exc), status=401)
+    cache_bust_settings()
     return api_response(saved, message="Settings saved.")
 
 
@@ -58,52 +68,55 @@ def dashboard_live():
     from ..database import get_cursor
     from ..services.settings_service import SettingsService
 
-    low_pct, critical_pct = SettingsService.threshold_pcts()
-    critical_ratio = critical_pct / 100.0
-    today = date.today()
-    with get_cursor() as cur:
-        cur.execute(
-            "SELECT COALESCE(SUM(current_stock * unit_price), 0) AS value FROM products"
-        )
-        inventory_value = float(cur.fetchone()["value"] or 0)
-        cur.execute(
-            """
-            SELECT COUNT(*) AS c,
-                   SUM(CASE WHEN current_stock <= reorder_point AND on_order <= 0 THEN 1 ELSE 0 END) AS reorder
-            FROM products
-            """
-        )
-        reorder_row = cur.fetchone()
-        cur.execute(
-            """
-            SELECT COUNT(*) AS c,
-                   SUM(CASE WHEN current_stock <= reorder_point * %s OR current_stock <= 0 THEN 1 ELSE 0 END) AS critical,
-                   SUM(CASE WHEN current_stock > reorder_point * %s AND current_stock <= reorder_point AND on_order <= 0 THEN 1 ELSE 0 END) AS warning
-            FROM products
-            """,
-            (critical_ratio, critical_ratio),
-        )
-        risk = cur.fetchone()
-        cur.execute(
-            "SELECT COALESCE(SUM(quantity), 0) AS units FROM movements WHERE created_at::date = %s",
-            (today,),
-        )
-        units_today = int(cur.fetchone()["units"] or 0) or 1248
-    total_skus = int(reorder_row["c"] or 0)
-    reorder_count = int(reorder_row["reorder"] or 0)
-    critical_count = int(risk["critical"] or 0)
-    warning_count = int(risk["warning"] or 0)
-    healthy = max(total_skus - reorder_count, 0)
-    health_pct = round(healthy / max(total_skus, 1) * 100) if total_skus else 0
-    return api_response({
-        "inventory_value": round(inventory_value),
-        "reorder_count": reorder_count,
-        "critical_count": critical_count,
-        "warning_count": warning_count,
-        "units_today": units_today,
-        "health_pct": min(health_pct, 100),
-        "timestamp": today.isoformat(),
-    })
+    def _load():
+        low_pct, critical_pct = SettingsService.threshold_pcts()
+        critical_ratio = critical_pct / 100.0
+        today = date.today()
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(SUM(current_stock * unit_price), 0) AS value FROM products"
+            )
+            inventory_value = float(cur.fetchone()["value"] or 0)
+            cur.execute(
+                """
+                SELECT COUNT(*) AS c,
+                       SUM(CASE WHEN current_stock <= reorder_point AND on_order <= 0 THEN 1 ELSE 0 END) AS reorder
+                FROM products
+                """
+            )
+            reorder_row = cur.fetchone()
+            cur.execute(
+                """
+                SELECT COUNT(*) AS c,
+                       SUM(CASE WHEN current_stock <= reorder_point * %s OR current_stock <= 0 THEN 1 ELSE 0 END) AS critical,
+                       SUM(CASE WHEN current_stock > reorder_point * %s AND current_stock <= reorder_point AND on_order <= 0 THEN 1 ELSE 0 END) AS warning
+                FROM products
+                """,
+                (critical_ratio, critical_ratio),
+            )
+            risk = cur.fetchone()
+            cur.execute(
+                "SELECT COALESCE(SUM(quantity), 0) AS units FROM movements WHERE created_at::date = %s",
+                (today,),
+            )
+            units_today = int(cur.fetchone()["units"] or 0) or 1248
+        total_skus = int(reorder_row["c"] or 0)
+        reorder_count = int(reorder_row["reorder"] or 0)
+        critical_count = int(risk["critical"] or 0)
+        warning_count = int(risk["warning"] or 0)
+        healthy = max(total_skus - reorder_count, 0)
+        health_pct = round(healthy / max(total_skus, 1) * 100) if total_skus else 0
+        return {
+            "inventory_value": round(inventory_value),
+            "reorder_count": reorder_count,
+            "critical_count": critical_count,
+            "warning_count": warning_count,
+            "units_today": units_today,
+            "health_pct": min(health_pct, 100),
+            "timestamp": today.isoformat(),
+        }
+
+    return api_response(api_cache.get_or_set("dashboard:live", _load))
 
 
 # ----- Products -----
@@ -119,21 +132,29 @@ def list_products():
         per_page = min(max(int(request.args.get("per_page", 20)), 1), 100)
     except (TypeError, ValueError):
         per_page = 20
-    data = ProductService.list_products(
-        search=request.args.get("search", ""),
-        category=request.args.get("category", ""),
-        warehouse=request.args.get("warehouse", ""),
-        stock_status=request.args.get("stock_status", ""),
-        page=page,
-        per_page=per_page,
-    )
-    return api_response(data)
+    params = {
+        "search": request.args.get("search", ""),
+        "category": request.args.get("category", ""),
+        "warehouse": request.args.get("warehouse", ""),
+        "stock_status": request.args.get("stock_status", ""),
+        "page": page,
+        "per_page": per_page,
+    }
+    cache_key = make_key(prefix="products", **params)
+
+    def _load():
+        return ProductService.list_products(**params)
+
+    return api_response(api_cache.get_or_set(cache_key, _load))
 
 
 @api_bp.route("/products/<int:product_id>", methods=["GET"])
 @login_required
 def get_product(product_id):
-    row = ProductRepository.find(product_id)
+    row = api_cache.get_or_set(
+        f"product:{product_id}",
+        lambda: ProductRepository.find(product_id),
+    )
     if not row:
         return api_error("PRODUCT_NOT_FOUND", "Product not found.", status=404)
     return api_response(row)
@@ -152,6 +173,7 @@ def create_product():
     AuditRepository.record(current_user.id, "api.product.create",
                            target_type="product", target_id=new_id,
                            detail={"sku": payload.get("sku")})
+    cache_bust_products()
     return api_response({"id": new_id}, status=201, message="Product created.")
 
 
@@ -167,6 +189,7 @@ def update_product(product_id):
         return api_error("VALIDATION_ERROR", str(exc), status=422)
     AuditRepository.record(current_user.id, "api.product.update",
                            target_type="product", target_id=product_id)
+    cache_bust_products()
     return api_response({"id": product_id}, message="Product updated.")
 
 
@@ -178,6 +201,7 @@ def delete_product(product_id):
     ProductService.delete(product_id)
     AuditRepository.record(current_user.id, "api.product.delete",
                            target_type="product", target_id=product_id)
+    cache_bust_products()
     return api_response(message="Product deleted.", status=204)
 
 
@@ -185,13 +209,16 @@ def delete_product(product_id):
 @api_bp.route("/suppliers", methods=["GET"])
 @login_required
 def list_suppliers():
-    return api_response(SupplierRepository.list_all())
+    return api_response(api_cache.get_or_set("suppliers:all", SupplierRepository.list_all))
 
 
 @api_bp.route("/suppliers/<int:supplier_id>", methods=["GET"])
 @login_required
 def get_supplier(supplier_id):
-    row = SupplierRepository.find(supplier_id)
+    row = api_cache.get_or_set(
+        f"supplier:{supplier_id}",
+        lambda: SupplierRepository.find(supplier_id),
+    )
     if not row:
         return api_error("SUPPLIER_NOT_FOUND", "Supplier not found.", status=404)
     return api_response(row)
@@ -209,6 +236,7 @@ def create_supplier():
         return api_error("VALIDATION_ERROR", str(exc), status=422)
     AuditRepository.record(current_user.id, "api.supplier.create",
                            target_type="supplier", target_id=new_id)
+    cache_bust_suppliers()
     return api_response({"id": new_id}, status=201, message="Supplier created.")
 
 
@@ -230,6 +258,7 @@ def create_movement():
         )
     except Exception as exc:
         return api_error("VALIDATION_ERROR", str(exc), status=422)
+    cache_bust_movements()
     return api_response({"id": movement_id}, status=201, message="Movement recorded.")
 
 
@@ -240,7 +269,10 @@ def recent_movements():
         days = min(max(int(request.args.get("days", 14)), 1), 365)
     except (TypeError, ValueError):
         days = 14
-    return api_response(MovementRepository.daily_totals(days))
+    return api_response(
+        api_cache.get_or_set(f"movements:recent:{days}",
+                             lambda: MovementRepository.daily_totals(days))
+    )
 
 
 # ----- EOQ -----

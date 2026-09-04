@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import logging
-import time
-from collections import OrderedDict
 
 from flask import Blueprint, jsonify, render_template, request
 from flask_login import current_user, login_required
@@ -12,30 +10,14 @@ from ..extensions import limiter
 from ..repositories import ProductRepository
 from ..services import AnomalyService, ForecastService, SettingsService
 from ..utils import api_error, api_response
+from ..utils.cache import TTLCache
 
 LOGGER = logging.getLogger(__name__)
 
 ai_bp = Blueprint("ai", __name__, url_prefix="/ai")
 
-# 1-hour TTL cache for expensive portfolio operations
-_portfolio_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
-_PORTFOLIO_CACHE_TTL = 3600  # seconds
-_MAX_PORTFOLIO_CACHE = 10
-
-
-def _pcache_get(key: str):
-    entry = _portfolio_cache.get(key)
-    if entry and (time.time() - entry[0]) < _PORTFOLIO_CACHE_TTL:
-        _portfolio_cache.move_to_end(key)
-        return entry[1]
-    return None
-
-
-def _pcache_set(key: str, value: dict):
-    _portfolio_cache[key] = (time.time(), value)
-    _portfolio_cache.move_to_end(key)
-    while len(_portfolio_cache) > _MAX_PORTFOLIO_CACHE:
-        _portfolio_cache.popitem(last=False)
+# 1-hour TTL cache for expensive portfolio operations (model fitting)
+_portfolio_cache = TTLCache(ttl=3600, max_entries=10)
 
 
 @ai_bp.route("/forecast")
@@ -76,11 +58,11 @@ def forecast_portfolio():
     horizon = int(request.args.get("horizon", 30))
     model = request.args.get("model") or SettingsService.forecast_model()
     cache_key = f"forecast_portfolio:{horizon}:{model}"
-    cached = _pcache_get(cache_key)
+    cached = _portfolio_cache.get(cache_key)
     if cached:
         return api_response(cached)
     result = ForecastService.portfolio(horizon=horizon, model=model)
-    _pcache_set(cache_key, result)
+    _portfolio_cache.set(cache_key, result)
     return api_response(result)
 
 
@@ -128,11 +110,11 @@ def anomaly_portfolio():
     except ValueError:
         contamination = 0.05
     cache_key = f"anomaly_portfolio:{contamination}"
-    cached = _pcache_get(cache_key)
+    cached = _portfolio_cache.get(cache_key)
     if cached:
         return api_response(cached)
     result = AnomalyService.portfolio(contamination=contamination)
-    _pcache_set(cache_key, result)
+    _portfolio_cache.set(cache_key, result)
     return api_response(result)
 
 

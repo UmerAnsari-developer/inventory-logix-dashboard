@@ -46,4 +46,4 @@ services:
       - key: MAIL_USE_TLS
         value: "true"
       - key: PASSWORD_RESET_TTL_MINUTES
-        value: "30"
+        value: "5"
