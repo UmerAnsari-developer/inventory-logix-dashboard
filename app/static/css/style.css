@@ -77,8 +77,6 @@
 
   /* Panel backgrounds — theme-aware tinted glass */
   --panel-bg: rgba(255, 255, 255, 0.55);
-  --panel-bg-hover: rgba(255, 255, 255, 0.7);
-  --metric-bg: rgba(232, 213, 255, 0.65);
   --chart-bg: rgba(255, 255, 255, 0.3);
 }
 
@@ -118,8 +116,6 @@
   --glass-border: rgba(255 255 255 / .08);
   --glass-highlight: inset 0 1px 0 rgba(255 255 255 / .15);
   --panel-bg: rgba(15, 23, 42, 0.65);
-  --panel-bg-hover: rgba(15, 23, 42, 0.8);
-  --metric-bg: rgba(139, 92, 246, 0.12);
   --chart-bg: rgba(15, 23, 42, 0.3);
 }
 
@@ -988,11 +984,15 @@ h1 {
   overflow: hidden;
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
-  background: var(--metric-bg);
+  background: rgba(232, 213, 255, 0.65);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-md, var(--shadow-sm)), var(--glass-highlight), 0 0 20px rgba(207, 148, 148, 0.15);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+[data-theme="dark"] .metric-card {
+  background: rgba(139, 92, 246, 0.12);
 }
 
 .metric-card::after {
@@ -1092,7 +1092,6 @@ background: linear-gradient(135deg, var(--primary), var(--purple));
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   box-shadow: var(--shadow-md, var(--shadow-sm)), var(--glass-highlight), 0 0 15px rgba(56, 189, 248, 0.15);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-  will-change: transform;
 }
 
 [data-theme="dark"] .panel {
@@ -1101,9 +1100,13 @@ background: linear-gradient(135deg, var(--primary), var(--purple));
 }
 
 .panel:hover {
-  background: var(--panel-bg-hover);
+  background: rgba(255, 255, 255, 0.7);
   box-shadow: var(--shadow), var(--glass-highlight);
   border-color: rgba(var(--accent-rgb), 0.35);
+}
+
+[data-theme="dark"] .panel:hover {
+  background: rgba(15, 23, 42, 0.8);
 }
 
 .metric-card:hover {
@@ -3807,11 +3810,6 @@ th:has(+ th.number) {
   .warehouse-card-detail, .btn {
     transform-style: flat !important;
     perspective: none !important;
-  }
-
-  /* Disable will-change on mobile */
-  .panel, .metric-card {
-    will-change: auto !important;
   }
 
   /* Simplify hover effects */
