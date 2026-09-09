@@ -854,6 +854,8 @@ body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { backgr
 
 .eoq-3d-chart {
     height: 380px;
+    background: var(--chart-bg);
+    border-radius: var(--radius-md);
 }
 
 @media (max-width: 768px) {
@@ -1016,12 +1018,15 @@ body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { backgr
 #eoqChart {
     min-height: 220px;
     width: 100%;
+    background: var(--chart-bg);
+    border-radius: var(--radius-md);
 }
 
 #eoq3dChart {
     min-height: 380px;
     width: 100%;
-    background: transparent;
+    background: var(--chart-bg);
+    border-radius: var(--radius-md);
 }
 
 /* ----- ERRORS ----- */

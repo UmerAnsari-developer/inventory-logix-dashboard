@@ -79,6 +79,7 @@
   --panel-bg: rgba(255, 255, 255, 0.55);
   --panel-bg-hover: rgba(255, 255, 255, 0.7);
   --metric-bg: rgba(232, 213, 255, 0.65);
+  --chart-bg: rgba(255, 255, 255, 0.3);
 }
 
 [data-theme="dark"] {
@@ -119,6 +120,7 @@
   --panel-bg: rgba(15, 23, 42, 0.65);
   --panel-bg-hover: rgba(15, 23, 42, 0.8);
   --metric-bg: rgba(139, 92, 246, 0.12);
+  --chart-bg: rgba(15, 23, 42, 0.3);
 }
 
 * {
@@ -1176,6 +1178,8 @@ background: linear-gradient(135deg, var(--primary), var(--purple));
   overflow-y: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--ink-color, #0d1117) transparent;
+  background: var(--chart-bg);
+  border-radius: var(--radius-md);
 }
 
 .chart-wrap::-webkit-scrollbar {
@@ -1201,6 +1205,8 @@ background: linear-gradient(135deg, var(--primary), var(--purple));
   z-index: 1;
   width: 100%;
   height: 220px;
+  background: var(--chart-bg);
+  border-radius: var(--radius-md);
 }
 
 svg.chart {
@@ -1934,6 +1940,8 @@ tbody tr:hover {
   position: relative;
   height: 240px;
   padding-top: 6px;
+  background: var(--chart-bg);
+  border-radius: var(--radius-md);
 }
 
 .report-chart-tall {
