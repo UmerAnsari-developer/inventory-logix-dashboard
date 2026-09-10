@@ -1,357 +1,307 @@
 # InventoryLogix — Interview Questions & Answers
 
-## Technical Interview Questions
-
-### Q1: Explain the architecture of InventoryLogix.
-
-**Answer:** InventoryLogix follows a layered architecture:
-1. **Presentation Layer**: Jinja2 templates with Chart.js, Three.js, and GSAP
-2. **Route Layer**: Flask blueprints (auth, ui, api, ai)
-3. **Service Layer**: Business logic orchestration
-4. **Repository Layer**: Data access via stored procedures
-5. **Data Layer**: PostgreSQL with 84+ stored procedures and 8 triggers
-
-All SQL queries go through parameterized stored procedures to prevent SQL injection. The application uses Flask-Login for session management and Flask-WTF for CSRF protection.
+**Merged from both analysis passes · September 10, 2026**
+All answers grounded in the repository. Honesty rules applied: synthetic
+metrics flagged, no fabricated adoption, no attributed developer intent.
 
 ---
 
-### Q2: How does the ML forecasting work?
+## A) Client Discovery & Sales (10)
 
-**Answer:** The forecasting module (`app/ml/forecasting.py`) implements three models:
-1. **Prophet**: Facebook's time series model with weekly seasonality
-2. **ARIMA**: AutoRegressive Integrated Moving Average (1,1,1)
-3. **Ensemble**: Averages Prophet and ARIMA predictions
+**Q1. What problem does InventoryLogix solve?**
+A single dashboard for stock health, reorder alerts, purchasing, and
+analytics, plus AI assistance (demand forecasting, anomaly detection, EOQ
+order quantities). It replaces spreadsheet-based inventory decisions with
+data-driven ones: the reorder queue flags SKUs where
+`current_stock <= reorder_point AND on_order <= 0`, and the EOQ engine
+computes cost-optimal quantities from per-product costs. Framing: a
+working full-stack reference implementation, not a battle-tested
+commercial product.
 
-When the optional libraries (prophet, statsmodels) are unavailable, the system gracefully falls back to a moving-average forecast. The ensemble model provides more robust predictions by combining both approaches.
+**Q2. Who uses it, and how many warehouses/users?**
+Three roles: viewer (read-only), manager/admin (write, enforced
+server-side). Self-registration always creates a viewer, so newcomers
+can't mutate data. Seed data spans 10 warehouses. No tenant isolation —
+one deployment serves one company.
 
-Portfolio-level forecasts are cached for 1 hour to avoid repeated model fitting.
+**Q3. What does deployment look like?**
+Push to GitHub → Render Blueprint creates a free PostgreSQL + web service,
+wires DATABASE_URL/SECRET_KEY, and runs Gunicorn (1 worker × 2 threads).
+First boot auto-applies the schema, seeds demo data, and runs the ETL.
+Health check at /api/health; autoDeploy on push to main.
 
----
+**Q4. How is my data protected?**
+Parameterized SQL everywhere (all CRUD through stored procedures with
+placeholders), per-request CSP nonces, CSRF, rate limiting (login 10/min,
+API writes 30/min), account lockout (5 fails → 15 min), hashed passwords,
+secure cookies, and a DB-level audit trail. Honest caveat: rate limits and
+lockout state are in-process memory, safe in the current single-worker
+deployment.
 
-### Q3: How do you prevent SQL injection?
+**Q5. Can it connect to my ERP or accounting system?**
+No — there are no ERP/accounting connectors, and we say so plainly.
+Integration today: REST API, CSV export, and CSV import for seeding only.
+An ERP bridge would be new development.
 
-**Answer:** All database queries go through 84+ stored procedures (`app/database/procedures.sql`). The application uses:
-1. **Parameterized queries**: psycopg2 `%s` placeholders
-2. **Stored procedures**: Business logic encapsulated in PL/pgSQL
-3. **Input validation**: Validators for SKU, email, password strength
-4. **No raw SQL**: Repository layer always calls `sp_*` functions
+**Q6. What does the ML actually do?**
+Demand forecasting (Prophet with weekly seasonality, ARIMA, or an
+ensemble, with confidence bands) and anomaly detection (Isolation Forest
+plus SPC ±3σ control charts), cached 1 hour portfolio-wide. They inform
+reorder decisions; they don't autonomously place orders.
 
-Example:
-```python
-cur.execute(
-    "SELECT * FROM sp_product_list(%s, %s, %s, %s, %s, %s)",
-    (search, category, warehouse, status, limit, offset),
-)
-```
+**Q7. Is the "AI savings" number real money?**
+No, and we say so: it's a model-derived comparison of EOQ ordering versus
+a hypothetical order-monthly baseline on estimated cost parameters. It
+demonstrates the EOQ math; it is not a measured financial result.
+Landing stats are likewise hardcoded demo values.
 
----
+**Q8. What happens when the ML libraries are missing?**
+Graceful degradation: without Prophet/statsmodels or with too few points,
+a moving-average model with σ-bands runs; without scikit-learn, anomaly
+detection falls back to pure z-score. The app never fails because a model
+didn't fit. Honest limitation: the fallback reports a fixed 78% accuracy —
+a cosmetic heuristic, not a computed metric.
 
-### Q4: Explain the EOQ formula and its implementation.
+**Q9. What's the pricing?**
+None — it's an MCA mini-project with no billing/licensing code. Running
+cost on the reference deployment is Render's free tier plus optional
+SendGrid.
 
-**Answer:** Economic Order Quantity (EOQ) minimizes total inventory costs:
-- **Formula**: `EOQ = √(2DS/H)`
-  - D = Annual demand
-  - S = Ordering cost per order
-  - H = Holding cost per unit per year
-
-**Implementation** (`app/utils/helpers.py`):
-```python
-def calculate_eoq(demand, ordering_cost, holding_cost):
-    if not demand or not ordering_cost or not holding_cost:
-        return None
-    if demand <= 0 or ordering_cost < 0 or holding_cost <= 0:
-        return None
-    return math.sqrt((2 * demand * ordering_cost) / holding_cost)
-```
-
-The EOQ calculator provides:
-- Interactive cost curve visualization
-- Per-product EOQ table
-- 3D sensitivity surface (Three.js)
-
----
-
-### Q5: How does the anomaly detection work?
-
-**Answer:** The anomaly module (`app/ml/anomaly.py`) implements two approaches:
-1. **Isolation Forest**: sklearn's unsupervised algorithm for anomaly detection
-   - Contamination parameter (5% default)
-   - Decision function scores for confidence
-   - Falls back to z-score when sklearn unavailable
-
-2. **SPC Z-score Analysis**: Statistical Process Control
-   - Calculates mean, sigma, UCL (Upper Control Limit), LCL (Lower Control Limit)
-   - Flags points beyond ±3σ as anomalies
-   - Provides control chart data for visualization
-
----
-
-### Q6: Explain the data warehouse architecture.
-
-**Answer:** The data warehouse uses a star schema with SCD Type 2 dimensions:
-- **Dimensions**: `dim_product_scd`, `dim_supplier_scd`, `dim_warehouse_scd`, `dim_user`
-- **Facts**: `fact_movement_daily`, `fact_inventory_daily`, `fact_product_daily`
-
-**SCD Type 2** tracks full history:
-```sql
-CREATE TABLE dim_product_scd (
-    product_key SERIAL PRIMARY KEY,
-    sku VARCHAR(80),
-    valid_from TIMESTAMP,
-    valid_to TIMESTAMP,
-    is_current BOOLEAN,
-    row_hash VARCHAR(64)
-);
-```
-
-The ETL pipeline (`app/database/etl.py`) is incremental:
-1. Reads high-water mark from `etl_state`
-2. Processes only new/modified movements
-3. Updates dimensions with versioning
-4. Rebuilds facts with stock walk clamping
+**Q10. Why not just use Zoho Inventory or Odoo?**
+For a real business at scale, they should — mature ERPs have connectors,
+support, and multi-tenancy this project deliberately doesn't. This
+project's value is educational/evaluative: how such a system is built
+end-to-end (SCD Type 2 warehouse, trigger-enforced stock integrity,
+EOQ/forecasting analytics, security hardening), with full source control
+at zero license cost.
 
 ---
 
-### Q7: How do you handle rate limiting?
+## B) Technical Interview (15)
 
-**Answer:** Flask-Limiter with in-memory storage:
-```python
-@auth_bp.route("/login", methods=["GET", "POST"])
-@limiter.limit("10 per minute")
-def login(): ...
+**Q1. Explain the architecture of InventoryLogix.**
+Layered: Jinja2 templates (Chart.js/Plotly/Three.js/GSAP) → Flask
+blueprints (auth, ui, api, ai) → services → repositories → stored
+procedures → PostgreSQL with triggers and a star-schema warehouse.
+Factory pattern (`create_app()`) allows test-isolated apps and one boot
+path shared by WSGI, CLI, and Alembic. Honest nuance: the layering is
+enforced on the API side; the UI blueprint uses inline SQL for its
+analytical routes (~56 sites), backstopped by DB triggers that enforce
+integrity regardless of the writing layer.
 
-@api_bp.route("/products", methods=["POST"])
-@limiter.limit("30 per minute")
-def create_product(): ...
+**Q2. Why stored procedures instead of an ORM? Tradeoffs?**
+All CRUD routes through `sp_*` functions called as parameterized SELECTs
+from repository classes. Benefits: the SQL injection surface collapses,
+integrity rules live next to the data, and analytics run set-based in the
+DB. Tradeoffs we accept: no compile-time model checking, harder unit
+testing (DB required), and validation logic split between Python and
+PL/pgSQL.
 
-@api_bp.route("/movements", methods=["POST"])
-@limiter.limit("60 per minute")
-def create_movement(): ...
-```
+**Q3. Why enforce movement validation in a database trigger?**
+`trg_validate_movement` (BEFORE INSERT) auto-populates SKU from
+product_id, rejects bad FKs, and raises on movements that would drive
+stock negative. DB-level is the only place the rule can't be bypassed —
+REST API, UI, a future script, or a manual psql session all pass through
+the same trigger. Service-layer validation is a fast-fail convenience; the
+trigger is the enforcement backstop.
 
-**Rate Limits:**
-- Authentication: 10/min login, 5/min register
-- API writes: 30/min
-- Movements: 60/min
+**Q4. Explain SCD Type 2 as used here.**
+Type 2 keeps history by inserting a new row per change instead of
+overwriting. `dim_product_scd` (and supplier/warehouse/user variants)
+carry valid_from, valid_to, is_current, and a row_hash. The merge
+functions diff the operational row against the current SCD row; on change
+they stamp the old row closed and insert a new current row, skipping
+writes when the hash is unchanged. Facts join to the dimension as-of a
+date, so you can ask "what did this product look like last month."
 
----
+**Q5. How is the ETL incremental, and what is stock-walk clamping?**
+A high-water mark (`etl_state['last_movement_id']`) skips runs with no new
+movements; otherwise only the affected date range is reprocessed and the
+watermark advanced, in one transaction (rollback on failure; force=True
+TRUNCATEs and rebuilds). Because seeded history doesn't always net out
+cleanly, `fact_inventory_daily` is built by walking current stock
+backwards day-by-day and clamping any negative intermediate value to 0
+(counted and logged) — a pragmatic guard against history inconsistencies
+rather than a silently corrupt fact table.
 
-### Q8: Explain the CSP nonce implementation.
+**Q6. State the EOQ formula and its assumptions.**
+EOQ = √(2DS/H): demand rate D, ordering cost S, holding cost H; total
+cost = (D/Q)·S + (Q/2)·H. Assumes constant deterministic demand, fixed
+per-order cost, linear holding cost, no quantity discounts, and no
+lead-time variability. Because real inputs are estimates, the service
+also builds a cost curve and a 3D sensitivity surface (demand × ordering
+cost) so fragility of the optimum is visible.
 
-**Answer:** Per-request CSP nonces prevent inline script injection:
-```python
-@app.before_request
-def _set_nonce():
-    g.csp_nonce = secrets.token_urlsafe(24)
+**Q7. Prophet vs ARIMA here — when does each fail, and what's the fallback?**
+Prophet handles weekly cycles, missing data, and outliers well, but is a
+heavy dependency and needs ≥14 points. ARIMA(1,1,1) is lightweight but
+assumes a simple differenced structure and needs ≥20 points with an
+inferrable frequency; it can diverge on strongly seasonal series. The
+ensemble averages both, hedging single-model bias. Every call is guarded:
+any exception or missing library degrades to a deterministic moving
+average with 1.96σ bands — the app never 500s because a model didn't fit.
 
-@app.context_processor
-def _inject_nonce():
-    return {"csp_nonce": getattr(g, "csp_nonce", "")}
+**Q8. How does anomaly detection work?**
+Two layers: (1) IsolationForest (contamination 0.05, 80 trees, seeded) on
+the daily movement series, each anomaly annotated with its z-score and a
+spike/drop classification; (2) SPC z-score analysis producing mean, σ,
+UCL/LCL (μ±3σ) for a control chart. Below 14 points, without sklearn, or
+on forest errors it falls back to pure z-score detection. Honest caveat:
+the forest is fit on a single feature, so its marginal value over the
+z-score channel is small — it's there for the API shape and ranking.
 
-@app.after_request
-def _apply(response):
-    nonce = getattr(g, "csp_nonce", "")
-    response.headers["Content-Security-Policy"] = (
-        f"script-src 'self' 'nonce-{nonce}' ..."
-    )
-```
+**Q9. How are sessions and RBAC implemented?**
+Flask-Login with `session_protection = "strong"` (session invalidated on
+fingerprint change) plus a user_loader fetching from Postgres. Beyond the
+cookie, login creates a user_sessions row (token, IP, user-agent) so
+triggers log logins/logouts to the audit trail, enabling the
+active-sessions view at /monitoring. Authorization is two stacked
+decorators: @login_required then @roles_required/@write_roles_required —
+admin/manager pass, anything else 403s.
 
-Templates use `{{ csp_nonce }}`:
-```html
-<script nonce="{{ csp_nonce }}">
-  // Inline scripts are allowed with valid nonce
-</script>
-```
+**Q10. How do CSRF and CSP nonces work here?**
+CSRF: Flask-WTF CSRFProtect app-wide with an 8-hour token time limit
+(aligned to session lifetime). CSP: each request generates a 24-byte
+url-safe nonce in before_request; templates tag every inline script and
+import map with it; the after_request header sets script-src 'self'
+'nonce-…' plus a CDN allowlist. Net: no unsafe-inline for scripts, so an
+injected inline script won't execute.
 
----
+**Q11. Rate limiting — configuration and its caveat?**
+Flask-Limiter keyed on remote address, memory storage, 200/min default,
+plus per-route: login 10/min, register 5/min, forgot 5/hour, API writes
+30/min, movements 60/min, AI runs 30/min. The caveat I volunteer: memory
+storage is per-process, so limits are only globally accurate under the
+current 1-worker config; add workers and each gets its own counter. The
+Redis env var exists for the upgrade; it's shadowed today by a hardcoded
+constructor argument.
 
-### Q9: How does the account lockout work?
+**Q12. Why ThreadedConnectionPool and 1 worker × 2 threads?**
+The pool avoids a fresh TCP/TLS handshake to a remote DB per request;
+connections are checked out onto Flask's g per request and returned at
+teardown. Gunicorn runs 1 worker × 2 threads deliberately, documented in
+the repo: the app holds in-process state (limiter counters, lockout
+tracker, TTL caches, a bootstrap-once flag), so multiple worker processes
+would each have independent copies — inconsistent limits, lockouts, and
+stale cache views. One worker with threads sidesteps that at the cost of
+a single-process throughput ceiling.
 
-**Answer:** In-memory lockout tracker with threading lock:
-```python
-MAX_FAILED_ATTEMPTS = 5
-LOCKOUT_MINUTES = 15
+**Q13. Describe the caching layers and the per-process caveat.**
+One thread-safe TTLCache class (LRU + expiry + prefix invalidation)
+instantiated per concern — products 120s, dashboard 60s, reports 300s, AI
+portfolio 1h, etc. Writes call explicit cache_bust_* prefix drops; reads
+use get_or_set read-through. Caveats: in-memory (each worker would have
+its own; busts don't propagate), the AI portfolio cache is never busted
+(1h staleness by design), and a manual ETL only busts the monitoring
+cache.
 
-_failed_logins: dict[int, list[tuple[datetime, str]]] = defaultdict(list)
-_lockout_mutex = threading.Lock()
+**Q14. What specifically breaks if you scale to multiple workers?**
+Concretely: (1) Flask-Limiter memory:// — each worker enforces its own
+login budget, so the effective limit multiplies; (2) the lockout
+tracker — a brute-force spread across workers wouldn't accumulate to 5
+failures; (3) TTLCache — busts only reach the local process, so other
+workers serve up-to-TTL-stale dashboards; (4) cost — a 20-connection
+pool per worker can exhaust Postgres connections (PgBouncer or a capped
+pool needed). The single-worker shape is a deliberate sizing decision,
+not an oversight.
 
-def authenticate(username, password, ip):
-    # Check lockout
-    with _lockout_mutex:
-        attempts = _failed_logins[uid]
-        if len(attempts) >= MAX_FAILED_ATTEMPTS:
-            raise AuthError(f"Account locked. Try again in {remaining} minutes.")
-    
-    # Verify password
-    if not UserRepository.verify_password(password, user["password_hash"]):
-        with _lockout_mutex:
-            _failed_logins[uid].append((datetime.utcnow(), ip))
-        raise AuthError("Invalid username or password.")
-    
-    # Clear on success
-    with _lockout_mutex:
-        _failed_logins.pop(uid, None)
-```
-
-**Limitation:** Lockout resets on app restart (in-memory only).
-
----
-
-### Q10: Explain the testing strategy.
-
-**Answer:** 97 tests across 8 test files:
-- `test_api.py`: REST API endpoint tests
-- `test_auth.py`: Authentication flow tests
-- `test_cache.py`: Caching layer tests
-- `test_etl.py`: ETL pipeline tests
-- `test_ml.py`: ML model smoke tests (deterministic assertions)
-- `test_roles.py`: RBAC tests
-- `test_security.py`: Validator and header tests
-- `test_services.py`: Business logic tests
-
-**ML Tests:** Use synthetic data with known spikes to verify detection:
-```python
-def test_isoforest_deterministic_output():
-    series, _ = _value_series(n=120, spike_at=60)
-    result = detect_anomalies_isoforest(series)
-    assert result["model"] == "isolation_forest"
-    assert result["count"] == 1
-    assert result["anomalies"][0]["value"] == 250.0
-```
-
----
-
-## Business Interview Questions
-
-### Q11: What problem does InventoryLogix solve?
-
-**Answer:** Supply chain managers struggle with:
-1. **Lack of visibility**: No real-time view across multiple warehouses
-2. **Reactive decisions**: No demand forecasting or anomaly detection
-3. **Suboptimal ordering**: No EOQ optimization
-4. **Compliance gaps**: No audit trails for inventory changes
-
-InventoryLogix provides a unified dashboard combining real transaction data with ML capabilities, enabling proactive inventory management.
-
----
-
-### Q12: Who are the target users?
-
-**Answer:**
-- **Primary**: Supply chain analysts who need to forecast demand and detect anomalies
-- **Secondary**: Warehouse managers (daily stock review), procurement leads (supplier management), admins (settings)
-
-**User Roles:**
-- `viewer`: Read-only access to dashboards and reports
-- `manager`: Write access to products, suppliers, movements
-- `admin`: Full access including settings and user management
-
----
-
-### Q13: What makes InventoryLogix different from existing solutions?
-
-**Answer:** The differentiating mechanism is the **integrated EOQ + 3D sensitivity surfaces**:
-- Real transaction data grounding (DataCo dataset, 180K+ rows)
-- ML forecasting (Prophet/ARIMA ensemble)
-- Anomaly detection (Isolation Forest + SPC)
-- Interactive EOQ optimization with 3D visualization
-- Open-stack Flask + PostgreSQL (no vendor lock-in)
-
-Most competitors either lack ML capabilities or require enterprise-level investment.
+**Q15. Why does CSP still allow unsafe-inline styles and un-SRI'd CDNs?**
+style-src keeps 'unsafe-inline' because the app injects per-element style
+tokens; style injection is far lower-risk than script injection (no
+direct code execution) — an accepted, documented tradeoff. Scripts load
+from three CDNs without Subresource Integrity — a compromised CDN could
+serve malicious JS within the allowlist. The hardening path is
+self-hosting the JS with SRI hashes; not done in this academic build.
 
 ---
 
-### Q14: What are the limitations?
+## C) Viva / Business Defense (10)
 
-**Answer:**
-1. **Single-tenant**: No multi-tenant or white-label support
-2. **No Mobile App**: Web-only, no native mobile application
-3. **No Real-time Updates**: Polling-based dashboard
-4. **In-memory Lockout**: Account lockout resets on app restart
-5. **Demo Data Only**: Seeded from DataCo dataset, no production integration
-6. **No Internationalization**: English-only UI
+**Q1. Why did you choose Flask over Django?**
+The project's center of gravity is custom SQL — stored procedures,
+triggers, a hand-built star schema. Django's ORM and admin would fight
+that architecture at every step. Flask gives a thin factory, explicit
+blueprints, and free choice of psycopg2 pooling, Flask-Login, Flask-WTF,
+and Flask-Limiter. Django's batteries were mostly things we weren't going
+to use.
 
----
+**Q2. Why PostgreSQL over MySQL?**
+Three concrete reasons from the code: (1) PL/pgSQL procedures and
+triggers are first-class — 74 function definitions that would be far
+clunkier in MySQL's routine syntax; (2) the warehouse leans on
+PostgreSQL specifics — partial indexes on is_current, IS DISTINCT FROM
+in SCD merges, jsonb audit details, ON CONFLICT upserts; (3) the
+deployment targets (Render/Supabase) are Postgres-native. Plus native
+Row-Level Security for the Supabase surface.
 
-### Q15: How would you scale this application?
+**Q3. Why a monolith instead of microservices?**
+One team, one repo, one database — no organizational or scaling pressure
+justifies the operational cost of service meshes and distributed
+transactions. The monolith keeps clear internal layering
+(routes → services → repositories → DB) so it's decomposable later.
 
-**Answer:**
-1. **Horizontal Scaling**: Increase Gunicorn workers, add load balancer
-2. **Shared Caching**: Replace in-memory cache with Redis
-3. **Database Scaling**: Add read replicas for analytics queries
-4. **CDN**: Serve static assets via CDN
-5. **WebSocket**: Real-time dashboard updates
-6. **Microservices**: Split ML pipeline into separate service
+**Q4. What is a data warehouse doing in a mini-project?**
+The analytical half of inventory management: fact tables with SCD Type 2
+dimensions let reports and monitoring query pre-aggregated history
+instead of scanning 180K raw movements per page. It demonstrates classic
+BI patterns — incremental watermark ETL, idempotent full rebuilds,
+single-transaction consistency. An MCA project that shows both OLTP and
+OLAP design earns more depth than one more CRUD form.
 
----
+**Q5. How does seeding real data make results credible?**
+Forecasting and anomaly detection on uniformly random synthetic data
+would "work" trivially; real supply-chain data has weekly cycles, bursts,
+and noise that stress the models meaningfully. The loader reads the
+actual DataCo SMART SUPPLY CHAIN CSV (118 products with real
+demand/ordering/holding costs, up to 150 suppliers) with a deterministic
+synthetic fallback when absent. Caveat: costs and stock levels are still
+seed-derived.
 
-## Viva Questions
+**Q6. What are the known limitations?**
+Listed openly: single-tenant; no ERP/accounting connectors; in-memory
+auth state (lockout, limiter) that only holds up in the single-worker
+deployment; per-process caches; demo metrics (AI savings is a policy
+counterfactual, landing stats hardcoded, fallback accuracy fixed at 78%);
+the background ETL thread has an app-context bug; a database credential
+is committed in a config file (flagged for rotation); two AI portfolio
+endpoints lack rate limits.
 
-### Q16: Why did you choose Flask over Django?
+**Q7. Did real users use this in production?**
+No — it's an academic project with no production users, and I won't imply
+otherwise. What it does have: a deployed demo, a 97-test pytest suite
+covering auth, RBAC, the REST API, security helpers, ML smoke tests, and
+service validation, and role-based demo accounts for evaluation.
 
-**Answer:** Flask's micro-framework approach suits this project because:
-- No admin interface needed (custom UI preferred)
-- Better control over database layer with raw SQL
-- Lighter footprint for deployment
-- More flexibility for ML integration
+**Q8. What did you struggle with technically?**
+Three documented from the history: (1) platform constraints — Render's
+free tier blocks outbound SMTP, which broke password-reset emails until
+SendGrid HTTPS API support was added; (2) blocking operations — the ETL
+rebuild took 10-60 seconds synchronously, freezing the request, so it
+moved to a background thread; (3) frontend weight — Plotly's 3.5MB loaded
+everywhere hurt load times, leading to lazy-loading on chart pages only
+and a dedicated mobile performance fix. Each fix is a visible commit plus
+a README performance-table entry.
 
-Django's ORM would add complexity for a stored-procedure-heavy architecture.
+**Q9. What's the future roadmap?**
+Grounded in the code's own gaps: stateless auth state via Redis so
+multi-worker scaling works; reorder notifications via the existing
+mailer; PO receipt reconciliation (status flip should create the inbound
+movement and clear on_order); forecast-driven reorder points (the forecast
+cache, supplier lead times, and ROP formula all exist — they just aren't
+wired together); an admin user-management UI (the stored procedures are
+already written); out-of-sample forecast backtesting to replace the
+synthetic accuracy numbers.
 
----
-
-### Q17: How do you ensure data integrity?
-
-**Answer:** Multiple layers:
-1. **Stored Procedures**: All CRUD via `sp_*` functions
-2. **Triggers**: `trg_validate_movement` prevents negative stock
-3. **Constraints**: Foreign keys, CHECK constraints
-4. **Audit Log**: Every mutation recorded
-5. **SCD Type 2**: Full history tracking in data warehouse
-
----
-
-### Q18: Explain the caching strategy.
-
-**Answer:** Multi-layer caching:
-- `global_cache`: 60s TTL (reorder count)
-- `dashboard_cache`: Per-user, per-day
-- `reports_cache`: 300s TTL
-- `api_cache`: 60s TTL
-- AI portfolio: 3600s TTL
-
-Cache busting on mutations:
-```python
-def cache_bust_products():
-    products_cache.clear()
-    dashboard_cache.clear()
-    global_cache.clear()
-```
-
----
-
-### Q19: How do you handle errors?
-
-**Answer:** Comprehensive error handling:
-1. **Custom Error Pages**: 400, 401, 403, 404, 422, 429, 500
-2. **Graceful ML Fallback**: Moving-average when libraries unavailable
-3. **Service Exceptions**: `AuthError`, `ProductError` for business logic
-4. **API Envelope**: Consistent `{success, data, error}` format
-5. **Audit Logging**: Errors logged for debugging
-
----
-
-### Q20: What would you improve with more time?
-
-**Answer:**
-1. **Redis Caching**: Shared across instances
-2. **WebSocket**: Real-time dashboard updates
-3. **Two-Factor Auth**: Enhanced security
-4. **Mobile PWA**: Offline-capable mobile experience
-5. **Database Replicas**: Read scaling for analytics
-6. **IP Blocking**: Brute-force protection
-7. **Monitoring**: Prometheus metrics + Grafana dashboards
-8. **CI/CD**: GitHub Actions for automated testing/deployment
+**Q10. How would you productionize this?**
+(1) Rotate the committed credential and add a SECRET_KEY fail-fast;
+(2) rate-limit and input-clamp the AI portfolio endpoints; (3) fix the
+ETL thread's app context and add a concurrency guard; (4) externalize
+state — Redis for rate limits, lockout, and shared caches; (5) scale to
+multiple workers with PgBouncer; (6) move ETL to a scheduled job with
+retry/visibility; (7) self-host CDN JS with SRI; (8) add monitoring
+(Sentry) on top of the existing health endpoint; (9) onboarding — an
+import pipeline and role provisioning instead of seeded demo data.
 
 ---
 
-*Generated: September 10, 2026*
+*Generated: September 10, 2026 · Merged from both analysis passes*

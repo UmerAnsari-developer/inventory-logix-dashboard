@@ -20,7 +20,7 @@ os.environ.setdefault("DB_HOST", "localhost")
 os.environ.setdefault("DB_PORT", "5432")
 os.environ.setdefault("DB_NAME", "inventory_db")
 os.environ.setdefault("DB_USER", "postgres")
-os.environ.setdefault("DB_PASSWORD", "REDACTED-LOCAL-DB-PASSWORD")
+os.environ.setdefault("DB_PASSWORD", os.environ.get("TEST_DB_PASSWORD", ""))
 os.environ.setdefault("DB_SSLMODE", "")
 # .env may carry a Render DATABASE_URL; tests must use the local DB_* fields.
 os.environ.setdefault("DATABASE_URL", "")

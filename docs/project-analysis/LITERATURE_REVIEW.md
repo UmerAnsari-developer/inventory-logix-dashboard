@@ -1,365 +1,284 @@
-# InventoryLogix — Literature Review
+# InventoryLogix — Literature Review & Prior-Art Comparison
+
+**Merged from both analysis passes · September 10, 2026**
+
+Verification key: **[V]** verified online via official docs/Wikipedia
+during analysis · **[C]** canonical reference, widely known, not
+re-verified online · **[E3]** general knowledge, not verified.
+
+---
 
 ## 1. Academic References
 
-### 1.1 Economic Order Quantity (EOQ) Model
+### 1.1 Economic Order Quantity (EOQ) — Harris (1913); Wilson (1934)
 
-**Title:** "How Much to Make of What"
-**Author:** Ford W. Harris
-**Year:** 1913
-**Source:** Factory, The Magazine of Management
+- **Source [V]:** Harris, F. W. (1913), "How many parts to make at once",
+  *Factory, The Magazine of Management* 10:135–136,152; Wilson, R. H.
+  (1934), "A Scientific Routine for Stock Control", *Harvard Business
+  Review* 13:116–128. (Wikipedia, "Economic order quantity" —
+  https://en.wikipedia.org/wiki/Economic_order_quantity)
+  *(Note: an earlier in-repo draft cited the title as "How Much to Make
+  of What" — corrected here.)*
+- **Problem:** Optimal order quantity minimizing total cost (ordering +
+  holding).
+- **Approach:** Q\* = √(2DK/h) balances costs that move in opposite
+  directions with order size.
+- **Technology:** plain math, implemented in `app/utils/helpers.py`.
+- **Relevance:** Core model of the EOQ calculator; applied to 118
+  products with real per-product costs; `eoq_service.py` adds a 3D
+  sensitivity surface.
+- **Limitations:** assumes constant demand and lead time; no quantity
+  discounts; no stockout costs. The project's answer is *visualizing
+  sensitivity* rather than solving stochasticity.
 
-**Problem:** Determining the optimal order quantity to minimize total inventory costs (ordering + holding).
+### 1.2 Facebook Prophet — Taylor & Letham (2017 preprint / 2018 journal)
 
-**Approach:** Mathematical model balancing:
-- Ordering cost (decreases with larger orders)
-- Holding cost (increases with larger orders)
-- Formula: EOQ = √(2DS/H)
+- **Source [V]:** facebook.github.io/prophet — "additive model where
+  non-linear trends are fit with yearly, weekly, and daily seasonality…
+  works best with strong seasonal effects and several seasons of
+  historical data… robust to missing data, shifts in trend, and
+  outliers"; preprint peerj.com/preprints/3190. Journal version:
+  *The American Statistician* 71(1), 2018 [C].
+  *(Note: the earlier draft conflated preprint year/venue — corrected.)*
+- **Problem:** Business time-series forecasting with seasonality,
+  missing data, and outliers.
+- **Approach:** Additive regression: piecewise-linear/logistic trend +
+  Fourier-series seasonality + holiday effects.
+- **Technology:** `prophet` Python library (Stan backend).
+- **Relevance:** Primary forecasting model; weekly seasonality only
+  (`daily/yearly off`), consistent with short daily histories.
+- **Limitations:** heavy dependency chain (hence the guarded import);
+  docs advise several seasons of history; this repo needs ≥14 points and
+  otherwise degrades honestly to moving average.
 
-**Relevance:** Core optimization model in EOQ calculator module. Used to calculate optimal order quantities for 118 products.
+### 1.3 ARIMA — Box & Jenkins (1970)
 
-**Limitations:**
-- Assumes constant demand
-- Assumes constant lead time
-- No quantity discounts
-- No stockout costs
+- **Source [C]:** G. E. P. Box & G. M. Jenkins, *Time Series Analysis:
+  Forecasting and Control*, Holden-Day, 1970.
+- **Problem:** Forecasting non-stationary autoregressive series.
+- **Approach:** ARIMA(p,d,q): autoregression + differencing + moving
+  average of errors; order selected per series.
+- **Technology:** `statsmodels` — here fixed ARIMA(1,1,1), 95% CI.
+- **Relevance:** Secondary forecasting model; complements Prophet in the
+  ensemble (simple average of predictions and bounds).
+- **Limitations:** needs stationarity (via differencing); no automatic
+  seasonality; sensitive to outliers; manual tuning — fixed (1,1,1) is an
+  acknowledged simplification.
 
----
+### 1.4 Isolation Forest — Liu, Ting & Zhou (2008)
 
-### 1.2 Facebook Prophet
+- **Source [V]:** sklearn IsolationForest docs (algorithm description;
+  contamination semantics, range (0, 0.5]) —
+  https://scikit-learn.org/stable/modules/outlier.html. Original ICDM
+  2008 paper (cs.nju.edu.cn PDF) not fetched [C].
+- **Problem:** Unsupervised anomaly detection.
+- **Approach:** Random recursive partitioning; outliers isolate with
+  short average path lengths; `contamination` = expected outlier
+  proportion.
+- **Technology:** `scikit-learn` — IsolationForest(contamination=0.05,
+  n_estimators=80, random_state=42).
+- **Relevance:** Primary anomaly detector over daily movement series;
+  anomalies ranked by |z-score|, classified spike/drop; z-score fallback
+  on missing library or <14 points. Note: sklearn default is 100 trees;
+  80 is a deliberate smaller forest, fine at this scale.
+- **Limitations:** requires contamination parameter; univariate fit here
+  (single reshaped column) — marginal over its own z-score fallback; no
+  explanation of scores ("confidence" is a synthetic formula).
 
-**Title:** "Forecasting at Scale"
-**Authors:** Sean J. Taylor, Ben Letham
-**Year:** 2017
-**Source:** The American Statistician, Vol. 71, No. 1
-**URL:** https://peerj.com/ms/3190/
+### 1.5 Statistical Process Control — Shewhart (1931)
 
-**Problem:** Time series forecasting with seasonal patterns and missing data.
+- **Source [C]:** W. A. Shewhart, *Economic Control of Quality of
+  Manufactured Product*, D. Van Nostrand, 1931. *(Publisher spelling
+  corrected from an earlier draft's "Vanstrand".)*
+- **Problem:** Distinguishing special-cause from common-cause variation.
+- **Approach:** Control charts: center line (process mean), UCL = μ+3σ,
+  LCL = μ−3σ.
+- **Technology:** `app/ml/anomaly.py:84-94` — mean, sigma, UCL, LCL
+  (clamped ≥0); configurable threshold (default 3.0).
+- **Relevance:** Interpretable complement to Isolation Forest; the
+  degraded mode when sklearn is absent.
+- **Limitations:** assumes normality; fixed limits; false alarms; no
+  root-cause identification.
 
-**Approach:** Additive regression model with:
-- Trend: Piecewise linear or logistic growth
-- Seasonality: Fourier series (yearly, weekly, daily)
-- Holidays: User-specified events
+### 1.6 Star Schema & SCD Type 2 — Kimball & Ross (2013)
 
-**Technology:** Python library (prophet)
+- **Source [V]:** Kimball, Ralph; Ross, Margy (2013), *The Data Warehouse
+  Toolkit: The Definitive Guide to Dimensional Modeling*, 3rd ed., Wiley,
+  ISBN 9781118530801 (via Wikipedia "Star schema"); SCD Type 2 = add-row
+  with effective dates and/or current flag, with the warning that Type 2
+  is costly when dimensions change frequently (Wikipedia "Slowly changing
+  dimension").
+- **Relevance:** `warehouse.sql` implements the effective-date +
+  current-flag + row_hash variant on dim_product_scd / dim_supplier_scd /
+  dim_warehouse_scd / dim_user, with partial indexes on is_current and
+  hash-based change detection — the standard maintenance-cost mitigations.
 
-**Relevance:** Primary forecasting model in ML module. Handles weekly seasonality for demand prediction.
+### 1.7 Application Factory Pattern — Flask docs
 
-**Findings:**
-- Handles missing data well
-- Automatic seasonality detection
-- Interpretable components
-- Works with small-to-medium datasets
+- **Source [V]:** flask.palletsprojects.com/en/stable/patterns/appfactories/
+  (factories enable multiple app instances and per-test configuration;
+  extensions created unbound and bound via init_app).
+- **Relevance:** `create_app()` (app/__init__.py:31); limiter defined
+  unbound in extensions.py and initialized in the factory — exactly the
+  documented shape.
 
-**Limitations:**
-- Requires 2+ years of data for yearly seasonality
-- Slower than simpler models
-- No real-time updating
+### 1.8 Content Security Policy — MDN
 
----
+- **Source [V]:** MDN CSP reference — nonce = random value generated per
+  HTTP response; when a nonce is present the browser ignores
+  'unsafe-inline'; applies to script/style elements.
+- **Relevance:** `headers.py` generates `secrets.token_urlsafe(24)` per
+  request; every inline script/import map carries
+  `nonce="{{ csp_nonce }}"`; script-src = 'self' + nonce + CDN allowlist.
 
-### 1.3 ARIMA (AutoRegressive Integrated Moving Average)
+### 1.9 Rate Limiting as a Security Control — OWASP
 
-**Title:** Time Series Analysis: Forecasting and Control
-**Authors:** George E. P. Box, Gwilym M. Jenkins
-**Year:** 1970
-**Source:** Holden-Day
-
-**Problem:** Time series forecasting with autoregressive patterns and non-stationarity.
-
-**Approach:** Linear model combining:
-- AR (AutoRegressive): Past values
-- I (Integrated): Differencing for stationarity
-- MA (Moving Average): Past errors
-- Order (p,d,q): Parameters for each component
-
-**Technology:** statsmodels library
-
-**Relevance:** Secondary forecasting model in ML module. ARIMA(1,1,1) provides complementary predictions to Prophet.
-
-**Findings:**
-- Strong statistical foundation
-- Handles non-stationary data
-- Well-understood properties
-- Fast computation
-
-**Limitations:**
-- Requires stationary data (achieved via differencing)
-- No automatic seasonality handling
-- Sensitive to outliers
-- Requires manual parameter tuning
-
----
-
-### 1.4 Isolation Forest
-
-**Title:** "Isolation Forest"
-**Authors:** Fei Tony Liu, Kai Ming Ting, Zhi-Hua Zhou
-**Year:** 2008
-**Source:** IEEE International Conference on Data Mining (ICDM)
-**URL:** https://cs.nju.edu.cn/zhouzh/zhouzh.files/publication/icdm08b.pdf
-
-**Problem:** Anomaly detection in high-dimensional data.
-
-**Approach:** Unsupervised algorithm that:
-- Isolates observations by random partitioning
-- Anomalies require fewer partitions (shorter path length)
-- Uses ensemble of isolation trees
-
-**Technology:** scikit-learn library
-
-**Relevance:** Primary anomaly detection model. Identifies unusual stock movements (spikes, drops).
-
-**Findings:**
-- Linear time complexity O(n)
-- No distance computations needed
-- Handles high-dimensional data
-- Works with small datasets
-
-**Limitations:**
-- Requires contamination parameter
-- No anomaly scoring explanation
-- Sensitive to random seed
-- May miss contextual anomalies
-
----
-
-### 1.5 Statistical Process Control (SPC)
-
-**Title:** "Economic Control of Quality of Manufactured Product"
-**Author:** Walter A. Shewhart
-**Year:** 1931
-**Source:** D. Vanstrand Company
-
-**Problem:** Quality control through statistical methods.
-
-**Approach:** Control charts with:
-- Center Line (CL): Process mean
-- Upper Control Limit (UCL): μ + 3σ
-- Lower Control Limit (LCL): μ - 3σ
-- Points beyond limits indicate special cause variation
-
-**Relevance:** SPC z-score analysis in anomaly module. Provides interpretable control charts for stock movement monitoring.
-
-**Findings:**
-- Simple to implement and interpret
-- Distinguishes common vs special cause variation
-- Well-established in manufacturing
-- No training required
-
-**Limitations:**
-- Assumes normal distribution
-- Fixed control limits (no adaptation)
-- May produce false alarms
-- No root cause identification
+- **Source [V]:** OWASP Cheat Sheet Series, *Denial of Service* cheat
+  sheet — rate limiting as an application-level availability control.
+  (Two other OWASP rate-limiting URLs returned 404 during verification.)
+- **Relevance:** flask-limiter per-route limits (login 10/min, writes
+  30/min, movements 60/min) plus lockout/reset throttling — matching the
+  guidance. Gap: the two AI portfolio GET endpoints have no limit.
 
 ---
 
-## 2. Industry Solutions
+## 2. Existing / Similar Solutions
 
-### 2.1 SAP Integrated Business Planning (IBP)
+Rows are **E3 general knowledge** unless noted; the final row is
+repo-verified [E1].
 
-**Type:** Enterprise Cloud Solution
-**Technology:** SAP HANA, Cloud-native
-**Features:**
-- Demand forecasting (ML-powered)
-- Inventory optimization
-- Supply planning
-- Sales and operations planning
+| Solution | Category | Stack | ML Features | SCD2/DW | Cost | How InventoryLogix differs |
+|----------|------|------------|-------------|---------|------|-----------------------------|
+| **SAP IBP** | Enterprise planning | SAP HANA, cloud | Advanced ML demand & inventory optimization | Enterprise DW (proprietary) | $$$$$ | Same concept categories at enterprise cost/complexity; Logix demonstrates them in a single-dev Flask app |
+| **Oracle SCM Cloud** | Enterprise planning | OCI | Advanced planning | Proprietary | $$$$$ | Enterprise-grade vs. focused dashboard with full source access |
+| **ERPNext** | OSS ERP (inventory module) | Python/Frappe, MariaDB | Reorder rules; no native forecast ML | No Kimball star by default | Free OSS | Logix adds Prophet/ARIMA + IF + EOQ 3D; PG SCD2 star + ETL |
+| **Odoo Inventory** | OSS ERP module | Python/PG | Replenishment rules; ML limited/module-based | No exposed SCD2 | Free community / paid | Logix: single-purpose, transparent 65-SP layer, /ai/* endpoints, row-hash SCD2 |
+| **TradeGecko (QuickBooks Commerce)** | SMB SaaS | Proprietary cloud | None native | No | $29-499/mo | Logix: ML forecasting + anomaly + EOQ 3D + open source, free |
+| **inFlow Inventory** | SMB desktop/web | Proprietary (Windows-first) | ROP recommendations only | No | $110-499/mo | Logix: web-first, ensemble forecasting, anomaly detection, warehouse |
+| **Unleashed** | Manufacturing SaaS | Proprietary cloud | Reporting only | No | Subscription | Logix: EOQ optimization + ML + SCD2 at zero license cost |
+| **PartKeepr** | OSS parts inventory (inactive) | PHP/MySQL | None | None | Free | Logix: active ML layer, general products, warehouse with SCD2 |
+| **InvenTree** | OSS parts/BOM inventory | Python/Django, PG | Stock tracking only | No SCD2 | Free | Logix adds forecasting + anomaly + EOQ + DW |
+| **Snipe-IT** | OSS **asset** management | PHP/Laravel, MySQL | None (audit/depreciation) | No SCD2 | Free | Different problem (assets vs consumable stock + replenishment math) |
+| **InventoryLogix** [E1] | OSS mini-project dashboard | Flask≥3.0, PostgreSQL, Plotly | Prophet+ARIMA ensemble w/ MA fallback; IF + SPC | SCD2 star + ETL | Free | — |
 
-**Comparison with InventoryLogix:**
-| Aspect | SAP IBP | InventoryLogix |
-|--------|---------|----------------|
-| Cost | $$$$ (enterprise pricing) | Free (open-source) |
-| Complexity | High (implementation team) | Low (single developer) |
-| ML Capabilities | Advanced (custom models) | Basic (Prophet/ARIMA) |
-| Scalability | Enterprise-grade | Single-instance |
-| Deployment | Cloud-only | Cloud or on-premise |
-
-**Relevance:** Shows enterprise-grade solution that InventoryLogix simplifies for SMBs.
-
----
-
-### 2.2 Oracle SCM Cloud
-
-**Type:** Enterprise Cloud Solution
-**Technology:** Oracle Cloud Infrastructure
-**Features:**
-- Inventory management
-- Demand management
-- Supply planning
-- Procurement
-
-**Comparison:**
-| Aspect | Oracle SCM | InventoryLogix |
-|--------|------------|----------------|
-| Target | Large enterprises | SMBs |
-| Implementation | Months/years | Hours/days |
-| Customization | Limited (configuration) | Full (source code) |
-| Data Model | Complex (hundreds of tables) | Simple (12 tables) |
+Honest positioning of the combination claim ("no existing solution
+combines open Flask+PG stack + integrated ML forecasting + IF/SPC anomaly
++ EOQ 3D + real-dataset grounding + SCD2 + single-developer build"): it
+is defensible as a *category* statement for a mini-project; as a
+market-absence claim it is unverifiable and stays E3.
 
 ---
 
-### 2.3 TradeGecko (QuickBooks Commerce)
+## 3. Technology Comparison
 
-**Type:** SMB Cloud Solution
-**Technology:** Cloud-native SaaS
-**Features:**
-- Multi-channel inventory
-- Order management
-- B2B e-commerce
-- Reporting
+### 3.1 ML Libraries
 
-**Comparison:**
-| Aspect | TradeGecko | InventoryLogix |
-|--------|------------|----------------|
-| ML Forecasting | No | Yes (Prophet/ARIMA) |
-| Anomaly Detection | No | Yes (Isolation Forest) |
-| EOQ Optimization | No | Yes (3D surface) |
-| Customization | Limited | Full |
-| Cost | $29-499/month | Free |
+| Library | Purpose | Pros | Cons | Used |
+|---------|---------|------|------|------|
+| Prophet | Time series | Easy, handles seasonality/missing data | Heavy deps, slower | Yes |
+| statsmodels (ARIMA) | Statistical models | Fast, well-documented | No automatic seasonality | Yes |
+| scikit-learn | ML algorithms | Comprehensive, fast | No deep learning | Yes (IsolationForest) |
+| TensorFlow / PyTorch | Deep learning | State-of-the-art accuracy | Complex, GPU required | No |
 
-**Relevance:** Shows SMB solution that lacks ML capabilities.
+Decision reasoning (engineering, not attributed intent): 14-30 daily
+points is the sparse regime where classical methods beat heavy ML; the
+ensemble + fallback design already tolerates missing libraries.
 
----
+### 3.2 Web Frameworks
 
-### 2.4 inFlow Inventory
+| Framework | Language | Pros | Cons | Used |
+|-----------|----------|------|------|------|
+| Flask | Python | Lightweight, flexible | Fewer batteries | Yes |
+| Django | Python | Batteries included, admin | Heavier; ORM conflicts with SP architecture | No |
+| FastAPI | Python | Async, type hints | Async unused here (sync driver, blocking ML) | No |
+| Express | JavaScript | Fast, large ecosystem | No Python ML ecosystem | No |
 
-**Type:** SMB Desktop/Web Solution
-**Technology:** Windows desktop + cloud sync
-**Features:**
-- Inventory tracking
-- Purchase orders
-- Sales orders
-- Reporting
+### 3.3 Databases
 
-**Comparison:**
-| Aspect | inFlow | InventoryLogix |
-|--------|--------|----------------|
-| Platform | Desktop-first | Web-first |
-| ML | No | Yes |
-| Data Warehouse | No | Yes (SCD Type 2) |
-| API | Limited | Full REST API |
-| Source Code | Closed | Open |
+| Database | Type | Pros | Cons | Used |
+|----------|------|------|------|------|
+| PostgreSQL | Relational | PL/pgSQL, JSONB, RLS, window functions | Setup complexity | Yes |
+| SQLite | Embedded | Zero config | No server-side procedures/pooling/RLS | No |
+| MySQL | Relational | Fast, popular | Weaker procedures, no native RLS | No |
+| MongoDB | Document | Flexible schema | No ACID stored procedures | No |
 
 ---
 
-### 2.5 Odoo Inventory
+## 4. Research Gap
 
-**Type:** Open Source ERP Module
-**Technology:** Python/PostgreSQL (similar stack)
-**Features:**
-- Inventory management
-- Warehouse management
-- Purchase management
-- Manufacturing
+### 4.1 Current Landscape
+1. **Enterprise solutions** (SAP, Oracle): comprehensive but expensive,
+   implementation-team-bound, vendor lock-in.
+2. **SMB solutions** (TradeGecko, inFlow): affordable but lack ML and
+   optimization models.
+3. **OSS ERPs** (Odoo, ERPNext): broad but without integrated
+   forecasting + EOQ + warehouse analytics in one codebase.
 
-**Comparison:**
-| Aspect | Odoo | InventoryLogix |
-|--------|------|----------------|
-| Scope | Full ERP | Focused dashboard |
-| ML | Limited (separate module) | Integrated |
-| EOQ | No | Yes |
-| Complexity | High (many modules) | Low (single purpose) |
-| Customization | Module-based | Full source |
+### 4.2 Where the Hard Problems Are (and where this project honestly lands)
 
-**Relevance:** Most similar competitor. Shows that even open-source ERPs lack integrated ML + EOQ.
+1. **EOQ vs stochastic demand.** The literature's answer to uncertain
+   demand is (s,S)/newsvendor models. InventoryLogix does not solve this —
+   it *visualizes sensitivity* so fragility is visible. A pedagogical
+   mitigation, not a theoretical contribution.
+2. **Forecast accuracy on sparse data.** Prophet's own docs say several
+   seasons of history is ideal; this repo needs only 14/20 points and
+   otherwise falls back to moving average — it degrades honestly rather
+   than solving sparsity. Candor notes: fallback accuracy is hardcoded
+   (78.0), and reported accuracy is in-sample MAPE on fitted values —
+   optimistic versus holdout validation.
+3. **SCD2 maintenance cost.** The literature warns Type 2 is costly under
+   frequent dimension change. The repo mitigates operationally (row-hash
+   change detection, is_current partial indexes, batch ETL) — the correct
+   engineering response at 118-product scale, not a novel one.
+4. **Anomaly parameters.** Fixed contamination (0.05) is a known
+   limitation; the SPC z-score channel is the interpretable complement.
 
----
+### 4.3 Realistic Gap Statement
 
-## 3. Research Gap
-
-### 3.1 Current Landscape
-
-Most inventory management solutions fall into two categories:
-
-1. **Enterprise Solutions** (SAP, Oracle):
-   - Comprehensive but expensive
-   - Require implementation teams
-   - Vendor lock-in
-
-2. **SMB Solutions** (TradeGecko, inFlow):
-   - Affordable but limited
-   - No ML capabilities
-   - No optimization models
-
-### 3.2 Missing Combination
-
-No existing solution combines:
-- ✅ Open-source Flask + PostgreSQL stack
-- ✅ Integrated ML forecasting (Prophet/ARIMA)
-- ✅ Anomaly detection (Isolation Forest + SPC)
-- ✅ EOQ optimization with 3D visualization
-- ✅ Real transaction data grounding
-- ✅ Data warehouse with SCD Type 2
-- ✅ Single-developer implementation
-
-### 3.3 InventoryLogix Positioning
-
-InventoryLogix fills this gap by providing:
-- **Accessible**: Free, open-source, single-developer friendly
-- **Capable**: ML forecasting + anomaly detection + EOQ optimization
-- **Grounded**: Real transaction data (DataCo dataset)
-- **Modern**: Dark-mode UI with animations
-- **Secure**: CSP, RBAC, parameterized SQL
-
----
-
-## 4. Technology Comparison
-
-### 4.1 ML Libraries
-
-| Library | Purpose | Pros | Cons | Used In |
-|---------|---------|------|------|---------|
-| Prophet | Time series | Easy to use, handles seasonality | Slow, requires pandas | InventoryLogix |
-| statsmodels | Statistical models | Fast, well-documented | No automatic seasonality | InventoryLogix |
-| scikit-learn | ML algorithms | Comprehensive, fast | No deep learning | InventoryLogix |
-| TensorFlow | Deep learning | State-of-the-art accuracy | Complex, GPU required | Not used |
-| PyTorch | Deep learning | Flexible, research-friendly | Complex, GPU required | Not used |
-
-**Decision:** Prophet + ARIMA chosen for simplicity and no GPU requirement.
-
-### 4.2 Web Frameworks
-
-| Framework | Language | Pros | Cons | Used In |
-|-----------|----------|------|------|---------|
-| Flask | Python | Lightweight, flexible | No admin, less batteries | InventoryLogix |
-| Django | Python | Batteries included, admin | Heavier, less flexible | Not used |
-| FastAPI | Python | Async, type hints | Newer, less mature | Not used |
-| Express | JavaScript | Fast, large ecosystem | No Python ML libs | Not used |
-
-**Decision:** Flask chosen for flexibility and Python ML ecosystem.
-
-### 4.3 Databases
-
-| Database | Type | Pros | Cons | Used In |
-|----------|------|------|------|---------|
-| PostgreSQL | Relational | JSONB, stored procedures, RLS | Complex setup | InventoryLogix |
-| SQLite | Embedded | Simple, zero config | No concurrency, limited | Not used |
-| MySQL | Relational | Fast, popular | No JSONB, weaker procedures | Not used |
-| MongoDB | Document | Flexible schema | No ACID, no stored procs | Not used |
-
-**Decision:** PostgreSQL chosen for stored procedures, JSONB, and RLS support.
+InventoryLogix advances no state of the art in forecasting, optimization,
+or warehousing. Its demonstrable contribution is *integration and
+transparency*: the canonical techniques above exist in enterprise suites
+or as disconnected libraries, but not as one open, single-developer Flask
+codebase with a documented security posture and honest fallbacks. For an
+MCA mini-project, that integration — plus the built-in distinction
+between implemented, measured, and merely claimed value — is the
+defensible academic contribution.
 
 ---
 
 ## 5. Research Directions
 
-### 5.1 Potential Improvements
+1. Deep-learning forecasting (LSTM/Transformer) for complex patterns —
+   only with orders-of-magnitude more data.
+2. Real-time/streaming anomaly detection vs. the current on-demand scans.
+3. Reinforcement learning for reorder policies beyond EOQ.
+4. Stochastic EOQ extensions ((s,S), newsvendor) for variable demand.
+5. Optimal contamination parameter estimation for Isolation Forest on
+   inventory data.
+6. Cost-benefit of real-time vs batch anomaly detection.
 
-1. **Deep Learning Forecasting**: LSTM/Transformer models for complex patterns
-2. **Real-time Anomaly Detection**: Streaming algorithms for live data
-3. **Reinforcement Learning**: Optimal reorder policies
-4. **Natural Language Interface**: Chat-based inventory queries
-5. **Computer Vision**: Automated stock counting via cameras
-
-### 5.2 Open Questions
-
-1. How does Prophet/ARIMA ensemble compare to deep learning models?
-2. What is the optimal contamination parameter for Isolation Forest in inventory data?
+### Open Questions
+1. How does the Prophet/ARIMA ensemble compare to deep learning on this
+   data volume?
+2. What is the optimal contamination parameter for inventory data?
 3. How should EOQ be adapted for stochastic demand?
 4. What is the cost-benefit of real-time vs batch anomaly detection?
 
 ---
 
-*Generated: September 10, 2026*
+## 6. Unverified / Correction Notes
+
+- Harris 1913 title corrected to "How many parts to make at once" (earlier
+  in-repo draft said "How Much to Make of What").
+- Prophet venue: PeerJ preprint (2017) vs The American Statistician
+  71(1) (2018) — earlier draft conflated them; corrected.
+- Shewhart publisher: D. Van Nostrand (not "Vanstrand").
+- DataCo SMART SUPPLY CHAIN dataset: repo-verified loader
+  (dataset_service.py); Kaggle page not fetched.
+- All §2 vendor rows are E3 general knowledge — no vendor pages fetched;
+  pricing figures are public-listing general knowledge and may be dated.
+- OWASP rate-limiting URLs that 404'd during verification are noted in §1.9.
+
+---
+
+*Generated: September 10, 2026 · Merged from both analysis passes*
