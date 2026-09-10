@@ -247,13 +247,13 @@ output:
 agent: documentation-writer
 role: Documentation
 responsibilities:
-  - Generate PROJECT_ANALYSIS.md
-  - Generate EXECUTIVE_SUMMARY.md
-  - Generate TECHNICAL_ARCHITECTURE.md
-  - Generate INTERVIEW_QA.md
-  - Generate BUSINESS_GUIDE.md
-  - Generate LITERATURE_REVIEW.md
-  - Generate EVIDENCE_REGISTER.md
+  - Generate PROJECT_ANALYSIS.txt
+  - Generate EXECUTIVE_SUMMARY.txt
+  - Generate TECHNICAL_ARCHITECTURE.txt
+  - Generate INTERVIEW_QA.txt
+  - Generate BUSINESS_GUIDE.txt
+  - Generate LITERATURE_REVIEW.txt
+  - Generate EVIDENCE_REGISTER.txt
 output:
   - 7 documentation files
 ```
@@ -262,13 +262,13 @@ output:
 
 ```
 docs/project-analysis/
-├── PROJECT_ANALYSIS.md          # Full 40-section analysis
-├── EXECUTIVE_SUMMARY.md         # One-page overview
-├── TECHNICAL_ARCHITECTURE.md    # System design and data flows
-├── INTERVIEW_QA.md              # 20+ Q&As for interviews
-├── BUSINESS_GUIDE.md            # Business problem and value
-├── LITERATURE_REVIEW.md         # Academic and industry research
-└── EVIDENCE_REGISTER.md         # Claims with evidence levels
+├── PROJECT_ANALYSIS.txt          # Full 40-section analysis
+├── EXECUTIVE_SUMMARY.txt         # One-page overview
+├── TECHNICAL_ARCHITECTURE.txt    # System design and data flows
+├── INTERVIEW_QA.txt              # 20+ Q&As for interviews
+├── BUSINESS_GUIDE.txt            # Business problem and value
+├── LITERATURE_REVIEW.txt         # Academic and industry research
+└── EVIDENCE_REGISTER.txt         # Claims with evidence levels
 ```
 
 ## Usage
