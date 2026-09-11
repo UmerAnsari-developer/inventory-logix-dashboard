@@ -288,18 +288,29 @@ GSAP entrance animations, and the Three.js 3D wave background.
 ---
 
 ## Tests
-
 ```bash
 pip install pytest
 pytest
 ```
-
 Covers auth flow, role-based access, REST API, security helpers, ML smoke
 tests, and service-layer validation.
-
 ---
+## Academic Documentation
 
+The repository includes an evidence-based academic documentation structure for
+project reports and presentations:
+
+- [`docs/project-analysis/ACADEMIC_DOCUMENTATION_INDEX.md`](docs/project-analysis/ACADEMIC_DOCUMENTATION_INDEX.md) — expanded preliminary pages, 24-chapter index, appendices, and document governance.
+- [`docs/project-analysis/CHAPTER_5_TECHNOLOGY_STACK.md`](docs/project-analysis/CHAPTER_5_TECHNOLOGY_STACK.md) — reusable technology-stack chapter template for any project.
+- [`docs/project-analysis/CHAPTER_7_SYSTEM_ARCHITECTURE.md`](docs/project-analysis/CHAPTER_7_SYSTEM_ARCHITECTURE.md) — reusable architecture chapter template for any project.
+- [`docs/project-analysis/REPORT_PAGES.md`](docs/project-analysis/REPORT_PAGES.md) — report-page catalogue, metric definitions, data flow, security, caching, and validation guidance.
+- [`docs/project-analysis/AGENT_TEAM.md`](docs/project-analysis/AGENT_TEAM.md) — staged documentation-agent roles, shared evidence rules, and required outputs.
+- [`docs/project-analysis/LITERATURE_REVIEW.md`](docs/project-analysis/LITERATURE_REVIEW.md) — literature review, similar systems, research gaps, and references.
+
+The academic index intentionally excludes a certificate page. Institutional
+certificates and attestations should be supplied separately rather than
+generated from application documentation.
+---
 ## License
-
 This codebase is part of an MCA mini-project. Use freely within your
 organisation.
