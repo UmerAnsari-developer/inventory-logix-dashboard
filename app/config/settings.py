@@ -58,6 +58,20 @@ class Config:
     ANOMALY_DETECTION_ENABLED = _bool(os.environ.get("ANOMALY_DETECTION_ENABLED"), True)
     DARK_MODE_ENABLED = _bool(os.environ.get("DARK_MODE_ENABLED"), True)
 
+    # Anomaly detection thresholds
+    ANOMALY_ZWARNING = float(os.environ.get("ANOMALY_ZWARNING", "2.0"))
+    ANOMALY_ZHIGH = float(os.environ.get("ANOMALY_ZHIGH", "3.0"))
+    ANOMALY_ZCRITICAL = float(os.environ.get("ANOMALY_ZCRITICAL", "4.0"))
+    ANOMALY_CONTAMINATION = float(os.environ.get("ANOMALY_CONTAMINATION", "0.05"))
+    ANOMALY_RULE_MULTIPLIER = float(os.environ.get("ANOMALY_RULE_MULTIPLIER", "3.0"))
+    ANOMALY_FORECAST_DEVIATION = float(os.environ.get("ANOMALY_FORECAST_DEVIATION", "0.40"))
+
+    # Model monitoring thresholds
+    MODEL_WARNING_THRESHOLD = float(os.environ.get("MODEL_WARNING_THRESHOLD", "10"))
+    MODEL_DEGRADATION_THRESHOLD = float(os.environ.get("MODEL_DEGRADATION_THRESHOLD", "25"))
+    MODEL_CRITICAL_THRESHOLD = float(os.environ.get("MODEL_CRITICAL_THRESHOLD", "50"))
+    MODEL_MONITORING_WINDOW = int(os.environ.get("MODEL_MONITORING_WINDOW", "7"))
+
     # Bootstrap behaviour. ``RUN_ETL_ON_STARTUP`` lets deployments skip the
     # (potentially slow, remote) star-schema rebuild on every boot when the
     # warehouse is already populated. Defaults to True for safety.

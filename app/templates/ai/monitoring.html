@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+{% set active_page = "monitoring" %}
+{% block title %}Model Monitoring{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Intelligence</div>
+      <h1>Model Monitoring</h1>
+      <p class="heading-note">Track forecast accuracy, degradation, and model health over time.</p>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary" id="evalPendingBtn" type="button">Evaluate Pending</button>
+      <button class="btn btn-primary" id="computeMetricsBtn" type="button">Compute Metrics</button>
+    </div>
+  </div>
+
+  {# ── KPI CARDS ─────────────────────────────────────────────────── #}
+  <section class="metric-grid" id="summaryCards">
+    <div class="metric-card"><div class="metric-label">Models Monitored <span class="metric-index">M1</span></div><div class="metric-value" id="kpiModels">-</div><div class="metric-foot">ARIMA + Prophet</div></div>
+    <div class="metric-card"><div class="metric-label">Forecasts Evaluated <span class="metric-index">M2</span></div><div class="metric-value" id="kpiEvaluated">-</div><div class="metric-foot">actual vs predicted</div></div>
+    <div class="metric-card"><div class="metric-label">Current MAE <span class="metric-index">M3</span></div><div class="metric-value" id="kpiMae">-</div><div class="metric-foot">mean absolute error</div></div>
+    <div class="metric-card"><div class="metric-label">Current MAPE <span class="metric-index">M4</span></div><div class="metric-value" id="kpiMape">-</div><div class="metric-foot">mean abs % error</div></div>
+    <div class="metric-card"><div class="metric-label">Healthy <span class="metric-index">M5</span></div><div class="metric-value" id="kpiHealthy">-</div><div class="metric-foot">within thresholds</div></div>
+    <div class="metric-card"><div class="metric-label">Degraded <span class="metric-index">M6</span></div><div class="metric-value" id="kpiDegraded">-</div><div class="metric-foot"><strong>needs attention</strong></div></div>
+  </section>
+
+  {# ── FILTERS ───────────────────────────────────────────────────── #}
+  <div class="report-filter-row">
+    <label class="report-filter-label">
+      <span>SKU</span>
+      <select id="monSku" class="filter-select">
+        <option value="">All SKUs</option>
+        {% for p in products %}
+        <option value="{{ p.sku }}">{{ p.sku }} — {{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="report-filter-label">
+      <span>Model</span>
+      <select id="monModel" class="filter-select">
+        <option value="">All models</option>
+        <option value="prophet">Prophet</option>
+        <option value="arima">ARIMA</option>
+        <option value="ensemble">Ensemble</option>
+        <option value="moving_average">Moving Average</option>
+      </select>
+    </label>
+    <label class="report-filter-label">
+      <span>From</span>
+      <input type="date" id="monDateFrom" class="date-filter-input">
+    </label>
+    <label class="report-filter-label">
+      <span>To</span>
+      <input type="date" id="monDateTo" class="date-filter-input">
+    </label>
+    <div class="report-actions">
+      <button class="btn btn-primary" id="monApply" type="button">Apply</button>
+    </div>
+  </div>
+
+  {# ── MODEL HEALTH TABLE ────────────────────────────────────────── #}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Model Health</div></div>
+    <div class="table-scroll">
+      <table class="data-table" id="healthTable">
+        <thead>
+          <tr>
+            <th>SKU</th><th>Model</th><th>MAE</th><th>MAPE</th>
+            <th>Baseline MAE</th><th>Change</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="7"><div class="empty-state">Loading&hellip;</div></td></tr></tbody>
+      </table>
+    </div>
+  </article>
+
+  {# ── ACTUAL VS PREDICTED CHART ─────────────────────────────────── #}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Actual vs Predicted Demand</div></div>
+    <div class="panel-content"><div id="avpChart" style="height:360px"></div></div>
+  </article>
+
+  {# ── MAE TREND CHART ───────────────────────────────────────────── #}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">MAE Over Time</div></div>
+    <div class="panel-content"><div id="maeChart" style="height:300px"></div></div>
+  </article>
+
+  {# ── MAPE TREND CHART ──────────────────────────────────────────── #}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">MAPE Over Time</div></div>
+    <div class="panel-content"><div id="mapeChart" style="height:300px"></div></div>
+  </article>
+
+  {# ── ERROR DISTRIBUTION CHART ──────────────────────────────────── #}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Error Distribution</div></div>
+    <div class="panel-content"><div id="errorDistChart" style="height:300px"></div></div>
+  </article>
+
+  {# ── MONITORING ALERTS ─────────────────────────────────────────── #}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Monitoring Alerts</div></div>
+    <div class="table-scroll">
+      <table class="data-table" id="alertsTable">
+        <thead>
+          <tr>
+            <th>Date</th><th>SKU</th><th>Model</th><th>Type</th>
+            <th>Severity</th><th>Metric</th><th>Change</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="8"><div class="empty-state">Loading&hellip;</div></td></tr></tbody>
+      </table>
+    </div>
+    <div style="padding:8px 16px;display:flex;gap:8px;align-items:center">
+      <button class="btn btn-secondary btn-sm" id="alertPrev" disabled>&laquo; Prev</button>
+      <span id="alertPageInfo" style="font-size:0.85rem;opacity:0.7"></span>
+      <button class="btn btn-secondary btn-sm" id="alertNext">Next &raquo;</button>
+    </div>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', () => {
+  const BASE = '/ai/monitoring';
+  let alertPage = 0, alertPageSize = 50;
+  const theme = document.documentElement.getAttribute('data-theme');
+  const plotBg = 'transparent';
+  const plotFont = { family: 'Inter', size: 12 };
+  const plotGrid = 'rgba(127,127,127,0.18)';
+  const dlColor = theme === 'dark' ? '#e2e8f0' : '#1e293b';
+
+  function fmt(v) { return v != null ? (typeof v === 'number' ? v.toFixed(1) : v) : '-'; }
+  function pctFmt(v) { return v != null ? v.toFixed(1) + '%' : '-'; }
+  function statusBadge(s) {
+    const cls = { healthy:'status good', warning:'status', degraded:'status warning', critical:'status critical' };
+    return '<span class="' + (cls[s]||'status') + '">' + (s||'-') + '</span>';
+  }
+
+  // ── Load summary KPIs ──
+  async function loadSummary() {
+    try {
+      const res = await fetch(BASE + '/summary').then(r => r.json());
+      const d = res.data || {};
+      document.getElementById('kpiModels').textContent = d.models_monitored || 0;
+      document.getElementById('kpiEvaluated').textContent = d.forecasts_evaluated || 0;
+      document.getElementById('kpiMae').textContent = fmt(d.current_mae);
+      document.getElementById('kpiMape').textContent = pctFmt(d.current_mape);
+      document.getElementById('kpiHealthy').textContent = d.healthy_models || 0;
+      document.getElementById('kpiDegraded').textContent = d.degraded_models || 0;
+    } catch(e) {}
+  }
+
+  // ── Load health table ──
+  async function loadHealth() {
+    try {
+      const res = await fetch(BASE + '/health').then(r => r.json());
+      const rows = res.data || [];
+      const tbody = document.getElementById('healthTable').tBodies[0];
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">No monitoring data yet. Run a forecast and evaluate.</div></td></tr>'; return; }
+      tbody.innerHTML = rows.map(r => {
+        const chg = r.mae_change_percent != null ? (r.mae_change_percent >= 0 ? '+' : '') + r.mae_change_percent.toFixed(1) + '%' : '-';
+        return '<tr><td><span class="sku">' + r.sku + '</span></td>' +
+          '<td>' + (r.model_name||'') + '</td>' +
+          '<td>' + fmt(r.mae) + '</td>' +
+          '<td>' + pctFmt(r.mape) + '</td>' +
+          '<td>' + fmt(r.baseline_mae) + '</td>' +
+          '<td>' + chg + '</td>' +
+          '<td>' + statusBadge(r.model_status) + '</td></tr>';
+      }).join('');
+    } catch(e) {}
+  }
+
+  // ── Load charts ──
+  async function loadAvpChart() {
+    const sku = document.getElementById('monSku').value;
+    const model = document.getElementById('monModel').value;
+    const dfrom = document.getElementById('monDateFrom').value;
+    const dto = document.getElementById('monDateTo').value;
+    const q = new URLSearchParams();
+    if (sku) q.set('sku', sku);
+    if (model) q.set('model', model);
+    if (dfrom) q.set('date_from', dfrom);
+    if (dto) q.set('date_to', dto);
+    try {
+      const res = await fetch(BASE + '/actual-vs-predicted?' + q).then(r => r.json());
+      const rows = res.data || [];
+      if (!rows.length) { Plotly.purge('avpChart'); return; }
+      const dates = rows.map(r => r.forecast_date);
+      const actuals = rows.map(r => r.actual_value);
+      const predicted = rows.map(r => r.predicted_value);
+      Plotly.newPlot('avpChart', [
+        { x: dates, y: actuals, name: 'Actual', type: 'scatter', mode: 'lines+markers', line: { color: '#3d997c', width: 2 }, marker: { size: 4 } },
+        { x: dates, y: predicted, name: 'Predicted', type: 'scatter', mode: 'lines+markers', line: { color: '#2563eb', width: 2, dash: 'dot' }, marker: { size: 4 } },
+      ], { margin: { t: 20, b: 40, l: 50, r: 20 }, paper_bgcolor: plotBg, plot_bgcolor: plotBg, font: plotFont,
+        xaxis: { gridcolor: plotGrid }, yaxis: { gridcolor: plotGrid, title: 'Demand' },
+        legend: { orientation: 'h', y: 1.1 } }, { responsive: true, displaylogo: false });
+    } catch(e) {}
+  }
+
+  async function loadMaeChart() {
+    const sku = document.getElementById('monSku').value;
+    const model = document.getElementById('monModel').value;
+    const q = new URLSearchParams();
+    if (sku) q.set('sku', sku);
+    if (model) q.set('model', model);
+    try {
+      const res = await fetch(BASE + '/metrics?' + q).then(r => r.json());
+      const rows = (res.data || []).reverse();
+      if (!rows.length) { Plotly.purge('maeChart'); return; }
+      const dates = rows.map(r => r.monitoring_date);
+      const mae = rows.map(r => r.mae);
+      const baseline = rows.map(r => r.baseline_mae);
+      Plotly.newPlot('maeChart', [
+        { x: dates, y: mae, name: 'MAE', type: 'scatter', mode: 'lines+markers', line: { color: '#2563eb', width: 2 }, marker: { size: 4 } },
+        { x: dates, y: baseline, name: 'Baseline', type: 'scatter', mode: 'lines', line: { color: '#ef4444', width: 1, dash: 'dash' } },
+      ], { margin: { t: 20, b: 40, l: 50, r: 20 }, paper_bgcolor: plotBg, plot_bgcolor: plotBg, font: plotFont,
+        xaxis: { gridcolor: plotGrid }, yaxis: { gridcolor: plotGrid, title: 'MAE' },
+        legend: { orientation: 'h', y: 1.1 } }, { responsive: true, displaylogo: false });
+    } catch(e) {}
+  }
+
+  async function loadMapeChart() {
+    const sku = document.getElementById('monSku').value;
+    const model = document.getElementById('monModel').value;
+    const q = new URLSearchParams();
+    if (sku) q.set('sku', sku);
+    if (model) q.set('model', model);
+    try {
+      const res = await fetch(BASE + '/metrics?' + q).then(r => r.json());
+      const rows = (res.data || []).reverse();
+      if (!rows.length) { Plotly.purge('mapeChart'); return; }
+      const dates = rows.map(r => r.monitoring_date);
+      const mape = rows.map(r => r.mape);
+      const baseline = rows.map(r => r.baseline_mape);
+      Plotly.newPlot('mapeChart', [
+        { x: dates, y: mape, name: 'MAPE', type: 'scatter', mode: 'lines+markers', line: { color: '#7c3aed', width: 2 }, marker: { size: 4 } },
+        { x: dates, y: baseline, name: 'Baseline', type: 'scatter', mode: 'lines', line: { color: '#ef4444', width: 1, dash: 'dash' } },
+      ], { margin: { t: 20, b: 40, l: 50, r: 20 }, paper_bgcolor: plotBg, plot_bgcolor: plotBg, font: plotFont,
+        xaxis: { gridcolor: plotGrid }, yaxis: { gridcolor: plotGrid, title: 'MAPE %' },
+        legend: { orientation: 'h', y: 1.1 } }, { responsive: true, displaylogo: false });
+    } catch(e) {}
+  }
+
+  async function loadErrorDist() {
+    const sku = document.getElementById('monSku').value;
+    const model = document.getElementById('monModel').value;
+    const q = new URLSearchParams();
+    if (sku) q.set('sku', sku);
+    if (model) q.set('model', model);
+    try {
+      const res = await fetch(BASE + '/actual-vs-predicted?' + q).then(r => r.json());
+      const rows = res.data || [];
+      if (!rows.length) { Plotly.purge('errorDistChart'); return; }
+      const errors = rows.map(r => r.error);
+      Plotly.newPlot('errorDistChart', [
+        { x: errors, type: 'histogram', nbinsx: 20, marker: { color: '#3d997c', opacity: 0.7 } },
+      ], { margin: { t: 20, b: 40, l: 50, r: 20 }, paper_bgcolor: plotBg, plot_bgcolor: plotBg, font: plotFont,
+        xaxis: { title: 'Forecast Error', gridcolor: plotGrid },
+        yaxis: { title: 'Count', gridcolor: plotGrid } }, { responsive: true, displaylogo: false });
+    } catch(e) {}
+  }
+
+  // ── Load alerts ──
+  async function loadAlerts() {
+    const q = new URLSearchParams();
+    q.set('limit', alertPageSize);
+    q.set('offset', alertPage * alertPageSize);
+    try {
+      const res = await fetch(BASE + '/alerts?' + q).then(r => r.json());
+      const d = res.data || {};
+      const rows = d.alerts || [];
+      const total = d.total || 0;
+      const tbody = document.getElementById('alertsTable').tBodies[0];
+      if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">No alerts</div></td></tr>'; return; }
+      const sevBadge = s => '<span class="badge badge-' + (s==='critical'?'critical':s==='high'?'high':s==='warning'?'medium':'low') + '">' + s + '</span>';
+      tbody.innerHTML = rows.map(r =>
+        '<tr><td>' + (r.alert_date||'') + '</td>' +
+        '<td><span class="sku">' + r.sku + '</span></td>' +
+        '<td>' + (r.model_name||'') + '</td>' +
+        '<td>' + (r.alert_type||'') + '</td>' +
+        '<td>' + sevBadge(r.severity) + '</td>' +
+        '<td>' + (r.metric||'') + '</td>' +
+        '<td>' + (r.change_percent!=null?(r.change_percent>=0?'+':'')+r.change_percent.toFixed(1)+'%':'-') + '</td>' +
+        '<td>' + statusBadge(r.status) + '</td></tr>'
+      ).join('');
+      document.getElementById('alertPageInfo').textContent = 'Page ' + (alertPage+1) + ' of ' + Math.ceil(total/alertPageSize);
+      document.getElementById('alertPrev').disabled = alertPage === 0;
+      document.getElementById('alertNext').disabled = (alertPage+1)*alertPageSize >= total;
+    } catch(e) {}
+  }
+
+  // ── Actions ──
+  document.getElementById('evalPendingBtn').addEventListener('click', async () => {
+    try { await fetch(BASE + '/evaluate', { method: 'POST' }); loadAll(); } catch(e) {}
+  });
+  document.getElementById('computeMetricsBtn').addEventListener('click', async () => {
+    const sku = document.getElementById('monSku').value;
+    if (!sku) { alert('Select a SKU first'); return; }
+    const model = document.getElementById('monModel').value || 'prophet';
+    try {
+      await fetch(BASE + '/compute', { method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ sku, model_name: model }) });
+      loadAll();
+    } catch(e) {}
+  });
+  document.getElementById('monApply').addEventListener('click', loadCharts);
+  document.getElementById('alertPrev').addEventListener('click', () => { alertPage--; loadAlerts(); });
+  document.getElementById('alertNext').addEventListener('click', () => { alertPage++; loadAlerts(); });
+
+  function loadCharts() { loadAvpChart(); loadMaeChart(); loadMapeChart(); loadErrorDist(); }
+  function loadAll() { loadSummary(); loadHealth(); loadCharts(); loadAlerts(); }
+  loadAll();
+});
+</script>
+{% endblock %}

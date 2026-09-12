@@ -80,7 +80,7 @@ SUPPLIER_SEED = [
     ("Adidas", "Herzogenaurach, Germany", 22, 93.0),
 ]
 
-# Movement ledger window: Jan 2024 -> today.
+# Movement ledger window: Jan 2024 -> yesterday.
 MOVEMENT_START = date(2024, 1, 1)
 RECENT_WINDOW_DAYS = 180
 _RNG = random.Random(2024)
@@ -260,7 +260,7 @@ def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> lis
 
 
 def _generate_movements(cur) -> int:
-    """Build a movement ledger from Jan 2024 -> today.
+    """Build a movement ledger from Jan 2024 -> yesterday.
 
     Each product receives a deterministic stream of IN (restock), OUT (sales)
     and occasional ADJUSTMENT/RETURN movements. Stock is managed against a
@@ -275,7 +275,7 @@ def _generate_movements(cur) -> int:
     """
     cur.execute("SELECT id, sku, demand_rate, reorder_point FROM products ORDER BY id")
     products = [dict(r) for r in cur.fetchall()]
-    today = date.today()
+    today = date.today() - timedelta(days=1)  # seed through yesterday
     recent_cutoff = today - timedelta(days=RECENT_WINDOW_DAYS)
     rows: list[tuple] = []
     # Year-specific sales multipliers to create 1-5 lakh differences between years
@@ -346,7 +346,7 @@ def _generate_purchase_orders(cur) -> int:
         return 0
 
     rng = random.Random(7)
-    today = date.today()
+    today = date.today() - timedelta(days=1)  # seed through yesterday
     span = (today - MOVEMENT_START).days
     rows: list[tuple] = []
     po_rows: list[tuple] = []
@@ -413,7 +413,8 @@ def run_seed(force: bool = False) -> None:
 
     Each table seeds independently: if products exist but movements are empty,
     only movements are generated. This prevents re-seeding already-populated
-    tables on partial restarts.
+    tables on partial restarts. Movements are generated from Jan 2024 through
+    yesterday (date.today() - 1 day).
     """
     conn = _open_conn()
     try:

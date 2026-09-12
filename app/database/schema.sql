@@ -161,6 +161,24 @@ CREATE INDEX IF NOT EXISTS idx_audit_user            ON audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created         ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_forecast_product      ON forecast_cache(product_id);
 CREATE INDEX IF NOT EXISTS idx_anomaly_product       ON anomaly_log(product_id);
+
+-- Enhanced anomaly detection: structured business alerts
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS expected_value  NUMERIC(12,3);
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS observed_value  NUMERIC(12,3);
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS deviation_pct   NUMERIC(7,2);
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS metric          VARCHAR(40) DEFAULT 'quantity';
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS alert_date      DATE;
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS risk_level      VARCHAR(20) DEFAULT 'low';
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS detection_method VARCHAR(40) DEFAULT 'zscore';
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS recommended_action TEXT;
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS status          VARCHAR(20) DEFAULT 'new';
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS reviewed_at     TIMESTAMP;
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS reviewed_by     INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS sku             VARCHAR(50);
+
+CREATE INDEX IF NOT EXISTS idx_anomaly_status        ON anomaly_log(status);
+CREATE INDEX IF NOT EXISTS idx_anomaly_risk          ON anomaly_log(risk_level);
+CREATE INDEX IF NOT EXISTS idx_anomaly_alert_date    ON anomaly_log(alert_date);
 CREATE INDEX IF NOT EXISTS idx_po_status             ON purchase_orders(status);
 
 -- =============================================================================
@@ -257,6 +275,76 @@ CREATE TABLE IF NOT EXISTS etl_state (
     value           TEXT,
     updated_at      TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')
 );
+
+-- ─────────────────────────────────────────────────────────────────
+-- Forecast Model Monitoring
+-- ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS forecast_predictions (
+    id                      SERIAL PRIMARY KEY,
+    sku                     VARCHAR(50) NOT NULL,
+    model_name              VARCHAR(30) NOT NULL,
+    forecast_generated_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+    forecast_date           DATE NOT NULL,
+    predicted_value         NUMERIC(12,3) NOT NULL,
+    actual_value            NUMERIC(12,3),
+    forecast_horizon        INTEGER NOT NULL DEFAULT 1,
+    status                  VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fp_sku ON forecast_predictions(sku);
+CREATE INDEX IF NOT EXISTS idx_fp_model ON forecast_predictions(model_name);
+CREATE INDEX IF NOT EXISTS idx_fp_date ON forecast_predictions(forecast_date);
+CREATE INDEX IF NOT EXISTS idx_fp_status ON forecast_predictions(status);
+
+CREATE TABLE IF NOT EXISTS forecast_monitoring_metrics (
+    id                  SERIAL PRIMARY KEY,
+    sku                 VARCHAR(50) NOT NULL,
+    model_name          VARCHAR(30) NOT NULL,
+    monitoring_date     DATE NOT NULL,
+    aggregation_period  VARCHAR(10) NOT NULL DEFAULT 'daily',
+    observation_count   INTEGER NOT NULL DEFAULT 0,
+    mae                 NUMERIC(10,3),
+    mape                NUMERIC(7,2),
+    rmse                NUMERIC(10,3),
+    mean_error          NUMERIC(10,3),
+    error_std           NUMERIC(10,3),
+    zero_demand_count   INTEGER NOT NULL DEFAULT 0,
+    baseline_mae        NUMERIC(10,3),
+    baseline_mape       NUMERIC(7,2),
+    mae_change_percent  NUMERIC(7,2),
+    mape_change_percent NUMERIC(7,2),
+    model_status        VARCHAR(20) NOT NULL DEFAULT 'healthy',
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_fmm_sku ON forecast_monitoring_metrics(sku);
+CREATE INDEX IF NOT EXISTS idx_fmm_model ON forecast_monitoring_metrics(model_name);
+CREATE INDEX IF NOT EXISTS idx_fmm_date ON forecast_monitoring_metrics(monitoring_date);
+CREATE INDEX IF NOT EXISTS idx_fmm_status ON forecast_monitoring_metrics(model_status);
+
+CREATE TABLE IF NOT EXISTS model_monitoring_alerts (
+    id                  SERIAL PRIMARY KEY,
+    sku                 VARCHAR(50) NOT NULL,
+    model_name          VARCHAR(30) NOT NULL,
+    alert_date          DATE NOT NULL,
+    alert_type          VARCHAR(40) NOT NULL,
+    severity            VARCHAR(20) NOT NULL DEFAULT 'warning',
+    metric              VARCHAR(30) NOT NULL,
+    baseline_value      NUMERIC(10,3),
+    current_value       NUMERIC(10,3),
+    change_percent      NUMERIC(7,2),
+    message             TEXT,
+    recommended_action  TEXT,
+    status              VARCHAR(20) NOT NULL DEFAULT 'new',
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_mma_sku ON model_monitoring_alerts(sku);
+CREATE INDEX IF NOT EXISTS idx_mma_model ON model_monitoring_alerts(model_name);
+CREATE INDEX IF NOT EXISTS idx_mma_type ON model_monitoring_alerts(alert_type);
+CREATE INDEX IF NOT EXISTS idx_mma_status ON model_monitoring_alerts(status);
 
 -- ─────────────────────────────────────────────────────────────────
 -- Row-Level Security: enable on every table with NO policies.

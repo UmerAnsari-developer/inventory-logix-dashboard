@@ -69,12 +69,13 @@ function applyInk(L, S) {
     Math.round(242 + (16 - 242) * t),
     Math.round(251 + (38 - 251) * t)
   ];
+  // Respect manual theme selection — skip dynamic ink when user chose a theme
+  if (document.documentElement.hasAttribute('data-theme')) {
+    return;
+  }
   root.style.setProperty('--ink', ch.join(' '));
   root.style.setProperty('--scrim-o', S.toFixed(3));
-  // Only auto-toggle ink-dark if NOT using manual theme
-  if (!document.documentElement.hasAttribute('data-theme') || !localStorage.getItem('theme')) {
-    document.body.classList.toggle('ink-dark', t > .5);
-  }
+  document.body.classList.toggle('ink-dark', t > .5);
 }
 
 function sampleLuminance(renderer) {
@@ -95,9 +96,7 @@ function sampleLuminance(renderer) {
 if (isNonLanding && isMobile) {
   canvas.style.display = 'none';
   dimEl.style.opacity = '0';
-  root.style.setProperty('--ink', '238 242 251');
   root.style.setProperty('--scrim-o', '0');
-  document.body.classList.add('ink-dark');
 } else if (!canvas) {
   console.warn('Three.js background: canvas#scene not found');
 } else {

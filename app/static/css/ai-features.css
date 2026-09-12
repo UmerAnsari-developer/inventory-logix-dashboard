@@ -36,7 +36,6 @@
     color: var(--text-primary);
 }
 
-[data-theme="dark"] .panel,
 [data-theme="dark"] .metric-card,
 [data-theme="dark"] .alert-strip,
 [data-theme="dark"] .form-card,
@@ -47,7 +46,7 @@
 [data-theme="dark"] .error-card {
     background: var(--bg-card);
     border-color: var(--border);
-    color: #cf9494;
+    color: var(--text-primary);
 }
 
 [data-theme="dark"] .topbar {
@@ -55,7 +54,7 @@
 }
 
 [data-theme="dark"] .metric-card {
-    background: lavender;
+    background: rgba(15, 23, 42, 0.85);
     border-color: rgba(56, 189, 248, 0.25);
     box-shadow: 0 10px 26px rgba(56, 189, 248, 0.1), var(--shadow-sm);
 }
@@ -66,11 +65,11 @@
 }
 
 [data-theme="dark"] .metric-card .metric-label {
-    color: #cf9494;
+    color: var(--text-secondary);
 }
 
 [data-theme="dark"] .metric-card .metric-foot {
-    color: #cf9494;
+    color: var(--text-secondary);
 }
 
 [data-theme="dark"] .data-table th {
@@ -476,12 +475,20 @@ body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { backgr
 }
 
 [data-theme="dark"] .filter-bar {
-    background: var(--bg-card);
-    border-color: var(--border);
+    background: rgba(15, 23, 42, 0.88);
+    border-color: var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
 }
 
 [data-theme="dark"] .filter-bar input,
 [data-theme="dark"] .filter-bar select {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border-color: var(--border);
+}
+
+[data-theme="dark"] .filter-select {
     background: var(--bg-input);
     color: var(--text-primary);
     border-color: var(--border);
@@ -529,8 +536,10 @@ body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { backgr
 }
 
 [data-theme="dark"] .nav-drop-menu {
-    background: var(--bg-card);
-    border-color: var(--border);
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
 }
 
 [data-theme="dark"] .search-icon {
@@ -647,12 +656,15 @@ body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { backgr
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 12px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: 14px;
     padding: 16px;
     margin-bottom: 20px;
     align-items: end;
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--shadow-sm), var(--glass-highlight);
 }
 
 .forecast-controls label {
@@ -701,9 +713,7 @@ body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { backgr
     font-weight: 700;
 }
 
-.metric-card.ai-card {
-    background: lavender;
-}
+
 
 .metric-card.ai-card .metric-value {
     background: linear-gradient(135deg, var(--primary), var(--purple));
@@ -865,6 +875,7 @@ body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { backgr
 
 .eoq-grid .panel {
     height: 100%;
+    margin: 0;
     transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
@@ -1722,4 +1733,112 @@ body.ink-dark .auth-card::before {
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
     }
+}
+
+/* ── Anomaly Alert: KPI Grid ──────────────────────────────────── */
+
+/* ── Anomaly Alert: Badges ────────────────────────────────────── */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+.badge-critical { background: rgba(239,68,68,0.15); color: #ef4444; }
+.badge-high { background: rgba(249,115,22,0.15); color: #f97316; }
+.badge-medium { background: rgba(234,179,8,0.15); color: #ca8a04; }
+.badge-low { background: rgba(34,197,94,0.15); color: #16a34a; }
+.badge-new { background: rgba(56,189,248,0.15); color: #0284c7; }
+.badge-reviewed { background: rgba(139,92,246,0.15); color: #7c3aed; }
+.badge-ack { background: rgba(234,179,8,0.15); color: #ca8a04; }
+.badge-resolved { background: rgba(34,197,94,0.15); color: #16a34a; }
+
+/* ── Anomaly Alert: Filter controls ───────────────────────────── */
+.filter-select {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 38px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    outline: none;
+    color: var(--ink-2);
+    background: var(--surface);
+    font-size: 0.85rem;
+}
+
+.report-filter-row .filter-select {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ── Anomaly Alert: Modal overlay ─────────────────────────────── */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+.modal-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 24px;
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+[data-theme="dark"] .modal-card {
+    background: #0d1117;
+    border-color: rgba(255,255,255,0.08);
+}
+
+/* ── Anomaly Alert: btn-sm ────────────────────────────────────── */
+.btn-sm {
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    border-radius: 6px;
+}
+.btn-outline {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.btn-outline:hover {
+    background: rgba(56,189,248,0.08);
+}
+
+/* ── Anomaly Alert: empty state ───────────────────────────────── */
+.empty-state {
+    text-align: center;
+    padding: 24px 12px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+/* ── Anomaly Alert: SKU tag ───────────────────────────────────── */
+.sku {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(99,102,241,0.1);
+    color: var(--purple);
+}
+
+/* ── Anomaly Alert: table row hover ───────────────────────────── */
+#alertTable tbody tr:hover {
+    background: rgba(56,189,248,0.04);
+}
+#anomalyTable tbody tr:hover {
+    background: rgba(56,189,248,0.04);
 }

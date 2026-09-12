@@ -13,7 +13,17 @@ from app.ml.forecasting import (
     forecast_with_arima,
     forecast_with_prophet,
 )
-from app.ml.anomaly import _stats, detect_anomalies_isoforest, spc_zscore_analysis
+from app.ml.anomaly import (
+    _stats,
+    detect_anomalies_isoforest,
+    detect_anomalies_enriched,
+    spc_zscore_analysis,
+    calculate_risk_level,
+    generate_recommendation,
+    compute_deviation,
+    enrich_anomaly,
+    enrich_anomalies,
+)
 
 
 def _series(n: int = 120, base: int = 50, spike_at: int = 60):
@@ -274,3 +284,116 @@ def test_spc_lcl_positive():
 def test_spc_sigma_rounding():
     result = spc_zscore_analysis([{"value": 1}, {"value": 2.234}])
     assert result["sigma"] == pytest.approx(0.62)
+
+
+# ---------------------------------------------------------------------------
+# Enhanced anomaly alert tests
+# ---------------------------------------------------------------------------
+def test_risk_level_low_zscore():
+    assert calculate_risk_level(1.5) == "low"
+
+def test_risk_level_medium_zscore():
+    assert calculate_risk_level(2.5) == "medium"
+
+def test_risk_level_high_zscore():
+    assert calculate_risk_level(3.5) == "high"
+
+def test_risk_level_critical_zscore():
+    assert calculate_risk_level(5.0) == "critical"
+
+def test_risk_level_low_stock_escalation():
+    # Spike with stock at 50% of safety stock → escalate medium to high
+    assert calculate_risk_level(2.5, inventory_position=10, safety_stock=20, anomaly_type="spike") == "high"
+
+def test_risk_level_zero_stock_critical():
+    assert calculate_risk_level(2.5, inventory_position=0, reorder_point=50) == "critical"
+
+def test_risk_level_below_rop_escalation():
+    assert calculate_risk_level(2.5, inventory_position=3, reorder_point=50, anomaly_type="spike") == "high"
+
+def test_deviation_computation():
+    assert compute_deviation(150, 100) == 50.0
+    assert compute_deviation(50, 100) == -50.0
+    assert compute_deviation(100, 0) is None
+
+def test_recommendation_spike_critical():
+    rec = generate_recommendation("spike", 5.0, risk_level="critical", product_name="Widget")
+    assert "Urgent" in rec
+    assert "Widget" in rec
+
+def test_recommendation_spike_low():
+    rec = generate_recommendation("spike", 2.1, risk_level="low", product_name="Gadget")
+    assert "Minor" in rec
+
+def test_recommendation_drop_high():
+    rec = generate_recommendation("drop", 4.0, risk_level="high", product_name="PartX")
+    assert "HIGH" in rec
+    assert "PartX" in rec
+
+def test_enrich_anomaly_fields():
+    anomaly = {"day": "2024-06-01", "value": 200, "z_score": 3.5, "confidence": 80, "type": "spike", "description": "test"}
+    result = enrich_anomaly(anomaly, mu=50, sigma=15, sku="SKU-1", product_name="Widget")
+    assert result["sku"] == "SKU-1"
+    assert result["expected_value"] == 50.0
+    assert result["observed_value"] == 200
+    assert result["deviation_pct"] == 300.0
+    assert result["risk_level"] in ("critical", "high")
+    assert result["detection_method"] == "zscore"
+    assert result["recommended_action"]
+    assert result["status"] == "new"
+
+def test_enrich_anomalies_list():
+    raw = [
+        {"day": "d1", "value": 100, "z_score": 3.0, "confidence": 70, "type": "spike", "description": "a"},
+        {"day": "d2", "value": 10, "z_score": -3.0, "confidence": 75, "type": "drop", "description": "b"},
+    ]
+    result = enrich_anomalies(raw, mu=50, sigma=15)
+    assert len(result) == 2
+    assert result[0]["sku"] == ""
+    assert result[1]["risk_level"] in ("low", "medium", "high", "critical")
+
+def test_detect_enriched_returns_structured_alerts():
+    series, _ = _value_series(n=120, spike_at=60)
+    result = detect_anomalies_enriched(
+        series,
+        sku="SKU-1",
+        product_name="Widget",
+        inventory_position=50,
+        safety_stock=20,
+        reorder_point=100,
+    )
+    assert result["count"] >= 1
+    a = result["anomalies"][0]
+    assert "risk_level" in a
+    assert "recommended_action" in a
+    assert "detection_method" in a
+    assert "expected_value" in a
+    assert "observed_value" in a
+    assert "deviation_pct" in a
+    assert a["sku"] == "SKU-1"
+    assert a["status"] == "new"
+
+def test_detect_enriched_forecast_deviation():
+    # Series with normal values, but forecast says much lower → should detect deviation
+    series = [{"day": f"d{i}", "value": 50} for i in range(30)]
+    forecast_values = [10] * 14  # forecast expects 10, actual is 50 → 400% deviation
+    result = detect_anomalies_enriched(series, forecast_values=forecast_values)
+    # Should find at least one forecast_deviation anomaly
+    methods = {a["detection_method"] for a in result["anomalies"]}
+    assert "forecast_deviation" in methods
+
+def test_detect_enriched_rule_based():
+    # 8 days: 7 normal (10) + 1 spike (100) → rule-based should catch it
+    series = [{"day": f"d{i}", "value": 100 if i == 7 else 10} for i in range(8)]
+    rule_peaks = [{"day": "d7", "value": 100, "avg": 10.0}]
+    result = detect_anomalies_enriched(series, rule_based_peaks=rule_peaks)
+    methods = {a["detection_method"] for a in result["anomalies"]}
+    assert "rule_based" in methods
+
+def test_detect_enriched_dedup_by_day():
+    # Same day detected by both z-score and forecast → should keep one
+    series = [{"day": f"d{i}", "value": 50 if i < 20 else 300} for i in range(21)]
+    forecast_values = [10] * 14
+    result = detect_anomalies_enriched(series, forecast_values=forecast_values)
+    days = [a["day"] for a in result["anomalies"]]
+    assert len(days) == len(set(days))

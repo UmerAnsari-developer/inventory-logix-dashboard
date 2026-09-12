@@ -52,6 +52,18 @@
     <div class="metric-card"><div class="metric-label">Confidence band</div><div class="metric-value" id="forecastBand">&mdash;</div></div>
     <div class="metric-card"><div class="metric-label">Generated in</div><div class="metric-value" id="forecastRuntime">&mdash;</div></div>
   </div>
+  <article class="panel" id="monitoringSection" style="display:none">
+    <div class="panel-header">
+      <div class="panel-title">Model Performance</div>
+      <span class="badge" id="monitoringHealthBadge"></span>
+    </div>
+    <div class="metric-grid">
+      <div class="metric-card"><div class="metric-label">MAE</div><div class="metric-value" id="monMae">&mdash;</div><div class="metric-foot">Mean Absolute Error</div></div>
+      <div class="metric-card"><div class="metric-label">MAPE</div><div class="metric-value" id="monMape">&mdash;</div><div class="metric-foot">Mean Abs % Error</div></div>
+      <div class="metric-card"><div class="metric-label">RMSE</div><div class="metric-value" id="monRmse">&mdash;</div><div class="metric-foot">Root Mean Sq Error</div></div>
+      <div class="metric-card"><div class="metric-label">Observations</div><div class="metric-value" id="monObs">&mdash;</div><div class="metric-foot">Days evaluated</div></div>
+    </div>
+  </article>
   <article class="panel">
     <div class="panel-header"><div class="panel-title">Portfolio forecast snapshot</div></div>
     <div class="table-scroll">
@@ -82,6 +94,15 @@ document.addEventListener('DOMContentLoaded', () => {
     table: document.getElementById('portfolioTable'),
     runUrl: "{{ url_for('ai.forecast_run') }}",
     portfolioUrl: "{{ url_for('ai.forecast_portfolio') }}",
+    monitoring: {
+      section: document.getElementById('monitoringSection'),
+      healthBadge: document.getElementById('monitoringHealthBadge'),
+      mae: document.getElementById('monMae'),
+      mape: document.getElementById('monMape'),
+      rmse: document.getElementById('monRmse'),
+      obs: document.getElementById('monObs'),
+      metricsUrl: "{{ url_for('ai.monitoring_metrics') }}",
+    },
   });
 });
 </script>

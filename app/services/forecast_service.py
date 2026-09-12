@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date, timedelta
 
 from ..ml.forecasting import (
     forecast_with_prophet,
@@ -39,7 +40,73 @@ class ForecastService:
         }
         result["model_label"] = cls.MODELS.get(model, "Prophet")
         ForecastRepository.save(product_id, model, horizon, result)
+        cls._update_monitoring(product["sku"], model, history)
         return result
+
+    @classmethod
+    def _update_monitoring(cls, sku: str, model_name: str, history: list[dict]) -> None:
+        """Record predictions for last 30 days and compute monitoring metrics."""
+        try:
+            from ..repositories.monitoring_repo import MonitoringRepository
+            from ..monitoring.metrics import evaluate_all
+            from ..monitoring.degradation import detect_degradation, model_health_status
+
+            if len(history) < 10:
+                return
+
+            actuals_by_day = {r["ds"]: r["y"] for r in history}
+            today = date.today()
+            window = min(30, len(history) - 1)
+
+            # Use 7-day moving average as model prediction for each historical day
+            values = [r["y"] for r in history]
+            for i in range(len(history) - window, len(history)):
+                day_str = history[i]["ds"]
+                actual = float(actuals_by_day[day_str])
+                # Predicted = mean of previous 7 days (or all available)
+                start = max(0, i - 7)
+                predicted = sum(values[start:i]) / max(1, i - start)
+                pred_id = MonitoringRepository.save_prediction(
+                    sku=sku, model_name=model_name,
+                    forecast_date=day_str, predicted_value=round(predicted, 2),
+                    forecast_horizon=1,
+                )
+                MonitoringRepository.update_actual(pred_id, actual)
+
+            # Compute metrics from evaluated predictions
+            today_str = today.isoformat()
+            week_ago = (today - timedelta(days=window)).isoformat()
+            avp = MonitoringRepository.actual_vs_predicted(
+                sku=sku, model_name=model_name,
+                date_from=week_ago, date_to=today_str, limit=100,
+            )
+            if not avp:
+                return
+            actual_vals = [float(r["actual_value"]) for r in avp]
+            pred_vals = [float(r["predicted_value"]) for r in avp]
+            metrics = evaluate_all(actual_vals, pred_vals)
+            metrics.pop("mape_valid_count", None)
+
+            baseline = MonitoringRepository.baseline_metrics(sku, model_name)
+            baseline_mae = float(baseline["mae"]) if baseline and baseline.get("mae") else None
+            baseline_mape = float(baseline["mape"]) if baseline and baseline.get("mape") else None
+
+            deg = detect_degradation(metrics["mae"], baseline_mae)
+            deg_mape = detect_degradation(metrics["mape"], baseline_mape)
+            status = model_health_status(
+                metrics["mae"], metrics["mape"], baseline_mae, baseline_mape,
+            )
+
+            MonitoringRepository.save_metrics(
+                sku=sku, model_name=model_name, monitoring_date=today,
+                aggregation_period="daily", **metrics,
+                baseline_mae=baseline_mae, baseline_mape=baseline_mape,
+                mae_change_percent=deg["change_percent"],
+                mape_change_percent=deg_mape["change_percent"],
+                model_status=status,
+            )
+        except Exception:
+            LOGGER.debug("Monitoring update skipped", exc_info=True)
 
     @staticmethod
     def recent_for_product(product_id: int, limit: int = 5):

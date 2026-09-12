@@ -148,6 +148,7 @@
                 cfg.metrics.runtime.textContent = elapsed + ' s';
                 showToast('Forecast completed', 'success');
                 loadPortfolio();
+                if (cfg.monitoring) loadMonitoring(data);
             } catch (e) {
                 showToast('Forecast failed', 'error');
             } finally {
@@ -155,6 +156,43 @@
                 cfg.runButton.textContent = 'Run forecast';
             }
         };
+        async function loadMonitoring(forecastData) {
+            var m = cfg.monitoring;
+            if (!m || !m.section) return;
+            try {
+                var sku = (forecastData.product && forecastData.product.sku) || '';
+                var model = cfg.model.value;
+                var res = await api(m.metricsUrl + '?sku=' + encodeURIComponent(sku) + '&model=' + encodeURIComponent(model) + '&limit=1');
+                var rows = res.data || [];
+                if (!rows.length) {
+                    m.mae.textContent = '—';
+                    m.mape.textContent = '—';
+                    m.rmse.textContent = '—';
+                    m.obs.textContent = '—';
+                    m.healthBadge.textContent = 'No data';
+                    m.healthBadge.className = 'badge';
+                    m.section.style.display = '';
+                    return;
+                }
+                var latest = rows[0];
+                m.mae.textContent = latest.mae != null ? parseFloat(latest.mae).toFixed(2) : '—';
+                m.mape.textContent = latest.mape != null ? parseFloat(latest.mape).toFixed(1) + '%' : '—';
+                m.rmse.textContent = latest.rmse != null ? parseFloat(latest.rmse).toFixed(2) : '—';
+                m.obs.textContent = latest.observation_count || '—';
+                var status = latest.model_status || 'unknown';
+                m.healthBadge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+                m.healthBadge.className = 'badge badge-' + (status === 'healthy' ? 'ai' : status === 'warning' ? 'medium' : status === 'degraded' ? 'high' : status === 'critical' ? 'critical' : 'ai');
+                m.section.style.display = '';
+            } catch (e) {
+                m.mae.textContent = '—';
+                m.mape.textContent = '—';
+                m.rmse.textContent = '—';
+                m.obs.textContent = '—';
+                m.healthBadge.textContent = 'Unavailable';
+                m.healthBadge.className = 'badge';
+                m.section.style.display = '';
+            }
+        }
         async function loadPortfolio() {
             try {
                 const q = new URLSearchParams();
@@ -238,16 +276,147 @@
             return true;
         };
         if (!tryRender()) {
-            // Plotly not ready yet — retry shortly
-            const wait = setInterval(() => {
-                if (tryRender()) clearInterval(wait);
-            }, 100);
+            const wait = setInterval(() => { if (tryRender()) clearInterval(wait); }, 100);
             setTimeout(() => clearInterval(wait), 5000);
         }
     }
 
+    function riskBadge(level) {
+        var cls = { critical: 'badge-critical', high: 'badge-high', medium: 'badge-medium', low: 'badge-low' };
+        return '<span class="badge ' + (cls[level] || 'badge-low') + '">' + (level || 'low') + '</span>';
+    }
+    function statusBadge(s) {
+        var cls = { new: 'badge-new', reviewed: 'badge-reviewed', acknowledged: 'badge-ack', resolved: 'badge-resolved' };
+        return '<span class="badge ' + (cls[s] || 'badge-new') + '">' + (s || 'new') + '</span>';
+    }
+    function typeIcon(t) {
+        return t === 'spike' ? '&#x25B2;' : '&#x25BC;';
+    }
+
     function initAnomaly(cfg) {
         if (!cfg) return;
+        var alertPage = 0, alertPageSize = 6;
+
+        // ── Load KPI summary ──
+        async function loadSummary() {
+            try {
+                var res = await api(cfg.summaryUrl);
+                var d = res.data || {};
+                var total = d.total || 0;
+                if (cfg.kpiTotal) cfg.kpiTotal.textContent = total;
+                if (cfg.kpiCritical) cfg.kpiCritical.textContent = d.critical || 0;
+                if (cfg.kpiHigh) cfg.kpiHigh.textContent = d.high || 0;
+                if (cfg.kpiMedium) cfg.kpiMedium.textContent = d.medium || 0;
+                if (cfg.kpiLow) cfg.kpiLow.textContent = d.low || 0;
+                if (cfg.kpiNew) cfg.kpiNew.textContent = d['new'] || 0;
+                if (cfg.kpiReviewed) cfg.kpiReviewed.textContent = d.reviewed || 0;
+
+                function pct(n) { return total ? Math.round((n / total) * 100) : 0; }
+                setFoot(cfg.kpiTotal, total + ' alerts detected');
+                setFoot(cfg.kpiCritical, pct(d.critical) + '% of total — take action');
+                setFoot(cfg.kpiHigh, pct(d.high) + '% of total — investigate soon');
+                setFoot(cfg.kpiMedium, pct(d.medium) + '% of total — monitor');
+                setFoot(cfg.kpiLow, pct(d.low) + '% of total — informational');
+                setFoot(cfg.kpiNew, d['new'] || 0 + ' not yet reviewed');
+                setFoot(cfg.kpiReviewed, (d.reviewed || 0) + (d.acknowledged || 0) + ' handled');
+            } catch (e) {}
+        }
+        function setFoot(el, text) {
+            if (!el) return;
+            var card = el.closest('.metric-card');
+            if (card) { var f = card.querySelector('.metric-foot'); if (f) f.textContent = text; }
+        }
+
+        // ── Load alerts table ──
+        async function loadAlerts() {
+            try {
+                var q = new URLSearchParams();
+                if (cfg.filterRisk && cfg.filterRisk.value) q.set('risk_level', cfg.filterRisk.value);
+                if (cfg.filterStatus && cfg.filterStatus.value) q.set('status', cfg.filterStatus.value);
+                if (cfg.filterType && cfg.filterType.value) q.set('anomaly_type', cfg.filterType.value);
+                q.set('limit', alertPageSize);
+                q.set('offset', alertPage * alertPageSize);
+                var res = await api(cfg.alertsUrl + '?' + q.toString());
+                var data = res.data || {};
+                var rows = data.alerts || [];
+                var total = data.total || 0;
+                var tbody = cfg.alertTable.tBodies[0];
+                tbody.innerHTML = rows.length ? rows.map(function(a) {
+                    return '<tr>' +
+                        '<td>' + (a.alert_date || a.detected_at || '').substring(0, 10) + '</td>' +
+                        '<td><span class="sku">' + (a.sku || '') + '</span></td>' +
+                        '<td>' + (a.product_name || '') + '</td>' +
+                        '<td>' + typeIcon(a.anomaly_type) + ' ' + a.anomaly_type + '</td>' +
+                        '<td>' + (a.z_score || 0) + '</td>' +
+                        '<td>' + riskBadge(a.risk_level) + '</td>' +
+                        '<td>' + (a.deviation_pct != null ? a.deviation_pct + '%' : '-') + '</td>' +
+                        '<td>' + (a.detection_method || '') + '</td>' +
+                        '<td>' + statusBadge(a.status) + '</td>' +
+                        '<td><button class="btn btn-sm btn-outline alert-detail-btn" data-id="' + a.id + '">View</button></td>' +
+                    '</tr>';
+                }).join('') : '<tr><td colspan="10" class="empty-state">No alerts found</td></tr>';
+                if (cfg.pageInfo) cfg.pageInfo.textContent = 'Showing ' + rows.length + ' of ' + total;
+                if (cfg.prevPage) cfg.prevPage.disabled = alertPage <= 0;
+                if (cfg.nextPage) cfg.nextPage.disabled = (alertPage + 1) * alertPageSize >= total;
+                // Bind detail buttons
+                tbody.querySelectorAll('.alert-detail-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() { showAlertDetail(parseInt(this.dataset.id)); });
+                });
+            } catch (e) {}
+        }
+
+        // ── Alert detail modal ──
+        async function showAlertDetail(id) {
+            try {
+                var res = await api(cfg.alertDetailUrl + id);
+                var a = res.data || {};
+                cfg.modalTitle.textContent = 'Alert #' + a.id;
+                cfg.modalBody.innerHTML =
+                    '<table style="width:100%;border-collapse:collapse">' +
+                    '<tr><td style="padding:4px 8px;font-weight:600;width:40%">SKU</td><td>' + (a.sku || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Product</td><td>' + (a.product_name || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Date</td><td>' + (a.alert_date || a.detected_at || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Type</td><td>' + typeIcon(a.anomaly_type) + ' ' + a.anomaly_type + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Z-score</td><td>' + (a.z_score || 0) + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Confidence</td><td>' + (a.confidence || 0) + '%</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Risk Level</td><td>' + riskBadge(a.risk_level) + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Expected</td><td>' + (a.expected_value != null ? a.expected_value : '-') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Observed</td><td>' + (a.observed_value != null ? a.observed_value : '-') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Deviation</td><td>' + (a.deviation_pct != null ? a.deviation_pct + '%' : '-') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Detection</td><td>' + (a.detection_method || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Status</td><td>' + statusBadge(a.status) + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600;vertical-align:top">Description</td><td>' + (a.description || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600;vertical-align:top">Recommendation</td><td>' + (a.recommended_action || '') + '</td></tr>' +
+                    '</table>';
+                var actions = cfg.modalActions;
+                actions.innerHTML = '';
+                ['new','reviewed','acknowledged','resolved'].forEach(function(s) {
+                    if (s !== a.status) {
+                        var btn = document.createElement('button');
+                        btn.className = 'btn btn-sm btn-outline';
+                        btn.textContent = 'Mark ' + s;
+                        btn.addEventListener('click', function() { updateAlertStatus(id, s); });
+                        actions.appendChild(btn);
+                    }
+                });
+                cfg.alertModal.style.display = 'flex';
+            } catch (e) { showToast('Failed to load alert detail', 'error'); }
+        }
+
+        async function updateAlertStatus(id, status) {
+            try {
+                await api(cfg.alertDetailUrl + id + '/status', {
+                    method: 'PUT',
+                    body: JSON.stringify({ status: status }),
+                });
+                showToast('Alert updated to ' + status, 'success');
+                cfg.alertModal.style.display = 'none';
+                loadAlerts();
+                loadSummary();
+            } catch (e) { showToast('Failed to update alert', 'error'); }
+        }
+
+        // ── Run detection ──
         const run = async () => {
             cfg.runButton.disabled = true;
             try {
@@ -261,22 +430,32 @@
                 const data = res.data;
                 const anomalies = data.anomalies || [];
                 const tbody = cfg.table.tBodies[0];
-                tbody.innerHTML = anomalies.length ? anomalies.map(a => (
-                    '<tr><td>' + a.day + '</td>' +
-                    '<td>' + a.value + '</td>' +
-                    '<td>' + a.z_score + '</td>' +
-                    '<td>' + (a.confidence || 0).toFixed(0) + '%</td>' +
-                    '<td>' + a.description + '</td></tr>'
-                )).join('') : '<tr><td colspan="5" class="empty-state">No anomalies detected</td></tr>';
+                tbody.innerHTML = anomalies.length ? anomalies.map(function(a) {
+                    return '<tr>' +
+                        '<td>' + a.day + '</td>' +
+                        '<td>' + a.value + '</td>' +
+                        '<td>' + (a.expected_value != null ? a.expected_value : '-') + '</td>' +
+                        '<td>' + a.z_score + '</td>' +
+                        '<td>' + riskBadge(a.risk_level) + '</td>' +
+                        '<td>' + (a.confidence || 0).toFixed(0) + '%</td>' +
+                        '<td>' + (a.detection_method || '') + '</td>' +
+                        '<td>' + a.description + '</td>' +
+                        '<td>' + (a.recommended_action || '') + '</td>' +
+                    '</tr>';
+                }).join('') : '<tr><td colspan="9" class="empty-state">No anomalies detected</td></tr>';
                 if (data.mean !== undefined) renderSPC(cfg.spcId, data);
                 showToast('Anomaly detection complete', 'success');
                 loadPortfolio();
+                loadSummary();
+                alertPage = 0;
+                loadAlerts();
             } catch (e) {
                 showToast('Anomaly detection failed', 'error');
             } finally {
                 cfg.runButton.disabled = false;
             }
         };
+
         async function loadPortfolio() {
             try {
                 const q = new URLSearchParams();
@@ -292,7 +471,18 @@
                 )).join('') : '<tr><td colspan="4" class="empty-state">No anomalies across the portfolio</td></tr>';
             } catch (e) {}
         }
+
         if (cfg.runButton) cfg.runButton.addEventListener('click', run);
+        if (cfg.filterRisk) cfg.filterRisk.addEventListener('change', function() { alertPage = 0; loadAlerts(); });
+        if (cfg.filterStatus) cfg.filterStatus.addEventListener('change', function() { alertPage = 0; loadAlerts(); });
+        if (cfg.filterType) cfg.filterType.addEventListener('change', function() { alertPage = 0; loadAlerts(); });
+        if (cfg.prevPage) cfg.prevPage.addEventListener('click', function() { if (alertPage > 0) { alertPage--; loadAlerts(); } });
+        if (cfg.nextPage) cfg.nextPage.addEventListener('click', function() { alertPage++; loadAlerts(); });
+        if (cfg.closeModal) cfg.closeModal.addEventListener('click', function() { cfg.alertModal.style.display = 'none'; });
+        if (cfg.alertModal) cfg.alertModal.addEventListener('click', function(e) { if (e.target === cfg.alertModal) cfg.alertModal.style.display = 'none'; });
+
+        loadSummary();
+        loadAlerts();
         loadPortfolio();
     }
     window.StockflowAnomaly = { init: initAnomaly };

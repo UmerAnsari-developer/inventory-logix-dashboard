@@ -7,6 +7,7 @@ from .eoq_service import EOQService
 from .forecast_service import ForecastService
 from .anomaly_service import AnomalyService
 from .settings_service import SettingsService
+from .monitoring_service import MonitoringService
 
 __all__ = [
     "AuthService",
@@ -17,4 +18,5 @@ __all__ = [
     "ForecastService",
     "AnomalyService",
     "SettingsService",
+    "MonitoringService",
 ]
