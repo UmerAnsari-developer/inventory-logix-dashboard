@@ -74,6 +74,7 @@ function applyInk(L, S) {
     return;
   }
   root.style.setProperty('--ink', ch.join(' '));
+  root.style.setProperty('--ink-rgb', ch.join(', '));
   root.style.setProperty('--scrim-o', S.toFixed(3));
   document.body.classList.toggle('ink-dark', t > .5);
 }

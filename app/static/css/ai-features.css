@@ -232,24 +232,24 @@ html[data-theme="light"] .auth-back:hover {
 }
 .auth-brand .brand-meta {
     font: 400 12px var(--font-b);
-    color: rgb(var(--ink) / .62);
+    color: rgb(var(--ink-rgb) / .62);
 }
 
 .auth-card h1 {
     font: 600 clamp(26px, 3.5vw, 32px)/1.1 var(--font-d);
     letter-spacing: -.03em;
     margin: 12px 0 6px;
-    color: rgb(var(--ink));
+    color: rgb(var(--ink-rgb));
 }
-body.ink-dark .auth-card h1 { color: rgb(var(--ink)); }
+body.ink-dark .auth-card h1 { color: rgb(var(--ink-rgb)); }
 
 .auth-tagline {
     font: 400 14px/1.5 var(--font-b);
-    color: rgb(var(--ink) / .72);
+    color: rgb(var(--ink-rgb) / .72);
     max-width: 380px;
     margin-bottom: 20px;
 }
-body.ink-dark .auth-tagline { color: rgb(var(--ink) / .7); }
+body.ink-dark .auth-tagline { color: rgb(var(--ink-rgb) / .7); }
 
 .auth-form {
     display: flex;
@@ -282,7 +282,7 @@ body.ink-dark .auth-tagline { color: rgb(var(--ink) / .7); }
 
 .auth-form .auth-tagline {
     font: 400 14px/1.5 var(--font-b);
-    color: rgb(var(--ink) / .72);
+    color: rgb(var(--ink-rgb) / .72);
     max-width: 380px;
     margin-bottom: 20px;
 }
@@ -292,7 +292,7 @@ body.ink-dark .auth-tagline { color: rgb(238 242 251 / .8); }
     font: 600 clamp(26px, 3.5vw, 32px)/1.1 var(--font-d);
     letter-spacing: -.03em;
     margin: 12px 0 6px;
-    color: rgb(var(--ink));
+    color: rgb(var(--ink-rgb));
 }
 body.ink-dark .auth-card h1 { color: rgb(238 242 251); }
 
@@ -302,7 +302,7 @@ body.ink-dark .auth-card h1 { color: rgb(238 242 251); }
     gap: 8px;
     margin-bottom: 20px;
     font: 500 13px var(--font-b);
-    color: rgb(var(--ink) / .68);
+    color: rgb(var(--ink-rgb) / .68);
     border-radius: 999px;
     padding: 7px 12px;
     border: 1px solid transparent;
@@ -312,7 +312,7 @@ body.ink-dark .auth-back {
     color: rgb(238 242 251 / .8);
 }
 .auth-back:hover {
-    color: rgb(var(--ink));
+    color: rgb(var(--ink-rgb));
     background: rgb(255 255 255 / .09);
     transform: translateX(-2px);
 }
@@ -429,7 +429,7 @@ html[data-theme="dark"] .password-wrapper input {
 .auth-helper {
     margin-top: 14px;
     font: 400 12.5px var(--font-b);
-    color: rgb(var(--ink) / .62);
+    color: rgb(var(--ink-rgb) / .62);
     text-align: center;
     line-height: 1.5;
 }
@@ -443,7 +443,7 @@ body.ink-dark .auth-helper {
     transition: color .2s;
 }
 .auth-helper a:hover {
-    color: rgb(var(--ink));
+    color: rgb(var(--ink-rgb));
     text-decoration: underline;
 }
 body.ink-dark .auth-helper a:hover {
@@ -453,10 +453,10 @@ body.ink-dark .auth-helper a:hover {
 /* ── Social login buttons ── */
 .auth-divider {
     display: flex; align-items: center; gap: 14px; margin: 18px 0 14px;
-    font: 500 12px var(--font-b); color: rgb(var(--ink) / .4);
+    font: 500 12px var(--font-b); color: rgb(var(--ink-rgb) / .4);
 }
 .auth-divider::before, .auth-divider::after {
-    content: ""; flex: 1; height: 1px; background: rgb(var(--ink) / .1);
+    content: ""; flex: 1; height: 1px; background: rgb(var(--ink-rgb) / .1);
 }
 body.ink-dark .auth-divider { color: rgb(238 242 251 / .5); }
 body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { background: rgb(238 242 251 / .12); }
@@ -1555,7 +1555,7 @@ html[data-theme="light"] .auth-form label:has(input:not(:placeholder-shown)) > s
     position: static;
     transform: none;
     font: 400 12.5px var(--font-b);
-    color: rgb(var(--ink) / .68);
+    color: rgb(var(--ink-rgb) / .68);
     pointer-events: auto;
     transition: none;
 }

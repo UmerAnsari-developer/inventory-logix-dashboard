@@ -2,6 +2,7 @@
   /* Unified design tokens — shared with landing page */
   --ink: #0d1117;
   --ink-color: #0d1117;
+  --ink-rgb: 13, 17, 23;
   --ink-2: #161b22;
   --ink-3: #21262d;
   --paper: #f0f4fa;
@@ -83,6 +84,7 @@
 [data-theme="dark"] {
    --ink: #f0f6fc;
    --ink-color: #f0f6fc;
+   --ink-rgb: 240, 246, 252;
    --ink-2: #e6edf3;
    --ink-3: #c9d1d9;
    --paper: #04070f;
