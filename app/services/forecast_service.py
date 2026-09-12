@@ -58,20 +58,21 @@ class ForecastService:
             today = date.today()
             window = min(30, len(history) - 1)
 
-            # Use 7-day moving average as model prediction for each historical day
+            # Batch-insert predictions with actuals in one round-trip
             values = [r["y"] for r in history]
+            batch_rows = []
             for i in range(len(history) - window, len(history)):
                 day_str = history[i]["ds"]
                 actual = float(actuals_by_day[day_str])
-                # Predicted = mean of previous 7 days (or all available)
                 start = max(0, i - 7)
                 predicted = sum(values[start:i]) / max(1, i - start)
-                pred_id = MonitoringRepository.save_prediction(
-                    sku=sku, model_name=model_name,
-                    forecast_date=day_str, predicted_value=round(predicted, 2),
-                    forecast_horizon=1,
-                )
-                MonitoringRepository.update_actual(pred_id, actual)
+                batch_rows.append({
+                    "sku": sku, "model_name": model_name,
+                    "forecast_date": day_str,
+                    "predicted_value": round(predicted, 2),
+                    "actual_value": actual,
+                })
+            MonitoringRepository.save_predictions_batch(batch_rows)
 
             # Compute metrics from evaluated predictions
             today_str = today.isoformat()

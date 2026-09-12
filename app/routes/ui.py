@@ -31,7 +31,6 @@ from ..utils import format_money_display
 from ..utils.cache import (
     api_cache,
     dashboard_cache,
-    global_cache,
     landing_cache,
     make_key,
     monitoring_cache,
@@ -49,26 +48,6 @@ LOGGER = logging.getLogger(__name__)
 
 
 ui_bp = Blueprint("ui", __name__)
-
-
-@ui_bp.context_processor
-def inject_user():
-    reorder_count = 0
-    if current_user.is_authenticated:
-        def _count():
-            with get_cursor() as cur:
-                cur.execute(
-                    "SELECT COUNT(*) AS c FROM products WHERE current_stock <= reorder_point AND on_order <= 0"
-                )
-                return int(cur.fetchone()["c"] or 0)
-        try:
-            reorder_count = global_cache.get_or_set("reorder_count", _count)
-        except Exception:
-            pass
-    return {
-        "current_user": current_user,
-        "reorder_count": reorder_count or 0,
-    }
 
 
 @ui_bp.route("/")

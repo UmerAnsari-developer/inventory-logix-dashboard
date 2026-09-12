@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from flask import Flask, g, render_template, request
+from flask import Flask, render_template, request
 from flask_login import current_user
 
 from .config import get_config
@@ -152,41 +152,25 @@ def _register_blueprints(app: Flask) -> None:
 
 
 def _register_context(app: Flask) -> None:
-    from .repositories import AuditRepository
-
     @app.context_processor
     def inject_globals():
         from flask_login import current_user
-        from .services.settings_service import SettingsService
-
-        reorder_count = 0
         settings = {}
-        authenticated = False
+        reorder_count = 0
         try:
-            authenticated = bool(current_user.is_authenticated)
-        except Exception:
-            authenticated = False
-        db = getattr(g, "db", None)
-        if db is not None:
-            try:
-                with db.cursor() as cur:
+            if current_user.is_authenticated:
+                from .services.settings_service import SettingsService
+                settings = SettingsService.get_settings()
+                from .database import get_cursor
+                with get_cursor() as cur:
                     cur.execute(
                         "SELECT COUNT(*) AS c FROM products "
                         "WHERE current_stock <= reorder_point AND on_order <= 0"
                     )
-                    reorder_count = cur.fetchone()["c"]
-            except Exception:
-                reorder_count = 0
-        if authenticated:
-            try:
-                settings = SettingsService.get_settings()
-            except Exception:
-                settings = {}
-        return {
-            "reorder_count": reorder_count,
-            "current_user": current_user,
-            "app_settings": settings,
-        }
+                    reorder_count = int(cur.fetchone()["c"] or 0)
+        except Exception:
+            pass
+        return {"app_settings": settings, "reorder_count": reorder_count}
 
 
 def _register_error_handlers(app: Flask) -> None:

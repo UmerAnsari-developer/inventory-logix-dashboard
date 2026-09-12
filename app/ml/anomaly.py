@@ -8,11 +8,18 @@ from typing import Iterable
 
 LOGGER = logging.getLogger(__name__)
 
-try:  # pragma: no cover
-    from sklearn.ensemble import IsolationForest
-    _HAS_SKLEARN = True
-except Exception:
-    _HAS_SKLEARN = False
+_HAS_SKLEARN = None
+
+
+def _check_sklearn():
+    global _HAS_SKLEARN
+    if _HAS_SKLEARN is None:
+        try:
+            from sklearn.ensemble import IsolationForest  # noqa: F401
+            _HAS_SKLEARN = True
+        except Exception:
+            _HAS_SKLEARN = False
+    return _HAS_SKLEARN
 
 
 def _stats(series: list[float]) -> tuple[float, float]:
@@ -30,8 +37,9 @@ def detect_anomalies_isoforest(series: list[dict], *, contamination: float = 0.0
     anomalies: list[dict] = []
     model_used = "zscore"
 
-    if _HAS_SKLEARN and len(values) >= 14:
+    if _check_sklearn() and len(values) >= 14:
         try:
+            from sklearn.ensemble import IsolationForest
             import numpy as np
             arr = np.array(values).reshape(-1, 1)
             forest = IsolationForest(contamination=contamination, random_state=42, n_estimators=80)

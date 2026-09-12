@@ -1,30 +1,16 @@
-"""ML package: forecasting and anomaly detection models."""
+"""ML package: forecasting and anomaly detection models.
+
+All imports are lazy — heavy libraries (prophet, statsmodels, sklearn) are
+only loaded when their functions are actually called, not at package import.
+"""
 from .forecasting import (
     forecast_with_prophet,
     forecast_with_arima,
     forecast_ensemble,
-)
-from .anomaly import (
-    detect_anomalies_isoforest,
-    detect_anomalies_enriched,
-    spc_zscore_analysis,
-    calculate_risk_level,
-    generate_recommendation,
-    compute_deviation,
-    enrich_anomaly,
-    enrich_anomalies,
 )
 
 __all__ = [
     "forecast_with_prophet",
     "forecast_with_arima",
     "forecast_ensemble",
-    "detect_anomalies_isoforest",
-    "detect_anomalies_enriched",
-    "spc_zscore_analysis",
-    "calculate_risk_level",
-    "generate_recommendation",
-    "compute_deviation",
-    "enrich_anomaly",
-    "enrich_anomalies",
 ]

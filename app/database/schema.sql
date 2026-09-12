@@ -78,8 +78,7 @@ CREATE INDEX IF NOT EXISTS idx_movements_product_type_created ON movements(produ
 -- Products indexes for dashboard/reports queries
 CREATE INDEX IF NOT EXISTS idx_products_stock_rop ON products(current_stock, reorder_point, on_order);
 CREATE INDEX IF NOT EXISTS idx_products_warehouse_category ON products(warehouse, category);
-CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id);
-CREATE INDEX IF NOT EXISTS idx_products_unit_price ON products(unit_price);
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id              SERIAL PRIMARY KEY,
@@ -96,7 +95,6 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
         CHECK (status IN ('draft','approved','in_transit','received','cancelled'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_po_supplier_status ON purchase_orders(supplier_id, status);
 CREATE INDEX IF NOT EXISTS idx_po_created_at ON purchase_orders(created_at);
 CREATE INDEX IF NOT EXISTS idx_po_product ON purchase_orders(product_id);
 
@@ -109,8 +107,6 @@ CREATE TABLE IF NOT EXISTS user_settings (
     CONSTRAINT user_settings_user_key UNIQUE (user_id, key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_settings_user ON user_settings(user_id);
-
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
     id              SERIAL PRIMARY KEY,
     user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -119,8 +115,6 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
     used            BOOLEAN NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMP NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id              SERIAL PRIMARY KEY,
@@ -153,10 +147,7 @@ CREATE TABLE IF NOT EXISTS anomaly_log (
     detected_at     TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_products_sku          ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_category     ON products(category);
-CREATE INDEX IF NOT EXISTS idx_movements_product     ON movements(product_id);
-CREATE INDEX IF NOT EXISTS idx_movements_created     ON movements(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_user            ON audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created         ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_forecast_product      ON forecast_cache(product_id);
@@ -247,11 +238,6 @@ CREATE TABLE IF NOT EXISTS fact_inventory_daily (
     PRIMARY KEY (date_key, warehouse_key, product_key)
 );
 
-CREATE INDEX IF NOT EXISTS idx_fact_mov_date  ON fact_movement_daily(date_key);
-CREATE INDEX IF NOT EXISTS idx_fact_mov_wh    ON fact_movement_daily(warehouse_key);
-CREATE INDEX IF NOT EXISTS idx_fact_inv_date  ON fact_inventory_daily(date_key);
-CREATE INDEX IF NOT EXISTS idx_fact_inv_wh    ON fact_inventory_daily(warehouse_key);
-
 CREATE TABLE IF NOT EXISTS user_sessions (
     id              SERIAL PRIMARY KEY,
     user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -265,8 +251,6 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     created_at      TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_active ON user_sessions(is_active) WHERE is_active;
 
 -- ETL pipeline bookkeeping (high-water mark for incremental runs).
@@ -293,10 +277,8 @@ CREATE TABLE IF NOT EXISTS forecast_predictions (
     created_at              TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_fp_sku ON forecast_predictions(sku);
-CREATE INDEX IF NOT EXISTS idx_fp_model ON forecast_predictions(model_name);
-CREATE INDEX IF NOT EXISTS idx_fp_date ON forecast_predictions(forecast_date);
-CREATE INDEX IF NOT EXISTS idx_fp_status ON forecast_predictions(status);
+CREATE INDEX IF NOT EXISTS idx_fp_sku_model_status_date
+    ON forecast_predictions(sku, model_name, status, forecast_date);
 
 CREATE TABLE IF NOT EXISTS forecast_monitoring_metrics (
     id                  SERIAL PRIMARY KEY,
@@ -319,10 +301,8 @@ CREATE TABLE IF NOT EXISTS forecast_monitoring_metrics (
     created_at          TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_fmm_sku ON forecast_monitoring_metrics(sku);
-CREATE INDEX IF NOT EXISTS idx_fmm_model ON forecast_monitoring_metrics(model_name);
-CREATE INDEX IF NOT EXISTS idx_fmm_date ON forecast_monitoring_metrics(monitoring_date);
-CREATE INDEX IF NOT EXISTS idx_fmm_status ON forecast_monitoring_metrics(model_status);
+CREATE INDEX IF NOT EXISTS idx_fmm_sku_model_date
+    ON forecast_monitoring_metrics(sku, model_name, monitoring_date);
 
 CREATE TABLE IF NOT EXISTS model_monitoring_alerts (
     id                  SERIAL PRIMARY KEY,
@@ -341,10 +321,9 @@ CREATE TABLE IF NOT EXISTS model_monitoring_alerts (
     created_at          TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_mma_sku ON model_monitoring_alerts(sku);
-CREATE INDEX IF NOT EXISTS idx_mma_model ON model_monitoring_alerts(model_name);
-CREATE INDEX IF NOT EXISTS idx_mma_type ON model_monitoring_alerts(alert_type);
-CREATE INDEX IF NOT EXISTS idx_mma_status ON model_monitoring_alerts(status);
+CREATE INDEX IF NOT EXISTS idx_mma_sku_model_type_status
+    ON model_monitoring_alerts(sku, model_name, alert_type, status);
+CREATE INDEX IF NOT EXISTS idx_mma_created ON model_monitoring_alerts(created_at);
 
 -- ─────────────────────────────────────────────────────────────────
 -- Row-Level Security: enable on every table with NO policies.

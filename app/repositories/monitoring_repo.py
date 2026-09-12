@@ -27,6 +27,29 @@ class MonitoringRepository:
             return cur.fetchone()["id"]
 
     @staticmethod
+    def save_predictions_batch(rows: list[dict]) -> None:
+        """Batch insert predictions with actual values already set (single round-trip)."""
+        if not rows:
+            return
+        with get_cursor(commit=True) as cur:
+            from psycopg2.extras import execute_values
+            execute_values(
+                cur,
+                """INSERT INTO forecast_predictions
+                   (sku, model_name, forecast_date, predicted_value, actual_value,
+                    forecast_horizon, forecast_generated_at, status)
+                   VALUES %s""",
+                [
+                    (r["sku"], r["model_name"], r["forecast_date"],
+                     r["predicted_value"], r["actual_value"],
+                     r.get("forecast_horizon", 1),
+                     r.get("forecast_generated_at") or "NOW()", "evaluated")
+                    for r in rows
+                ],
+                template="(%s,%s,%s,%s,%s,%s, COALESCE(%s, NOW()), %s)",
+            )
+
+    @staticmethod
     def update_actual(prediction_id: int, actual_value: float) -> None:
         with get_cursor(commit=True) as cur:
             cur.execute(

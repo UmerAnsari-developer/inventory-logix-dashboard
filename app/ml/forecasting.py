@@ -14,17 +14,32 @@ from typing import Iterable
 
 LOGGER = logging.getLogger(__name__)
 
-try:  # pragma: no cover - optional dependency
-    from prophet import Prophet
-    _HAS_PROPHET = True
-except Exception:
-    _HAS_PROPHET = False
+# Lazy-loaded: only imported when actually called, not at module import time.
+# This avoids loading heavy pandas/prophet/statsmodels on every page request.
+_HAS_PROPHET = None
+_HAS_ARIMA = None
 
-try:  # pragma: no cover - optional dependency
-    from statsmodels.tsa.arima.model import ARIMA
-    _HAS_ARIMA = True
-except Exception:
-    _HAS_ARIMA = False
+
+def _check_prophet():
+    global _HAS_PROPHET
+    if _HAS_PROPHET is None:
+        try:
+            import prophet  # noqa: F401
+            _HAS_PROPHET = True
+        except Exception:
+            _HAS_PROPHET = False
+    return _HAS_PROPHET
+
+
+def _check_arima():
+    global _HAS_ARIMA
+    if _HAS_ARIMA is None:
+        try:
+            from statsmodels.tsa.arima.model import ARIMA  # noqa: F401
+            _HAS_ARIMA = True
+        except Exception:
+            _HAS_ARIMA = False
+    return _HAS_ARIMA
 
 
 def _moving_average_forecast(history: list[dict], horizon: int) -> dict:
@@ -60,11 +75,12 @@ def _moving_average_forecast(history: list[dict], horizon: int) -> dict:
 
 def forecast_with_prophet(history: list[dict], horizon: int) -> dict:
     """Use Facebook Prophet when available; otherwise fall back to MA."""
-    if not _HAS_PROPHET or not history or len(history) < 14:
+    if not _check_prophet() or not history or len(history) < 14:
         return _moving_average_forecast(history, horizon)
 
     try:
-        import pandas as pd  # local import keeps cold-start cheap
+        from prophet import Prophet
+        import pandas as pd
         df = pd.DataFrame(history)
         df["ds"] = pd.to_datetime(df["ds"])
         model = Prophet(daily_seasonality=False, weekly_seasonality=True, yearly_seasonality=False)
@@ -99,10 +115,11 @@ def forecast_with_prophet(history: list[dict], horizon: int) -> dict:
 
 def forecast_with_arima(history: list[dict], horizon: int) -> dict:
     """Use statsmodels ARIMA(1,1,1) when available; otherwise fall back to MA."""
-    if not _HAS_ARIMA or not history or len(history) < 20:
+    if not _check_arima() or not history or len(history) < 20:
         return _moving_average_forecast(history, horizon)
 
     try:
+        from statsmodels.tsa.arima.model import ARIMA
         import pandas as pd
         index = pd.to_datetime([h["ds"] for h in history])
         freq = pd.infer_freq(index)
