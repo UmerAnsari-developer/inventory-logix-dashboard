@@ -114,7 +114,7 @@ class ForecastService:
 
     @staticmethod
     def portfolio(horizon: int = 30, model: str = "prophet") -> list[dict]:
-        """Lightweight forecast summary for the dashboard."""
+        """Lightweight forecast summary — uses 7-day moving average, no model fitting."""
         from ..database import get_cursor
         out = []
         with get_cursor() as cur:
@@ -124,11 +124,18 @@ class ForecastService:
             products = list(cur.fetchall())
         for p in products:
             try:
-                result = ForecastService.run(p["id"], model=model, horizon=horizon)
-                preds = result.get("predictions", [])
-                baseline = result.get("baseline", 1) or 1
-                predicted = sum(preds) if preds else 0
-                delta_pct = round(((predicted / max(horizon, 1)) / baseline - 1) * 100, 1)
+                rows = MovementRepository.daily_for_product(p["id"], days=90)
+                totals = [int(r["total"]) for r in rows]
+                if not totals:
+                    continue
+                baseline = sum(totals) / len(totals)
+                window = min(7, len(totals))
+                recent_avg = sum(totals[-window:]) / window
+                predicted = round(recent_avg * horizon, 1)
+                delta_pct = round(((recent_avg / max(baseline, 1)) - 1) * 100, 1)
+                residuals = [abs(t - baseline) for t in totals]
+                mae = sum(residuals) / len(residuals) if residuals else 0
+                accuracy = max(0, round(100 - (mae / max(baseline, 1)) * 100, 1))
                 out.append({
                     "id": p["id"],
                     "sku": p["sku"],
@@ -136,8 +143,8 @@ class ForecastService:
                     "predicted_units": int(predicted),
                     "baseline": round(baseline, 1),
                     "delta_pct": delta_pct,
-                    "accuracy": result.get("accuracy", 0),
+                    "accuracy": accuracy,
                 })
             except Exception as exc:  # pragma: no cover - defensive
-                LOGGER.warning("Forecast failed for %s: %s", p["sku"], exc)
+                LOGGER.warning("Portfolio forecast failed for %s: %s", p["sku"], exc)
         return out
