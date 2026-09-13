@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import logging
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, render_template, request
 from flask_login import current_user, login_required
 
 from ..extensions import limiter
 from ..repositories import ProductRepository
+from ..security import write_roles_required
 from ..services import AnomalyService, ForecastService, MonitoringService, SettingsService
 from ..utils import api_error, api_response
 from ..utils.cache import TTLCache
@@ -164,6 +165,7 @@ def anomaly_alert_detail(alert_id: int):
 @ai_bp.route("/anomaly/alerts/<int:alert_id>/status", methods=["PUT"])
 @limiter.limit("30 per minute")
 @login_required
+@write_roles_required
 def anomaly_alert_status(alert_id: int):
     """Update alert status (new → reviewed → acknowledged → resolved)."""
     payload = request.get_json(silent=True) or {}
@@ -261,6 +263,7 @@ def monitoring_alerts():
 
 @ai_bp.route("/monitoring/alerts/<int:alert_id>/status", methods=["PUT"])
 @login_required
+@write_roles_required
 @limiter.limit("30 per minute")
 def monitoring_alert_status(alert_id: int):
     payload = request.get_json(silent=True) or request.form
@@ -273,6 +276,7 @@ def monitoring_alert_status(alert_id: int):
 
 @ai_bp.route("/monitoring/evaluate", methods=["POST"])
 @login_required
+@write_roles_required
 @limiter.limit("10 per minute")
 def monitoring_evaluate():
     count = MonitoringService.evaluate_pending()
@@ -281,6 +285,7 @@ def monitoring_evaluate():
 
 @ai_bp.route("/monitoring/compute", methods=["POST"])
 @login_required
+@write_roles_required
 @limiter.limit("10 per minute")
 def monitoring_compute():
     payload = request.get_json(silent=True) or request.form

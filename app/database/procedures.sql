@@ -260,6 +260,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION sp_movement_daily_inout(p_days INT DEFAULT 14)
+RETURNS TABLE(day DATE, in_qty BIGINT, out_qty BIGINT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT date_trunc('day', m.created_at)::date AS day,
+           COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0)::BIGINT AS in_qty,
+           COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0)::BIGINT AS out_qty
+    FROM movements m
+    WHERE m.created_at >= (CURRENT_DATE - (p_days - 1))
+    GROUP BY day ORDER BY day;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION sp_movement_daily_for_product(
     p_product_id INT, p_days INT DEFAULT 90
 ) RETURNS TABLE(day DATE, total BIGINT) AS $$

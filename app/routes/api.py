@@ -88,7 +88,7 @@ def dashboard_live():
             cur.execute(
                 """
                 SELECT COUNT(*) AS c,
-                       SUM(CASE WHEN current_stock <= reorder_point * %s OR current_stock <= 0 THEN 1 ELSE 0 END) AS critical,
+                       SUM(CASE WHEN current_stock <= reorder_point * %s AND on_order <= 0 THEN 1 ELSE 0 END) AS critical,
                        SUM(CASE WHEN current_stock > reorder_point * %s AND current_stock <= reorder_point AND on_order <= 0 THEN 1 ELSE 0 END) AS warning
                 FROM products
                 """,
@@ -99,7 +99,7 @@ def dashboard_live():
                 "SELECT COALESCE(SUM(quantity), 0) AS units FROM movements WHERE created_at::date = %s",
                 (today,),
             )
-            units_today = int(cur.fetchone()["units"] or 0) or 1248
+            units_today = int(cur.fetchone()["units"] or 0)
         total_skus = int(reorder_row["c"] or 0)
         reorder_count = int(reorder_row["reorder"] or 0)
         critical_count = int(risk["critical"] or 0)
@@ -135,7 +135,7 @@ def list_products():
     params = {
         "search": request.args.get("search", ""),
         "category": request.args.get("category", ""),
-        "warehouse": request.args.get("warehouse", ""),
+        "warehouse": request.form.get("warehouse", ""),
         "stock_status": request.args.get("stock_status", ""),
         "page": page,
         "per_page": per_page,
@@ -297,3 +297,32 @@ def calculate_eoq():
         })
     except (TypeError, ValueError) as exc:
         return api_error("INVALID_INPUT", str(exc), status=422)
+
+
+# ----- Notifications -----
+
+@api_bp.route("/notifications", methods=["GET"])
+@limiter.limit("60 per minute")
+@login_required
+def list_notifications():
+    from ..repositories import NotificationRepository
+    notifs = NotificationRepository.list_for_user(current_user.id, limit=50)
+    return api_response({"notifications": notifs, "unread": NotificationRepository.count_unread(current_user.id)})
+
+
+@api_bp.route("/notifications/<int:notif_id>/read", methods=["POST"])
+@limiter.limit("60 per minute")
+@login_required
+def mark_notification_read(notif_id: int):
+    from ..repositories import NotificationRepository
+    NotificationRepository.mark_read(notif_id, current_user.id)
+    return api_response({"ok": True})
+
+
+@api_bp.route("/notifications/read-all", methods=["POST"])
+@limiter.limit("30 per minute")
+@login_required
+def mark_all_notifications_read():
+    from ..repositories import NotificationRepository
+    NotificationRepository.mark_all_read(current_user.id)
+    return api_response({"ok": True})

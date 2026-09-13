@@ -74,11 +74,13 @@ CREATE INDEX IF NOT EXISTS idx_movements_created_at ON movements(created_at);
 CREATE INDEX IF NOT EXISTS idx_movements_type_created ON movements(type, created_at);
 CREATE INDEX IF NOT EXISTS idx_movements_product_created ON movements(product_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_movements_product_type_created ON movements(product_id, type, created_at);
+CREATE INDEX IF NOT EXISTS idx_movements_sku ON movements(sku);
 
 -- Products indexes for dashboard/reports queries
 CREATE INDEX IF NOT EXISTS idx_products_stock_rop ON products(current_stock, reorder_point, on_order);
 CREATE INDEX IF NOT EXISTS idx_products_warehouse_category ON products(warehouse, category);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id);
 
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id              SERIAL PRIMARY KEY,
@@ -324,6 +326,23 @@ CREATE TABLE IF NOT EXISTS model_monitoring_alerts (
 CREATE INDEX IF NOT EXISTS idx_mma_sku_model_type_status
     ON model_monitoring_alerts(sku, model_name, alert_type, status);
 CREATE INDEX IF NOT EXISTS idx_mma_created ON model_monitoring_alerts(created_at);
+
+-- ─────────────────────────────────────────────────────────────────
+-- Notifications
+-- ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notifications (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER NOT NULL REFERENCES users(id),
+    title           VARCHAR(200) NOT NULL,
+    message         TEXT NOT NULL,
+    icon            VARCHAR(10) DEFAULT '&#9675;',
+    link            VARCHAR(300),
+    is_read         BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read
+    ON notifications(user_id, is_read, created_at DESC);
 
 -- ─────────────────────────────────────────────────────────────────
 -- Row-Level Security: enable on every table with NO policies.

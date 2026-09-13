@@ -59,6 +59,19 @@ def _make_conn(params: dict):
     )
 
 
+def _open_conn():
+    """Open a raw psycopg2 connection using app config (for ETL/seed scripts)."""
+    from flask import current_app
+    params = current_app.config["psycopg2_params"]()
+    if "dsn" in params:
+        return psycopg2.connect(
+            params["dsn"], cursor_factory=psycopg2.extras.RealDictCursor
+        )
+    return psycopg2.connect(
+        cursor_factory=psycopg2.extras.RealDictCursor, **params
+    )
+
+
 def _get_pool(params: dict):
     key = _pool_key(params)
     with _POOL_LOCK:
@@ -90,11 +103,26 @@ def _make_conn_kwargs(params: dict) -> dict:
 
 
 def get_connection():
-    """Return a pooled, request-scoped psycopg2 connection."""
+    """Return a pooled, request-scoped psycopg2 connection.
+
+    Health-checks the pooled connection: the server can close idle
+    connections (e.g. Render/PG idle timeouts) without the pool knowing,
+    which would surface as ``InterfaceError: connection already closed``
+    on the first query of the next request. Ping once and swap in a fresh
+    connection if the pooled one is dead.
+    """
     if "db" not in g:
         params = current_app.config["psycopg2_params"]()
         pool = _get_pool(params)
-        g.db = pool.getconn()
+        conn = pool.getconn()
+        try:
+            with conn.cursor() as ping:
+                ping.execute("SELECT 1")
+            ping.close()
+        except psycopg2.Error:
+            pool.putconn(conn, close=True)
+            conn = pool.getconn()
+        g.db = conn
         g.db_pool = pool
     return g.db
 

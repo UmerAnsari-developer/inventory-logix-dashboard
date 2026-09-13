@@ -11,10 +11,18 @@ def _bool(value: str | None, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def _require_env(name: str) -> str:
+    """Raise on startup if a critical env var is missing."""
+    val = os.environ.get(name)
+    if not val:
+        raise RuntimeError(f"Required environment variable {name} is not set. Add it to your .env file.")
+    return val
+
+
 class Config:
     """Base configuration loaded from environment variables."""
 
-    SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-production")
+    SECRET_KEY = os.environ.get("SECRET_KEY") or _require_env("SECRET_KEY")
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = _bool(os.environ.get("SESSION_COOKIE_SECURE"), True)
