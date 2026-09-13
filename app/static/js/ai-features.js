@@ -465,9 +465,10 @@
                 tbody.innerHTML = rows.length ? rows.map(r => (
                     '<tr><td><span class="sku">' + r.sku + '</span></td>' +
                     '<td>' + r.name + '</td>' +
+                    '<td>' + (r.model || '—') + '</td>' +
                     '<td>' + r.anomaly_count + '</td>' +
                     '<td>' + (r.max_z || 0).toFixed(2) + '</td></tr>'
-                )).join('') : '<tr><td colspan="4" class="empty-state">No anomalies across the portfolio</td></tr>';
+                )).join('') : '<tr><td colspan="5" class="empty-state">No anomalies across the portfolio</td></tr>';
             } catch (e) {}
         }
 
@@ -482,7 +483,6 @@
 
         loadSummary();
         loadAlerts();
-        loadPortfolio();
     }
     window.StockflowAnomaly = { init: initAnomaly };
 
