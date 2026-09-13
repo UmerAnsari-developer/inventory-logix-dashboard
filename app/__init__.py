@@ -154,14 +154,16 @@ def _register_context(app: Flask) -> None:
     @app.context_processor
     def inject_globals():
         settings = {}
-        reorder_count = 0
         try:
             if current_user.is_authenticated:
                 from .utils.cache import global_cache
                 settings = global_cache.get(f"settings:{current_user.id}") or {}
-                reorder_count = global_cache.get("reorder_count") or 0
         except Exception:
             pass
+        try:
+            reorder_count = _fetch_reorder_count()
+        except Exception:
+            reorder_count = 0
         return {"app_settings": settings, "reorder_count": reorder_count}
 
 

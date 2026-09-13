@@ -12,6 +12,18 @@ def _admin_manager_ids() -> list[int]:
         return [r["id"] for r in cur.fetchall()]
 
 
+def _bulk_create(user_ids: list[int], title: str, message: str, icon: str, link: str | None) -> int:
+    """Insert one notification per user in a single round-trip."""
+    if not user_ids:
+        return 0
+    with get_cursor(commit=True) as cur:
+        cur.executemany(
+            "INSERT INTO notifications (user_id, title, message, icon, link) VALUES (%s,%s,%s,%s,%s)",
+            [(uid, title, message, icon, link) for uid in user_ids],
+        )
+    return len(user_ids)
+
+
 def clear_stale_notifications() -> int:
     """Delete notifications older than 30 days."""
     with get_cursor(commit=True) as cur:
@@ -41,9 +53,7 @@ def check_reorder_alerts() -> int:
         title = f"Reorder: {item['sku']}"
         msg = f"{item['name']} ({item['sku']}) — stock {item['current_stock']}, reorder at {item['reorder_point']}."
         icon = "&#9888;" if item["current_stock"] == 0 else "&#9650;"
-        for uid in users:
-            NotificationRepository.create(uid, title, msg, icon, f"/inventory?search={item['sku']}")
-            count += 1
+        count += _bulk_create(users, title, msg, icon, f"/inventory?search={item['sku']}")
     return count
 
 
@@ -64,9 +74,7 @@ def check_out_of_stock() -> int:
     for item in items:
         title = f"Out of stock: {item['sku']}"
         msg = f"{item['name']} ({item['sku']}) in {item['warehouse']} is out of stock."
-        for uid in users:
-            NotificationRepository.create(uid, title, msg, "&#9888;", f"/inventory?search={item['sku']}")
-            count += 1
+        count += _bulk_create(users, title, msg, "&#9888;", f"/inventory?search={item['sku']}")
     return count
 
 
@@ -75,24 +83,20 @@ def notify_movement(sku: str, product_name: str, movement_type: str, qty: int, w
     icon = "&#8595;" if direction == "OUT" else "&#8593;"
     title = f"Movement {direction}: {sku}"
     message = f"{qty}x {product_name} ({sku}) moved {direction} in {warehouse}."
-    link = f"/inventory?search={sku}"
-    for uid in _admin_manager_ids():
-        NotificationRepository.create(uid, title, message, icon, link)
+    _bulk_create(_admin_manager_ids(), title, message, icon, f"/inventory?search={sku}")
 
 
 def notify_po_status(po_number: str, status: str, supplier_name: str) -> None:
     icons = {"approved": "&#10003;", "in_transit": "&#9992;", "received": "&#10004;", "draft": "&#9998;"}
     title = f"PO {status.replace('_', ' ').title()}: {po_number}"
     message = f"PO {po_number} ({supplier_name}) is now {status.replace('_', ' ')}."
-    for uid in _admin_manager_ids():
-        NotificationRepository.create(uid, title, message, icons.get(status, "&#9675;"), "/purchase-orders")
+    _bulk_create(_admin_manager_ids(), title, message, icons.get(status, "&#9675;"), "/purchase-orders")
 
 
 def notify_anomaly(sku: str, product_name: str, anomaly_type: str, details: str) -> None:
     title = f"Anomaly: {sku}"
     message = f"{product_name} ({sku}) — {anomaly_type}: {details}"
-    for uid in _admin_manager_ids():
-        NotificationRepository.create(uid, title, message, "&#9888;", "/ai/anomaly")
+    _bulk_create(_admin_manager_ids(), title, message, "&#9888;", "/ai/anomaly")
 
 
 def run_monitoring_checks() -> dict:
