@@ -44,6 +44,3 @@ class UserProxy(UserMixin):
             return self._row[item]
         except KeyError:
             raise AttributeError(item)
-
-    def to_dict(self) -> dict:
-        return dict(self._row)

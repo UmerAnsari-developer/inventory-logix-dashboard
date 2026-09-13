@@ -27,12 +27,6 @@ class SupplierRepository:
         return row
 
     @staticmethod
-    def lookup() -> dict[int, dict]:
-        with get_cursor() as cur:
-            cur.execute("SELECT id, name, tone, lead_days FROM suppliers")
-            return {row["id"]: dict(row) for row in cur.fetchall()}
-
-    @staticmethod
     def create(payload: dict) -> int:
         initials = "".join([w[0] for w in (payload.get("name") or "").split()[:2]]).upper()[:2]
         with get_cursor(commit=True) as cur:

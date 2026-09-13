@@ -91,7 +91,6 @@ class AuthService:
         # Create session tracking record
         session_token = UserRepository.create_session(user["id"], ip, user_agent)
         user.session_token = session_token
-        from flask_login import login_user
         login_user(user, remember=True)
         return user
 

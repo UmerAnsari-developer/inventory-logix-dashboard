@@ -19,15 +19,3 @@ class AuditRepository:
                     _json.dumps(detail or {}), ip_address,
                 ),
             )
-
-    @staticmethod
-    def recent(limit: int = 50) -> list[dict]:
-        with get_cursor() as cur:
-            cur.execute("SELECT * FROM sp_audit_recent(%s)", (limit,))
-            return list(cur.fetchall())
-
-    @staticmethod
-    def count_last_hours(hours: int = 24) -> int:
-        with get_cursor() as cur:
-            cur.execute("SELECT sp_audit_count_last_hours(%s)", (hours,))
-            return int(cur.fetchone()["sp_audit_count_last_hours"] or 0)

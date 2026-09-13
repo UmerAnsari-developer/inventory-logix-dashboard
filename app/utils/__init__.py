@@ -8,7 +8,6 @@ from .helpers import (
     calculate_reorder_point,
     stock_status,
     json_safe,
-    chunked,
 )
 from .cache import (
     TTLCache,
@@ -38,7 +37,6 @@ __all__ = [
     "calculate_reorder_point",
     "stock_status",
     "json_safe",
-    "chunked",
     "TTLCache",
     "products_cache",
     "suppliers_cache",

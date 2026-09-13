@@ -7,7 +7,6 @@ from decimal import Decimal, InvalidOperation
 SKU_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9\-_]{1,49}$")
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.\-]{3,60}$")
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-SAFE_TEXT_PATTERN = re.compile(r"^[\w\s\.\,\-\:\(\)\&\#\/\%\$\@\+]{0,500}$")
 
 
 class ValidationError(ValueError):
@@ -30,16 +29,6 @@ def validate_positive_number(value, name: str = "value", allow_zero: bool = True
     if not allow_zero and number == 0:
         raise ValidationError(f"{name} must be greater than zero.")
     return round(number, 4)
-
-
-def validate_integer(value, name: str = "value", minimum: int = 0) -> int:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        raise ValidationError(f"{name} must be an integer.")
-    if number < minimum:
-        raise ValidationError(f"{name} must be >= {minimum}.")
-    return number
 
 
 def validate_string_length(value: str, name: str, minimum: int = 1, maximum: int = 200) -> str:
