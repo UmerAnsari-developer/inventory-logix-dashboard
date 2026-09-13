@@ -118,14 +118,6 @@
     });
   }
 
-  const notificationButton = document.getElementById("notificationButton");
-  if (notificationButton) {
-    const count = notificationButton.dataset.count || "0";
-    notificationButton.addEventListener("click", function () {
-      toast("Warehouse pulse", count + " products are in the reorder queue right now.");
-    });
-  }
-
   const flashStack = document.querySelector(".flash-stack");
   if (flashStack) {
     flashStack.querySelectorAll(".flash-close").forEach(function (btn) {
@@ -220,21 +212,4 @@ function toast(title, message) {
   setTimeout(function () { item.remove(); }, 4000);
 }
 
-function formatCurrency(value, prefix) {
-  const n = Number(value || 0);
-  return (prefix || "") + n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
-}
-
-function formatNumber(value) {
-  return Number(value || 0).toLocaleString("en-IN");
-}
-
-function debounce(fn, wait) {
-  let t;
-  return function () {
-    const args = arguments;
-    const ctx = this;
-    clearTimeout(t);
-    t = setTimeout(function () { fn.apply(ctx, args); }, wait);
-  };
-}
+function getDlColor() { return document.documentElement.getAttribute('data-theme') === 'dark' ? '#e2e8f0' : '#1e293b'; }

@@ -155,12 +155,6 @@
             </div>
           </div>
         </nav>
-        <div class="global-search" id="globalSearch">
-          <button type="button" class="search-icon" id="searchToggle" aria-label="Search inventory" aria-haspopup="true" aria-expanded="false">&#8981;</button>
-          <label class="sr-only" for="searchInput">Search inventory</label>
-          <input id="searchInput" type="search" value="{{ request.args.get('search', '') }}"
-            placeholder="Search products or SKUs" autocomplete="off" />
-        </div>
         <button class="top-action" id="notificationButton" data-count="{{ reorder_count }}"
           aria-label="View notifications">&#9675;<span class="notification-dot"></span></button>
         <div class="user-menu-wrap">
@@ -187,7 +181,10 @@
               <div class="user-meta-row"><span>Member since</span><strong>{{ current_user.created_at.strftime('%d %b %Y') if current_user.created_at else '—' }}</strong></div>
             </div>
             <div class="user-dropdown-actions">
-              <a href="{{ url_for('auth.logout') }}" role="menuitem">Log out</a>
+              <form action="{{ url_for('auth.logout') }}" method="POST" style="display:inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                <button type="submit" role="menuitem" class="logout-btn">Log out</button>
+              </form>
             </div>
           </div>
         </div>
@@ -210,10 +207,10 @@
 
 <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
-  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/ai-features.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/saas-animations.js') }}"></script>
-<script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/ai-features.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/saas-animations.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}"></script>
   {% if not current_user.is_authenticated %}
   <!-- Theme toggle for auth pages + localStorage sync -->
   <script nonce="{{ csp_nonce }}">
@@ -236,5 +233,60 @@
   {% endif %}
   {% block scripts %}
   {% endblock %}
+  {% if current_user.is_authenticated %}
+  <script nonce="{{ csp_nonce }}">
+  (function(){
+    var btn = document.getElementById('notificationButton');
+    if(!btn) return;
+    var dd = document.createElement('div');
+    dd.className = 'notif-dropdown';
+    dd.id = 'notifDropdown';
+    dd.style.display = 'none';
+    btn.parentNode.insertBefore(dd, btn.nextSibling);
+    var loaded = false;
+
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      if(dd.style.display === 'block'){ dd.style.display='none'; return; }
+      if(!loaded) fetchNotifs();
+      dd.style.display = 'block';
+    });
+
+    document.addEventListener('click', function(e){
+      if(!e.target.closest('#notificationButton') && !e.target.closest('#notifDropdown')){
+        dd.style.display='none';
+      }
+    });
+
+    function fetchNotifs(){
+      var token = document.querySelector('meta[name="csrf-token"]').content;
+      fetch('/api/notifications', {headers:{'X-CSRFToken': token}})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var items = (d.data && d.data.notifications) || [];
+        if(!items.length){
+          dd.innerHTML = '<div class="notif-empty">No notifications</div>';
+          loaded = true;
+          return;
+        }
+        var html = '<div class="notif-header">Notifications</div>';
+        for(var i=0;i<items.length;i++){
+          var n = items[i];
+          html += '<a href="/notifications/'+n.id+'" class="notif-item'+(n.is_read?'':' notif-unread')+'">'
+            + '<div class="notif-icon">'+ (n.icon || '&#9675;') +'</div>'
+            + '<div class="notif-body">'
+            + '<div class="notif-title">'+ (n.title||'') +'</div>'
+            + '<div class="notif-msg">'+ (n.message||'') +'</div>'
+            + '<div class="notif-time">'+ (n.created_at||'') +'</div>'
+            + '</div></a>';
+        }
+        html += '<a href="/notifications" class="notif-view-all">View all notifications</a>';
+        dd.innerHTML = html;
+        loaded = true;
+      });
+    }
+  })();
+  </script>
+  {% endif %}
 </body>
 </html>

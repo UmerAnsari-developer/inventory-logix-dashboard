@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set active_page = "notifications" %}
+{% block title %}Notifications{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Alerts</div>
+      <h1>Notifications</h1>
+      <p class="heading-note">Stay updated on inventory alerts and system activity</p>
+    </div>
+    <div class="page-actions">
+      {% if notifications %}
+      <button class="btn btn-secondary" id="markAllBtn">Mark all read</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if notifications %}
+  <div class="card notif-page-list" id="notifList">
+    {% for n in notifications %}
+    <div class="notif-page-item {{ 'notif-unread' if not n.is_read }}" data-id="{{ n.id }}">
+      <div class="notif-icon">{{ n.icon|safe }}</div>
+      <div class="notif-body">
+        <div class="notif-title">{{ n.title }}</div>
+        <div class="notif-msg">{{ n.message }}</div>
+        <div class="notif-time">{{ n.created_at.strftime('%d %b %Y, %I:%M %p') if n.created_at else '' }}</div>
+      </div>
+      {% if not n.is_read %}
+      <button class="notif-mark-read-btn" data-mark-read="{{ n.id }}">Mark read</button>
+      {% else %}
+      <span class="notif-read-label">Read</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card notif-empty-state">
+    <div class="notif-icon">&#9675;</div>
+    <div>No notifications yet</div>
+  </div>
+  {% endif %}
+</section>
+
+<script nonce="{{ csp_nonce }}">
+var csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+document.querySelectorAll('[data-mark-read]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var id = this.getAttribute('data-mark-read');
+    var self = this;
+    self.disabled = true;
+    self.textContent = '...';
+    fetch('/api/notifications/' + id + '/read', {
+      method: 'POST',
+      headers: {'X-CSRFToken': csrfToken}
+    }).then(function(r) { return r.json(); }).then(function() {
+      var item = document.querySelector('[data-id="' + id + '"]');
+      if (item) {
+        item.classList.remove('notif-unread');
+        item.classList.add('notif-read');
+      }
+      var label = document.createElement('span');
+      label.className = 'notif-read-label';
+      label.textContent = 'Read';
+      self.replaceWith(label);
+    }).catch(function() {
+      self.disabled = false;
+      self.textContent = 'Mark read';
+    });
+  });
+});
+
+var markAllBtn = document.getElementById('markAllBtn');
+if (markAllBtn) {
+  markAllBtn.addEventListener('click', function() {
+    var self = this;
+    self.disabled = true;
+    self.textContent = 'Processing...';
+    fetch('/api/notifications/read-all', {
+      method: 'POST',
+      headers: {'X-CSRFToken': csrfToken}
+    }).then(function(r) { return r.json(); }).then(function() {
+      document.querySelectorAll('.notif-page-item').forEach(function(el) {
+        el.classList.remove('notif-unread');
+        el.classList.add('notif-read');
+      });
+      document.querySelectorAll('.notif-mark-read-btn').forEach(function(b) {
+        var label = document.createElement('span');
+        label.className = 'notif-read-label';
+        label.textContent = 'Read';
+        b.replaceWith(label);
+      });
+      self.textContent = 'All read';
+    }).catch(function() {
+      self.disabled = false;
+      self.textContent = 'Mark all read';
+    });
+  });
+}
+</script>
+{% endblock %}
