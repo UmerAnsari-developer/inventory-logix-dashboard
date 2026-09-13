@@ -1631,7 +1631,7 @@ tbody tr:hover {
 
 .filter-bar input,
 .filter-bar select {
-  min-height: 38px;
+  min-height: 18px;
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2301,6 +2301,9 @@ tbody tr:hover {
      over the open menu. Lift this row above them. */
   position: relative;
   z-index: 30;
+}
+[data-theme="dark"] .report-filter-row {
+  background: var(--surface);
 }
 
 .report-filter-row .report-filter-label {
@@ -3645,6 +3648,11 @@ th:has(+ th.number) {
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+  /* backdrop-filter creates a stacking context that traps the dropdown's
+     z-index; the table-scroll below paints over the open menu. Lift the
+     bar above it (same fix as .report-filter-row). */
+  position: relative;
+  z-index: 30;
 }
 
 .filter-bar input,
@@ -3909,5 +3917,65 @@ th:has(+ th.number) {
   .gsap-stagger {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* ── Multi-select in filter bar ───────────────────────────────────── */
+.inv-filter-label {
+  flex: 1 1 160px;
+  min-width: 150px;
+}
+
+/* ── Mobile responsiveness ────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .report-filter-row {
+    flex-wrap: wrap;
+  }
+
+  .report-filter-row .report-filter-label {
+    flex: 1 1 46%;
+    min-width: 140px;
+  }
+
+  .report-filter-row .report-actions {
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  body {
+    overflow-x: clip;
+  }
+
+  .filter-bar,
+  .report-filter-row {
+    position: relative;
+  }
+
+  .filter-bar .multi-select-wrapper,
+  .report-filter-row .multi-select-wrapper {
+    position: static;
+  }
+
+  .multi-select-wrapper .filter-menu {
+    position: fixed;
+    left: 14px;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 90;
+  }
+
+  .filter-bar .filter-options,
+  .report-filter-row .filter-options {
+    max-height: 45vh;
+  }
+
+  .filter-option {
+    padding: 11px 10px;
+  }
+
+  .inv-filter-label {
+    flex: 1 1 100%;
   }
 }
