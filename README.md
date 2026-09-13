@@ -27,6 +27,12 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 - **ML module** — Prophet, ARIMA, and ensemble forecasting with graceful
   fallback. Anomaly detection uses Isolation Forest plus SPC z-score control
   charts. Portfolio-level forecast and anomaly endpoints with 1-hour caching.
+  Both portfolio tables include **every product** with a **Model column**
+  (forecast: Prophet/ARIMA/Ensemble label; anomaly: Isolation Forest /
+  SPC (z-score)) and load **only after a run** — never pre-filled.
+  Both AI pages ship a plain-language **"How to read this page"** section
+  explaining every KPI (MAE, MAPE, RMSE, accuracy, confidence band) and the
+  SPC ±3σ control chart for non-technical users.
 - **Data warehouse** — ETL pipeline populates `dim_product`, `dim_supplier`,
   `dim_date`, `fact_inventory_daily`, and `fact_movement_monthly`. Stock walk
   clamping ensures inventory accuracy. Warehouse monitoring dashboard at
@@ -36,11 +42,23 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
   logging, account lockout, secure session cookies, and soft-validated forms.
 - **Performance** — cached context processor (60s), lazy-loaded Plotly (3.5MB
   only on pages that use it), dashboard queries batched (14→11), reports cache
-  TTL 5 min, AI portfolio cached 1 hour, ETL rebuilds non-blocking.
+  TTL 1 hour, dashboard cache TTL 5 min, AI portfolio cached 1 hour, Intelligence
+  (forecast/anomaly) product list + EOQ table cached, ETL rebuilds non-blocking.
+  Heavy report sections (category breakdown + KPIs, 30-day movement series,
+  top SKUs) query the **star-schema fact tables** (`fact_movement_daily` +
+  dimensions) instead of raw `movements` scans.
 - **UI** — unified futuristic dark-mode design with glassmorphism panels, GSAP
   entrance animations, Three.js 3D wave + particle background, Chart.js /
   Plotly charts with theme-aware datalabels, SVG sparklines, dark/light theme
   toggle, and toast notifications.
+- **Inventory filters** — category and warehouse are **multi-select checkbox
+  dropdowns** (same pattern as Reports) with an **Apply** button (Enter in the
+  search box applies too) and a **Reset** link. `sp_product_list` filters via
+  `= ANY(string_to_array(…, ','))` — comma-separated multi-select, fully
+  backward compatible with single values.
+- **Session policy** — login sets **only a browser-session cookie** (no
+  persistent remember-me cookie): closing the browser always ends the login
+  and requires signing in again, for all roles.
 
 ---
 
@@ -49,28 +67,71 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 ```
 .
 ├── app/
-│   ├── __init__.py              # Application factory
+│   ├── __init__.py              # Application factory + context processor
+│   ├── extensions.py            # Flask-Limiter and other extensions
+│   ├── models.py                # Flask-Login user model
 │   ├── config/                  # Environment-driven configuration
+│   │   └── settings.py          # Config classes (base/production/testing)
 │   ├── database/
-│   │   ├── schema.sql           # Operational tables
-│   │   ├── procedures.sql       # 84+ stored procedures
-│   │   ├── triggers.sql         # 8 trigger functions
+│   │   ├── schema.sql           # Operational tables + star schema + RLS
+│   │   ├── procedures.sql       # 84+ stored procedures (all CRUD)
+│   │   ├── triggers.sql         # 8 trigger functions (validation + audit)
 │   │   ├── warehouse.sql        # SCD Type 2 dims + fact tables
 │   │   ├── etl_procedures.sql   # ETL + monitoring procedures
 │   │   ├── etl.py               # ETL pipeline + stock walk clamping
-│   │   ├── seed.py              # Demo data seeding
-│   │   └── connection.py        # Pool management + bootstrap
+│   │   ├── seed.py              # Demo data seeding (DataCo / synthetic)
+│   │   └── connection.py        # Pool management + lazy health-check + bootstrap
+│   ├── monitoring/              # Forecast model monitoring
+│   │   ├── metrics.py           # MAE/MAPE/RMSE evaluation
+│   │   ├── degradation.py       # Degradation detection + health status
+│   │   └── alerts.py            # Model monitoring alerts
 │   ├── repositories/            # SQL CRUD per entity
-│   ├── services/                # Business logic (auth, products, EOQ, …)
-│   ├── routes/                  # Flask blueprints (auth, ui, api, ai)
+│   │   ├── product_repo.py      # products (via sp_product_list)
+│   │   ├── movement_repo.py     # movements
+│   │   ├── supplier_repo.py     # suppliers
+│   │   ├── po_repo.py           # purchase orders
+│   │   ├── warehouse_repo.py    # star-schema warehouse analytics
+│   │   ├── user_repo.py         # users + sessions
+│   │   ├── settings_repo.py     # per-user settings
+│   │   ├── notification_repo.py # notifications
+│   │   ├── forecast_repo.py     # forecast cache
+│   │   ├── monitoring_repo.py   # predictions + metrics + alerts
+│   │   └── audit_repo.py        # audit log
+│   ├── services/                # Business logic
+│   │   ├── auth_service.py      # Authentication + lockout + session tracking
+│   │   ├── product_service.py   # Product validation + orchestration
+│   │   ├── movement_service.py  # Movement recording
+│   │   ├── supplier_service.py  # Supplier creation
+│   │   ├── eoq_service.py       # EOQ table + sensitivity surface
+│   │   ├── forecast_service.py  # Forecast portfolio (OUT demand, active-day accuracy)
+│   │   ├── anomaly_service.py   # Anomaly portfolio (Isolation Forest + SPC)
+│   │   ├── monitoring_service.py # Model monitoring aggregation
+│   │   ├── notification_service.py # Alert checks + bulk inserts
+│   │   ├── settings_service.py  # Per-user settings
+│   │   ├── dataset_service.py   # DataCo dataset import
+│   │   └── mailer.py            # SMTP password reset emails
+│   ├── routes/                  # Flask blueprints
+│   │   ├── auth.py              # /auth/* (login, register, reset, logout)
+│   │   ├── ui.py                # Main pages (dashboard, inventory, reports, …)
+│   │   ├── api.py               # /api/* REST endpoints
+│   │   └── ai.py                # /ai/* forecast, anomaly, monitoring, EOQ
 │   ├── ml/                      # Forecasting + anomaly detection
+│   │   ├── forecasting.py       # Prophet / ARIMA / ensemble
+│   │   └── anomaly.py           # Isolation Forest + SPC z-score
 │   ├── security/                # Validators, CSP headers, roles
-│   ├── utils/                   # Helpers (EOQ formula, format_money, …)
+│   │   ├── validators.py        # Input validators (SKU, email, password, …)
+│   │   ├── headers.py           # CSP + security header after_request
+│   │   └── roles.py             # write_roles_required decorator
+│   ├── utils/                   # Helpers
+│   │   ├── cache.py             # Unified TTLCache + cache_bust_* hooks
+│   │   └── helpers.py           # EOQ formula, format_money, …
 │   ├── templates/               # Jinja2 templates
-│   │   ├── base.html            # Shared layout + CDN scripts
+│   │   ├── base.html            # Shared layout + CDN scripts + theme init
+│   │   ├── landing.html         # Public landing page
 │   │   ├── auth/                # login / register / forgot / reset
-│   │   ├── ai/                  # forecast / anomaly
-│   │   └── errors/              # 400 / 401 / 403 / 404 / 422 / 429 / 500
+│   │   ├── ai/                  # forecast / anomaly / model monitoring
+│   │   ├── errors/              # 400 / 401 / 403 / 404 / 422 / 429 / 500
+│   │   └── …                    # dashboard, inventory, reports, monitoring, …
 │   └── static/
 │       ├── css/
 │       │   ├── style.css        # Main app styles (~3800 lines)
@@ -90,15 +151,31 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 │   ├── script.py.mako
 │   └── versions/
 │       ├── 001_initial.py
-│       └── 002_critical_fixes.py
+│       ├── 002_critical_fixes.py
+│       └── 003_enable_rls.py
+├── docs/                        # Documentation
+│   ├── Testing.md               # Test plan + code + results
+│   └── project-analysis/        # Academic reports (architecture, business, …)
 ├── tests/                       # pytest suite
-├── scripts/                     # ops helpers
+│   ├── conftest.py              # Fixtures (app, client, auth_client)
+│   ├── test_api.py              # REST API contract
+│   ├── test_auth.py             # Auth flows
+│   ├── test_cache.py            # TTLCache + bust hooks
+│   ├── test_etl.py              # ETL pipeline / warehouse
+│   ├── test_ml.py               # Forecast + anomaly models
+│   ├── test_monitoring.py       # Model monitoring
+│   ├── test_notifications.py    # Notification API
+│   ├── test_reports_fact.py     # Reports fact-table endpoints
+│   ├── test_roles.py            # Role-based access control
+│   ├── test_security.py         # Validators, headers, rate limiting
+│   └── test_services.py         # Service-layer validation
 ├── run.py                       # Entry point
-├── migrate.py                   # Alembic helper CLI
+├── migrate.py                   # Alembic helper CLI (migrate.py etl)
 ├── alembic.ini                  # Alembic config
 ├── render.yaml                  # Render Blueprint
 ├── requirements.txt
-├── PRODUCT.md                   # Product requirements doc
+├── .env.example                 # Environment template
+├── SUPABASE_SETUP.md            # Supabase deployment guide
 └── README.md
 ```
 
@@ -162,10 +239,15 @@ Schema is applied and seeded automatically on first run. Demo credentials:
 | Context processor | 1 DB query per page load | Cached 60s (global key) |
 | Plotly CDN | Loaded on every page (~3.5MB) | Lazy-loaded (dashboard, forecast, anomaly, EOQ only) |
 | Dashboard queries | 14 sequential | 11 (batched product agg + merged top demand/sales) |
-| Reports queries | 30+ sequential | 25+ (merged `_period_orders` 4→1, warehouse breakdown+status merged) |
-| Reports cache | 30s TTL | 300s TTL (10x fewer cold hits) |
+| Dashboard cache | 60s TTL | 300s TTL (5 min) |
+| Reports heavy sections | Raw `movements` scans | Star-schema fact tables (`fact_movement_daily` + dims) |
+| Reports cache | 300s TTL | 3600s TTL (1 hour) — cold `/reports` ≈7s once, then ≈0.6s |
+| Intelligence pages | 100-product query every load | Cached product list (`ai_product_list`) |
+| EOQ calculator | Per-product table query every load | Cached (`eoq_table`) |
 | AI portfolio | No caching | 1-hour TTL cache |
 | ETL rebuild | Synchronous (10-60s block) | Non-blocking thread |
+| DB connections | `SELECT 1` ping per request | Lazy health-check + stale-connection retry |
+| Bootstrap | Full schema init on every first boot | Skipped when schema exists (1 `SELECT`) |
 
 ---
 
@@ -175,7 +257,9 @@ Schema is applied and seeded automatically on first run. Demo credentials:
   `unsafe-inline` for scripts.
 - **Account lockout** — 5 failed attempts → 15 minute lock with threading lock.
 - **Session cookies** — `Secure`, `HttpOnly`, `SameSite=Lax` by default;
-  `SESSION_COOKIE_SECURE` true in production.
+  `SESSION_COOKIE_SECURE` true in production. **No persistent remember-me
+  cookie**: login sets only the browser-session cookie, so closing the
+  browser always ends the session and re-opening requires re-login.
 - **Password reset tokens** — single-use, TTL-based, only shown in debug mode.
 - **Role-based access** — `viewer` is read-only; write routes restricted to
   `admin`/`manager`.
@@ -260,8 +344,9 @@ Portfolio endpoints are cached for 1 hour to avoid repeated model fitting.
 3. **Dashboard** — `/` — KPI cards (stock health, AI savings YTD, reorder
    count), inventory mix, stock movement chart, reorder queue, top demand/sales,
    warehouse profile, ABC analysis, stock turnover, slow movers, 3D panel tilt.
-4. **Inventory** — `/inventory` — searchable, filterable, paginated table with
-   CSV export.
+4. **Inventory** — `/inventory` — searchable, paginated table with **multi-select
+   category/warehouse filters**, single-select stock status, CSV export, Apply /
+   Reset controls.
 5. **Reorder alerts** — `/reorder-alerts` — severity-sorted cards with
    "Mark ordered" action.
 6. **Suppliers** — `/suppliers` — cards with reliability and lead time.
@@ -273,9 +358,13 @@ Portfolio endpoints are cached for 1 hour to avoid repeated model fitting.
 10. **EOQ calculator** — `/eoq-calculator` — live form, cost curve, per-product
     table, theme-aware datalabels.
 11. **AI forecast** — `/ai/forecast` — product selector, model choice, Plotly
-    chart with confidence intervals, portfolio snapshot.
+    chart with confidence intervals, portfolio snapshot table (every product,
+    with Model column; loads only after a forecast run), plus a plain-language
+    "How to read this page" section explaining every KPI.
 12. **Anomaly detection** — `/ai/anomaly` — Isolation Forest + SPC control
-    chart, portfolio table.
+    chart, portfolio table (every product incl. healthy SKUs, with Model
+    column; loads only after a detection run), and an info section explaining
+    the SPC ±3σ chart and every value.
 13. **Monitoring** — `/monitoring` — DB stats, ETL status, daily logins,
     warehouse health, Run ETL button (non-blocking).
 14. **Settings** — `/settings` — per-account preferences, AI defaults, alert
@@ -293,24 +382,11 @@ pip install pytest
 pytest
 ```
 Covers auth flow, role-based access, REST API, security helpers, ML smoke
-tests, and service-layer validation.
----
-## Academic Documentation
+tests, service-layer validation, caching, ETL, and the reports fact-table
+endpoints (`tests/test_reports_fact.py` — verifies 200 OK, fact-table SQL
+execution, and dimension-table joins when filters are applied).
 
-The repository includes an evidence-based academic documentation structure for
-project reports and presentations:
 
-- [`docs/project-analysis/ACADEMIC_DOCUMENTATION_INDEX.md`](docs/project-analysis/ACADEMIC_DOCUMENTATION_INDEX.md) — expanded preliminary pages, 24-chapter index, appendices, and document governance.
-- [`docs/project-analysis/CHAPTER_5_TECHNOLOGY_STACK.md`](docs/project-analysis/CHAPTER_5_TECHNOLOGY_STACK.md) — reusable technology-stack chapter template for any project.
-- [`docs/project-analysis/CHAPTER_7_SYSTEM_ARCHITECTURE.md`](docs/project-analysis/CHAPTER_7_SYSTEM_ARCHITECTURE.md) — reusable architecture chapter template for any project.
-- [`docs/project-analysis/REPORT_PAGES.md`](docs/project-analysis/REPORT_PAGES.md) — report-page catalogue, metric definitions, data flow, security, caching, and validation guidance.
-- [`docs/project-analysis/AGENT_TEAM.md`](docs/project-analysis/AGENT_TEAM.md) — staged documentation-agent roles, shared evidence rules, and required outputs.
-- [`docs/project-analysis/LITERATURE_REVIEW.md`](docs/project-analysis/LITERATURE_REVIEW.md) — literature review, similar systems, research gaps, and references.
-
-The academic index intentionally excludes a certificate page. Institutional
-certificates and attestations should be supplied separately rather than
-generated from application documentation.
----
 ## License
 This codebase is part of an MCA mini-project. Use freely within your
 organisation.

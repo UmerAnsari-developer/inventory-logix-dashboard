@@ -212,32 +212,94 @@ multi-currency (single ₹ formatting), i18n, WebSockets.
 
 ```
 InventoryLogix/
-├── run.py                    # Entry: create_app() + Werkzeug dev / Gunicorn prod (1w×2t)
+├── run.py                    # Entry: create_app() + Werkzeug dev / Gunicorn prod
 ├── migrate.py                # CLI: etl | alembic migrate/upgrade
 ├── render.yaml                # Blueprint: free Postgres + web service
-├── alembic.ini                # ⚠ committed Supabase DSN (see §26)
+├── alembic.ini                # Alembic config (gitignored for security)
 ├── app/
-│   ├── __init__.py            # App factory, error handlers, bootstrap hook
-│   ├── config/settings.py     # Dev/Prod/Testing config classes
-│   ├── extensions.py          # login_manager, csrf, limiter singletons
-│   ├── models.py              # User proxy for Flask-Login
-│   ├── database/              # connection.py (pool+bootstrap), schema.sql (12 tables+star),
-│   │                          # procedures.sql (51 fns), triggers.sql (9 fns, 8 triggers),
-│   │                          # warehouse.sql (SCD2), etl_procedures.sql (14 fns),
-│   │                          # etl.py (incremental ETL), seed.py (DataCo/synthetic)
-│   ├── repositories/          # 9 static-method repo classes → sp_* calls
-│   ├── services/              # auth, product, movement, supplier, forecast, anomaly,
-│   │                          # eoq, dataset, mailer, settings
-│   ├── routes/                # 4 blueprints: auth (5), ui (23), api (15), ai (7)
-│   ├── ml/                    # forecasting.py, anomaly.py
-│   ├── security/              # headers (CSP nonce), roles (RBAC), validators
-│   ├── utils/                 # cache.py (TTLCache ×8), helpers.py (EOQ math)
-│   ├── templates/             # 28 templates + auth/ ai/ errors/ subdirs
-│   └── static/                # css (3), js (11), img
+│   ├── __init__.py              # Application factory + context processor
+│   ├── extensions.py            # Flask-Limiter and other extensions
+│   ├── models.py                # Flask-Login user model
+│   ├── config/                  # Environment-driven configuration
+│   │   └── settings.py          # Config classes (base/production/testing)
+│   ├── database/
+│   │   ├── schema.sql           # Operational tables + star schema + RLS
+│   │   ├── procedures.sql       # 84+ stored procedures (all CRUD)
+│   │   ├── triggers.sql         # 8 trigger functions (validation + audit)
+│   │   ├── warehouse.sql        # SCD Type 2 dims + fact tables
+│   │   ├── etl_procedures.sql   # ETL + monitoring procedures
+│   │   ├── etl.py               # ETL pipeline + stock walk clamping
+│   │   ├── seed.py              # Demo data seeding (DataCo / synthetic)
+│   │   └── connection.py        # Pool management + lazy health-check + bootstrap
+│   ├── monitoring/              # Forecast model monitoring
+│   │   ├── metrics.py           # MAE/MAPE/RMSE evaluation
+│   │   ├── degradation.py       # Degradation detection + health status
+│   │   └── alerts.py            # Model monitoring alerts
+│   ├── repositories/            # SQL CRUD per entity
+│   │   ├── product_repo.py      # products (via sp_product_list)
+│   │   ├── movement_repo.py     # movements
+│   │   ├── supplier_repo.py     # suppliers
+│   │   ├── po_repo.py           # purchase orders
+│   │   ├── warehouse_repo.py    # star-schema warehouse analytics
+│   │   ├── user_repo.py         # users + sessions
+│   │   ├── settings_repo.py     # per-user settings
+│   │   ├── notification_repo.py # notifications
+│   │   ├── forecast_repo.py     # forecast cache
+│   │   ├── monitoring_repo.py   # predictions + metrics + alerts
+│   │   └── audit_repo.py        # audit log
+│   ├── services/                # Business logic
+│   │   ├── auth_service.py      # Authentication + lockout + session tracking
+│   │   ├── product_service.py   # Product validation + orchestration
+│   │   ├── movement_service.py  # Movement recording
+│   │   ├── supplier_service.py  # Supplier creation
+│   │   ├── eoq_service.py       # EOQ table + sensitivity surface
+│   │   ├── forecast_service.py  # Forecast portfolio (OUT demand, active-day accuracy)
+│   │   ├── anomaly_service.py   # Anomaly portfolio (Isolation Forest + SPC)
+│   │   ├── monitoring_service.py # Model monitoring aggregation
+│   │   ├── notification_service.py # Alert checks + bulk inserts
+│   │   ├── settings_service.py  # Per-user settings
+│   │   ├── dataset_service.py   # DataCo dataset import
+│   │   └── mailer.py            # SMTP password reset emails
+│   ├── routes/                  # Flask blueprints
+│   │   ├── auth.py              # /auth/* (login, register, reset, logout)
+│   │   ├── ui.py                # Main pages (dashboard, inventory, reports, …)
+│   │   ├── api.py               # /api/* REST endpoints
+│   │   └── ai.py                # /ai/* forecast, anomaly, monitoring, EOQ
+│   ├── ml/                      # Forecasting + anomaly detection
+│   │   ├── forecasting.py       # Prophet / ARIMA / ensemble
+│   │   └── anomaly.py           # Isolation Forest + SPC z-score
+│   ├── security/                # Validators, CSP headers, roles
+│   │   ├── validators.py        # Input validators (SKU, email, password, …)
+│   │   ├── headers.py           # CSP + security header after_request
+│   │   └── roles.py             # write_roles_required decorator
+│   ├── utils/                   # Helpers
+│   │   ├── cache.py             # Unified TTLCache + cache_bust_* hooks
+│   │   └── helpers.py           # EOQ formula, format_money, …
+│   ├── templates/               # Jinja2 templates
+│   │   ├── base.html            # Shared layout + CDN scripts + theme init
+│   │   ├── landing.html         # Public landing page
+│   │   ├── auth/                # login / register / forgot / reset
+│   │   ├── ai/                  # forecast / anomaly / model monitoring
+│   │   ├── errors/              # 400 / 401 / 403 / 404 / 422 / 429 / 500
+│   │   └── …                    # dashboard, inventory, reports, monitoring, …
+│   └── static/
+│       ├── css/
+│       │   ├── style.css        # Main app styles (~3800 lines)
+│       │   ├── landing.css      # Landing page + theme tokens
+│       │   └── ai-features.css  # AI overlay styles
+│       ├── js/
+│       │   ├── auth-bg.js       # Three.js 3D background (all pages)
+│       │   ├── dashboard-3d.js  # Dashboard panel tilt + chart animation
+│       │   ├── saas-animations.js  # GSAP entrance animations
+│       │   ├── ai-features.js   # AI forecast/anomaly/portfolio UI
+│       │   ├── eoq.js           # EOQ calculator + cost curve chart
+│       │   ├── main.js          # IntersectionObserver, toast, theme
+│       │   └── landing.js       # Landing page animations
+│       └── img/                 # favicon.svg, logo.svg
 ├── migrations/versions/       # 001_initial, 002_critical_fixes, 003_enable_rls
-├── tests/                     # 97 tests in 8 files + conftest
-├── docs/                      # TEST_* + project-analysis/
-└── scripts/                   # empty
+├── tests/                     # 180 tests in 11 files + conftest
+├── docs/                      # Testing.md + project-analysis/
+└── scripts/                   # ops helpers (removed — no such tracked dir)
 ```
 
 ## 13. Architecture
