@@ -105,37 +105,53 @@ def _make_conn_kwargs(params: dict) -> dict:
 def get_connection():
     """Return a pooled, request-scoped psycopg2 connection.
 
-    Health-checks the pooled connection: the server can close idle
-    connections (e.g. Render/PG idle timeouts) without the pool knowing,
-    which would surface as ``InterfaceError: connection already closed``
-    on the first query of the next request. Ping once and swap in a fresh
-    connection if the pooled one is dead.
+    Connections are lazily health-checked: the first real query on a stale
+    connection will fail, triggering a single reconnect instead of paying
+    a ``SELECT 1`` round-trip on every request.
     """
     if "db" not in g:
         params = current_app.config["psycopg2_params"]()
         pool = _get_pool(params)
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as ping:
-                ping.execute("SELECT 1")
-            ping.close()
-        except psycopg2.Error:
-            pool.putconn(conn, close=True)
-            conn = pool.getconn()
-        g.db = conn
+        g.db = pool.getconn()
         g.db_pool = pool
     return g.db
 
 
 @contextmanager
 def get_cursor(commit: bool = False):
-    """Context manager yielding a cursor that commits on success."""
+    """Context manager yielding a cursor that commits on success.
+
+    On a stale-connection error the pooled connection is replaced and the
+    operation is retried once (handles server idle-timeout disconnects).
+    """
     conn = get_connection()
     cur = conn.cursor()
     try:
         yield cur
         if commit:
             conn.commit()
+    except (psycopg2.InterfaceError, psycopg2.OperationalError):
+        conn.rollback()
+        cur.close()
+        pool = g.get("db_pool")
+        if pool:
+            try:
+                pool.putconn(g.get("db"), close=True)
+            except Exception:
+                pass
+        new_conn = pool.getconn() if pool else get_connection()
+        g.db = new_conn
+        cur = new_conn.cursor()
+        try:
+            yield cur
+            if commit:
+                new_conn.commit()
+        except Exception:
+            new_conn.rollback()
+            raise
+        finally:
+            cur.close()
+        return
     except Exception:
         conn.rollback()
         raise
@@ -204,17 +220,35 @@ _BOOTSTRAPPED = False
 _BOOTSTRAP_LOCK = threading.Lock()
 
 
+def _schema_exists() -> bool:
+    """Return True if the core schema tables already exist (1 query)."""
+    try:
+        conn = _make_conn(current_app.config["psycopg2_params"]())
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_name = 'products' LIMIT 1"
+                )
+                return cur.fetchone() is not None
+        finally:
+            conn.close()
+    except Exception:
+        return False
+
+
 def bootstrap_database() -> None:
     """Run schema init, seed and ETL at most once per process.
 
-    Idempotent guard so repeated ``create_app`` calls (e.g. the Flask debug
-    reloader monitor, test fixtures or multiple workers importing ``run.py``)
-    do not re-apply the schema and open fresh database connections on every
-    boot.
+    Skips the full bootstrap (100+ SQL statements) when the core schema
+    already exists — a single ``SELECT`` check saves ~60-120 s on remote DBs.
     """
     global _BOOTSTRAPPED
     with _BOOTSTRAP_LOCK:
         if _BOOTSTRAPPED:
+            return
+        if _schema_exists():
+            _BOOTSTRAPPED = True
             return
         init_schema()
         seed_database()
