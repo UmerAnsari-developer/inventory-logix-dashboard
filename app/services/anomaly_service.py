@@ -156,7 +156,8 @@ class AnomalyService:
         from ..database import get_cursor
         out = []
         with get_cursor() as cur:
-            cur.execute("SELECT id, sku, name, current_stock, reorder_point FROM products ORDER BY id LIMIT 30")
+            # ponytail: per-product model fit scales with catalogue size; move to a batch job past a few hundred SKUs
+            cur.execute("SELECT id, sku, name, current_stock, reorder_point FROM products ORDER BY id")
             products = list(cur.fetchall())
             if not products:
                 return out
@@ -199,15 +200,16 @@ class AnomalyService:
                     safety_stock=safety, reorder_point=rop,
                 )
                 anomalies = result.get("anomalies", [])
-                if anomalies:
-                    out.append({
-                        "id": p["id"],
-                        "sku": p["sku"],
-                        "name": p["name"],
-                        "anomaly_count": len(anomalies),
-                        "max_z": max((abs(a.get("z_score") or 0) for a in anomalies), default=0),
-                        "top_anomaly": anomalies[0],
-                    })
+                out.append({
+                    "id": p["id"],
+                    "sku": p["sku"],
+                    "name": p["name"],
+                    "model": ({"isolation_forest": "Isolation Forest", "zscore": "SPC (z-score)"}.get(
+                        anomalies[0].get("detection_method"), "SPC (z-score)") if anomalies else None),
+                    "anomaly_count": len(anomalies),
+                    "max_z": max((abs(a.get("z_score") or 0) for a in anomalies), default=0),
+                    "top_anomaly": anomalies[0] if anomalies else None,
+                })
             except Exception as exc:  # pragma: no cover
                 LOGGER.warning("Anomaly detection failed for %s: %s", p["sku"], exc)
         out.sort(key=lambda r: r.get("max_z") or 0, reverse=True)

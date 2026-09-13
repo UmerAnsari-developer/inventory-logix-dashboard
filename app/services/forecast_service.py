@@ -114,7 +114,7 @@ class ForecastService:
         from ..database import get_cursor
         out = []
         with get_cursor() as cur:
-            cur.execute("SELECT id, sku, name FROM products ORDER BY id LIMIT 12")
+            cur.execute("SELECT id, sku, name FROM products ORDER BY id")
             products = list(cur.fetchall())
             if not products:
                 return out
