@@ -301,14 +301,6 @@ def calculate_eoq():
 
 # ----- Notifications -----
 
-@api_bp.route("/notifications", methods=["GET"])
-@limiter.limit("60 per minute")
-@login_required
-def list_notifications():
-    from ..repositories import NotificationRepository
-    notifs = NotificationRepository.list_for_user(current_user.id, limit=50)
-    return api_response({"notifications": notifs, "unread": NotificationRepository.count_unread(current_user.id)})
-
 
 @api_bp.route("/notifications/<int:notif_id>/read", methods=["POST"])
 @limiter.limit("60 per minute")
@@ -326,3 +318,12 @@ def mark_all_notifications_read():
     from ..repositories import NotificationRepository
     NotificationRepository.mark_all_read(current_user.id)
     return api_response({"ok": True})
+
+@api_bp.route("/notifications", methods=["GET"])
+@limiter.limit("60 per minute")
+@login_required
+def list_notifications():
+    from ..repositories import NotificationRepository
+    notifs = NotificationRepository.list_for_user(current_user.id, limit=50)
+    return api_response({"notifications": notifs, "unread": NotificationRepository.count_unread(current_user.id)})
+
