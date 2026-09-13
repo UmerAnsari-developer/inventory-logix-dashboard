@@ -138,7 +138,7 @@
         {% for item in category_counts %}
         <div class="cat-row">
           <span class="cat-name">{{ item.category }}</span>
-          <div class="cat-track"><div class="cat-fill {{ item.tone }}" style="width:0%" data-target-width="{{ item.pct }}%"></div></div>
+          <div class="cat-track"><div class="cat-fill {{ item.tone }}" style="width: {{ item.pct }}%" data-target-width="{{ item.pct }}%"></div></div>
           <span class="cat-val">{{ '%02d'|format(item.count) }} SKUs</span>
         </div>
         {% else %}
