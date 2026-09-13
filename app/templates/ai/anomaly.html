@@ -149,9 +149,24 @@
     <div class="panel-header"><div class="panel-title">Anomaly portfolio</div></div>
     <div class="table-scroll">
       <table class="data-table" id="anomalyPortfolioTable">
-        <thead><tr><th>SKU</th><th>Product</th><th>Anomalies</th><th>Max z-score</th></tr></thead>
-        <tbody><tr><td colspan="4"><div class="empty-state">Loading&hellip;</div></td></tr></tbody>
+        <thead><tr><th>SKU</th><th>Product</th><th>Model</th><th>Anomalies</th><th>Max z-score</th></tr></thead>
+        <tbody><tr><td colspan="5"><div class="empty-state">Run a detection to load the portfolio summary</div></td></tr></tbody>
       </table>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">How to read this page</div><div class="panel-caption">Every number explained in plain language</div></div>
+    <div class="panel-content" style="font-size:0.86rem;line-height:1.7">
+      <p><strong>How detection works:</strong> each product gets two independent checks. <strong>Isolation Forest</strong> learns what a normal day looks like for that product and flags days that don't fit the pattern. <strong>SPC</strong> (Statistical Process Control) is a simpler quality-control rule: anything too far from the average is flagged.</p>
+      <p><strong>Reading the SPC control chart (&plusmn;3&sigma;):</strong> the solid centre line is the average daily movement. The shaded bands are &plusmn;3&sigma; &mdash; three standard deviations above and below the average. In a stable process, 99.7% of days fall inside the bands, so the bands are the "normal zone". Every dot is a day: dots inside the bands are normal; a dot outside a band is an outlier worth reviewing. Days hugging a band edge are watch-list items, not alarms.</p>
+      <p><strong>Value / Observed</strong> &mdash; the units actually moved on that day.</p>
+      <p><strong>Expected</strong> &mdash; what a normal day for that product looks like (the model's expectation).</p>
+      <p><strong>Z-score</strong> &mdash; how many standard deviations the day sits from the average. 0 = exactly average; above 3 or below &minus;3 = outside the normal zone (&plusmn;3&sigma; rule). Bigger absolute value = more unusual.</p>
+      <p><strong>Risk</strong> &mdash; Low / Medium / High / Critical, based on how far outside the normal zone the day is and its business impact.</p>
+      <p><strong>Confidence</strong> &mdash; how sure the detector is that this is a genuine anomaly and not random noise.</p>
+      <p><strong>Method</strong> &mdash; which detector caught it: Isolation Forest (pattern-based) or SPC z-score (distance-based).</p>
+      <p><strong>Portfolio table</strong> &mdash; one row per product: <strong>Anomalies</strong> is how many days were flagged, <strong>Max z-score</strong> is the most extreme day found (the bigger, the more attention that SKU needs), and <strong>Model</strong> shows which detector produced the flag.</p>
     </div>
   </article>
 </section>

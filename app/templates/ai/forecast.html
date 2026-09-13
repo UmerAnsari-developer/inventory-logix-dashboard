@@ -58,9 +58,9 @@
       <span class="badge" id="monitoringHealthBadge"></span>
     </div>
     <div class="metric-grid">
-      <div class="metric-card"><div class="metric-label">MAE</div><div class="metric-value" id="monMae">&mdash;</div><div class="metric-foot">Mean Absolute Error</div></div>
-      <div class="metric-card"><div class="metric-label">MAPE</div><div class="metric-value" id="monMape">&mdash;</div><div class="metric-foot">Mean Abs % Error</div></div>
-      <div class="metric-card"><div class="metric-label">RMSE</div><div class="metric-value" id="monRmse">&mdash;</div><div class="metric-foot">Root Mean Sq Error</div></div>
+      <div class="metric-card"><div class="metric-label">MAE</div><div class="metric-value" id="monMae">&mdash;</div><div class="metric-foot">Avg daily miss, in units</div></div>
+      <div class="metric-card"><div class="metric-label">MAPE</div><div class="metric-value" id="monMape">&mdash;</div><div class="metric-foot">Avg daily miss, in %</div></div>
+      <div class="metric-card"><div class="metric-label">RMSE</div><div class="metric-value" id="monRmse">&mdash;</div><div class="metric-foot">Like MAE, punishes big misses</div></div>
       <div class="metric-card"><div class="metric-label">Observations</div><div class="metric-value" id="monObs">&mdash;</div><div class="metric-foot">Days evaluated</div></div>
     </div>
   </article>
@@ -71,6 +71,23 @@
         <thead><tr><th>SKU</th><th>Product</th><th>Model</th><th>Baseline</th><th>Predicted</th><th>Delta</th><th>Accuracy</th></tr></thead>
         <tbody><tr><td colspan="7"><div class="empty-state">Run a forecast to load the portfolio snapshot</div></td></tr></tbody>
       </table>
+    </div>
+  </article>
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">How to read this page</div><div class="panel-caption">Every number explained in plain language</div></div>
+    <div class="panel-content" style="font-size:0.86rem;line-height:1.7">
+      <p><strong>How the forecast works:</strong> the model studies the last 180 days of stock movement for the selected product and projects the next N days. <strong>Prophet</strong> finds weekly/monthly patterns, <strong>ARIMA</strong> follows the overall trend, and <strong>Ensemble</strong> averages both for a steadier prediction.</p>
+      <p><strong>Baseline</strong> &mdash; the average units moved per day over the period. Think of it as a "normal day".</p>
+      <p><strong>Predicted</strong> &mdash; the total units the model expects to move over the horizon you picked.</p>
+      <p><strong>Delta</strong> &mdash; how much recent demand differs from the baseline, in %. Positive = demand is picking up, negative = slowing down.</p>
+      <p><strong>Accuracy</strong> &mdash; how close the model's typical prediction is to what actually happened. 100% = perfect, above 60% is dependable.</p>
+      <p><strong>Predicted demand</strong> (card) &mdash; sum of every forecast day across the horizon.</p>
+      <p><strong>Confidence band</strong> &mdash; the likely range around the predictions (&plusmn; units). A narrow band means the model is certain; a wide band means demand is unpredictable.</p>
+      <p><strong>MAE</strong> (Mean Absolute Error) &mdash; on an average day, the prediction is off by this many units. Lower is better.</p>
+      <p><strong>MAPE</strong> (Mean Absolute % Error) &mdash; the same as MAE, but as a percentage of actual demand, so it compares fairly across products.</p>
+      <p><strong>RMSE</strong> (Root Mean Square Error) &mdash; like MAE but punishes big misses harder. If RMSE is much larger than MAE, a few days were badly wrong.</p>
+      <p><strong>Observations</strong> &mdash; how many days of real data were used to score the model.</p>
+      <p><strong>Portfolio table</strong> &mdash; one row per product: what a normal day looks like (Baseline), what the next period will need (Predicted), whether demand is rising or falling (Delta), and how much to trust the number (Accuracy).</p>
     </div>
   </article>
 </section>
