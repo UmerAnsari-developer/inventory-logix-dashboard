@@ -16,27 +16,58 @@
       {% endif %}
     </div>
   </div>
-  <form class="filter-bar" method="get">
+  <form class="filter-bar" method="get" id="invFilterForm">
     <input type="search" name="search" value="{{ query.search }}" placeholder="Search by SKU, name or category" />
-    <select name="category">
-      <option value="">All categories</option>
-      {% for c in categories %}
-      <option value="{{ c }}" {{ 'selected' if query.category == c else '' }}>{{ c }}</option>
-      {% endfor %}
-    </select>
-    <select name="warehouse">
-      <option value="">All warehouses</option>
-      {% for w in warehouses %}
-      <option value="{{ w }}" {{ 'selected' if query.warehouse == w else '' }}>{{ w }}</option>
-      {% endfor %}
-    </select>
+    <label class="inv-filter-label">
+      <div class="multi-select-wrapper">
+        <button type="button" class="filter-button" id="invCategoryButton" aria-expanded="false" aria-controls="invCategoryMenu">All categories</button>
+        <div class="filter-menu" id="invCategoryMenu">
+          <div class="filter-header">Select Categories</div>
+          <div class="filter-options">
+            <label class="filter-option">
+              <input type="checkbox" name="category_all" value="" data-all="true" {% if not selected_categories %}checked{% endif %}>
+              <span>All categories</span>
+            </label>
+            {% for c in categories %}
+            <label class="filter-option">
+              <input type="checkbox" name="category" value="{{ c }}" {% if c in selected_categories %}checked{% endif %}>
+              <span>{{ c }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <input type="hidden" name="category_json" id="categoryJson" value='{{ selected_categories|tojson }}'>
+      </div>
+    </label>
+    <label class="inv-filter-label">
+      <div class="multi-select-wrapper">
+        <button type="button" class="filter-button" id="invWarehouseButton" aria-expanded="false" aria-controls="invWarehouseMenu">All warehouses</button>
+        <div class="filter-menu" id="invWarehouseMenu">
+          <div class="filter-header">Select Warehouses</div>
+          <div class="filter-options">
+            <label class="filter-option">
+              <input type="checkbox" name="warehouse_all" value="" data-all="true" {% if not selected_warehouses %}checked{% endif %}>
+              <span>All warehouses</span>
+            </label>
+            {% for w in warehouses %}
+            <label class="filter-option">
+              <input type="checkbox" name="warehouse" value="{{ w }}" {% if w in selected_warehouses %}checked{% endif %}>
+              <span>{{ w }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <input type="hidden" name="warehouse_json" id="warehouseJson" value='{{ selected_warehouses|tojson }}'>
+      </div>
+    </label>
     <select name="stock_status">
       <option value="">Any status</option>
       <option value="ok" {{ 'selected' if query.stock_status == 'ok' else '' }}>In stock</option>
       <option value="low" {{ 'selected' if query.stock_status == 'low' else '' }}>Low</option>
       <option value="out" {{ 'selected' if query.stock_status == 'out' else '' }}>Out</option>
     </select>
-    <button type="submit" class="btn btn-primary">Filter</button>
+    <button type="button" class="btn btn-primary" id="invApplyBtn">Apply</button>
+    <a href="{{ url_for('ui.inventory') }}" class="btn btn-secondary">Reset</a>
   </form>
   <div class="table-scroll">
     <table class="data-table">
@@ -85,4 +116,117 @@
     </div>
   </div>
 </section>
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function() {
+  // Multi-select dropdowns (same pattern as reports page)
+  function initMultiSelect() {
+    document.querySelectorAll('.multi-select-wrapper').forEach(function(wrapper) {
+      var button = wrapper.querySelector('.filter-button');
+      var menu = wrapper.querySelector('.filter-menu');
+      var boxes = menu.querySelectorAll('input[type="checkbox"]');
+      var jsonInput = wrapper.querySelector('input[type="hidden"]');
+
+      var selected = [];
+      try { selected = JSON.parse(jsonInput.value) || []; } catch (e) { selected = []; }
+      boxes.forEach(function(box, i) {
+        if (i === 0) box.checked = selected.length === 0;
+        else box.checked = selected.indexOf(box.value) !== -1;
+      });
+      syncButtonLabel(wrapper, boxes);
+
+      button.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var isOpen = menu.classList.toggle('open');
+        button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        document.querySelectorAll('.filter-menu').forEach(function(m) {
+          if (m !== menu) m.classList.remove('open');
+        });
+      });
+
+      menu.addEventListener('click', function(e) { e.stopPropagation(); });
+
+      boxes.forEach(function(box, idx) {
+        box.addEventListener('change', function() {
+          if (idx > 0 && box.checked) boxes[0].checked = false;
+          updateMultiSelect(wrapper, boxes);
+        });
+      });
+    });
+
+    document.addEventListener('click', function() {
+      document.querySelectorAll('.filter-menu').forEach(function(m) { m.classList.remove('open'); });
+      document.querySelectorAll('.filter-button').forEach(function(b) { b.setAttribute('aria-expanded', 'false'); });
+    });
+  }
+
+  function syncButtonLabel(wrapper, boxes) {
+    var allBox = boxes[0];
+    var otherBoxes = Array.prototype.slice.call(boxes, 1);
+    var button = wrapper.querySelector('.filter-button');
+    var selected = otherBoxes.filter(function(b) { return b.checked; });
+    var allLabel = allBox.parentElement.querySelector('span').textContent.trim();
+    if (allBox.checked || selected.length === 0) {
+      button.textContent = allLabel;
+    } else if (selected.length <= 2) {
+      button.textContent = selected.map(function(b) {
+        return b.parentElement.querySelector('span').textContent.trim();
+      }).join(', ');
+    } else {
+      button.textContent = selected.length + ' selected';
+    }
+  }
+
+  function updateMultiSelect(wrapper, boxes) {
+    var allBox = boxes[0];
+    var otherBoxes = Array.prototype.slice.call(boxes, 1);
+    var jsonInput = wrapper.querySelector('input[type="hidden"]');
+    var selected = otherBoxes.filter(function(b) { return b.checked; });
+    var selectedValues = selected.map(function(b) { return b.value; });
+
+    if (allBox.checked) {
+      otherBoxes.forEach(function(b) { b.checked = false; });
+      selectedValues = [];
+    } else if (selected.length === 0 || selected.length === otherBoxes.length) {
+      allBox.checked = true;
+      otherBoxes.forEach(function(b) { b.checked = false; });
+      selectedValues = [];
+    }
+
+    syncButtonLabel(wrapper, boxes);
+    jsonInput.value = allBox.checked ? JSON.stringify([]) : JSON.stringify(selectedValues);
+  }
+
+  initMultiSelect();
+
+  // Apply: build query string from search + selected lists + status
+  var applyBtn = document.getElementById('invApplyBtn');
+  if (applyBtn) {
+    applyBtn.addEventListener('click', function() {
+      var params = new URLSearchParams();
+      var search = document.querySelector('#invFilterForm input[name="search"]');
+      if (search && search.value.trim()) params.set('search', search.value.trim());
+      try {
+        var cats = JSON.parse(document.getElementById('categoryJson').value || '[]');
+        if (cats.length) params.set('category', cats.join(','));
+        var whs = JSON.parse(document.getElementById('warehouseJson').value || '[]');
+        if (whs.length) params.set('warehouse', whs.join(','));
+      } catch (e) {}
+      var status = document.querySelector('#invFilterForm select[name="stock_status"]');
+      if (status && status.value) params.set('stock_status', status.value);
+      var qs = params.toString();
+      window.location.href = '/inventory' + (qs ? '?' + qs : '');
+    });
+  }
+
+  // Enter in the search box applies filters
+  var searchInput = document.querySelector('#invFilterForm input[name="search"]');
+  if (searchInput) {
+    searchInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); var b = document.getElementById('invApplyBtn'); if (b) b.click(); }
+    });
+  }
+});
+</script>
 {% endblock %}

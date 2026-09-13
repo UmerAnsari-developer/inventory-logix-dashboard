@@ -30,8 +30,8 @@ BEGIN
                             OR p.name ILIKE '%' || p_search || '%'
                             OR p.category ILIKE '%' || p_search || '%'
                             OR s.name ILIKE '%' || p_search || '%')
-          AND (p_category = '' OR p.category = p_category)
-          AND (p_warehouse = '' OR p.warehouse = p_warehouse)
+          AND (p_category = '' OR p.category = ANY(string_to_array(p_category, ',')))
+          AND (p_warehouse = '' OR p.warehouse = ANY(string_to_array(p_warehouse, ',')))
           AND (p_status = '' OR
                (p_status = 'ok' AND p.current_stock > p.reorder_point) OR
                (p_status = 'low' AND p.current_stock <= p.reorder_point AND p.current_stock > 0) OR
