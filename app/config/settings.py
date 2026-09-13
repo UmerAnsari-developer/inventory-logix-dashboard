@@ -30,7 +30,6 @@ class Config:
     REMEMBER_COOKIE_SECURE = True
     REMEMBER_COOKIE_SAMESITE = "Lax"
     REMEMBER_COOKIE_DURATION = timedelta(days=7)
-    PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
 
     WTF_CSRF_TIME_LIMIT = 60 * 60 * 8
     WTF_CSRF_ENABLED = True

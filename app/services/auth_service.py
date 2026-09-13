@@ -91,7 +91,9 @@ class AuthService:
         # Create session tracking record
         session_token = UserRepository.create_session(user["id"], ip, user_agent)
         user.session_token = session_token
-        login_user(user, remember=True)
+        # No remember cookie: only the browser-session cookie is set, so
+        # closing the browser always ends the login.
+        login_user(user)
         return user
 
     @staticmethod

@@ -20,7 +20,6 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        remember = bool(request.form.get("remember"))
         try:
             user = AuthService.authenticate(
                 username, password,
@@ -30,7 +29,9 @@ def login():
         except AuthError as exc:
             flash(str(exc), "error")
             return render_template("auth/login.html", username=username), 401
-        login_user(user, remember=remember)
+        # No remember cookie: only the browser-session cookie is set, so
+        # closing the browser always ends the login.
+        login_user(user)
         # Warm caches so first page load is fast
         try:
             from ..utils.cache import global_cache
