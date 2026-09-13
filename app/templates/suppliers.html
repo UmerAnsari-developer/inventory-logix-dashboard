@@ -8,12 +8,12 @@
   <article class="panel">
     <div class="panel-header"><div class="panel-title">Add supplier</div></div>
     <div class="panel-content">
-      <form method="post" class="supplier-add-form">
+      <form method="post" class="supplier-add-form" novalidate>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <div class="form-grid">
-          <label><span>Name *</span><input type="text" name="name" required></label>
-          <label><span>Location</span><input type="text" name="location"></label>
-          <label><span>Lead time (days) *</span><input type="number" name="lead_days" min="0" required></label>
+          <label><span>Name *</span><input type="text" name="name" required minlength="2" maxlength="150"></label>
+          <label><span>Location</span><input type="text" name="location" maxlength="100"></label>
+          <label><span>Lead time (days) *</span><input type="number" name="lead_days" min="0" max="365" required></label>
           <label><span>YTD spend *</span><input type="number" step="0.01" name="spend_amount" min="0" required></label>
           <label><span>Reliability (0-100)</span><input type="number" name="reliability" min="0" max="100" step="0.1" value="90"></label>
           <label><span>Tone</span>

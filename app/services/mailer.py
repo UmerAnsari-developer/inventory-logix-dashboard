@@ -13,7 +13,6 @@ directly in the user's email client without being blocked.
 """
 from __future__ import annotations
 
-import base64
 import logging
 import smtplib
 from email.mime.image import MIMEImage
@@ -35,11 +34,6 @@ LOGGER = logging.getLogger(__name__)
 
 class Mailer:
     """Minimal SMTP/SendGrid sender backed by app configuration."""
-
-    @staticmethod
-    def configured() -> bool:
-        cfg = current_app.config
-        return bool(cfg.get("SMTP_HOST") or cfg.get("SENDGRID_API_KEY"))
 
     @staticmethod
     def _embed_logo_img() -> MIMEImage:
@@ -179,37 +173,3 @@ class Mailer:
         </body>
         </html>
         """
-
-    @staticmethod
-    def send(to_email: str, subject: str, plain_body: str) -> bool:
-        """Legacy sender — kept for backward compatibility.
-
-        Sends a plain‑text email only (no logo, no HTML). Use
-        ``send_password_reset`` for the new HTML-with-logo version.
-        """
-        cfg = current_app.config
-        if not Mailer.configured():
-            LOGGER.warning(
-                "SMTP not configured — password reset link for %s: %s",
-                to_email,
-                plain_body,
-            )
-            return False
-
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = formataddr(("InventoryLogix", cfg["MAIL_FROM"]))
-        msg["To"] = to_email
-        msg.attach(MIMEText(plain_body, "plain"))
-
-        try:
-            with smtplib.SMTP(cfg["SMTP_HOST"], cfg["SMTP_PORT"], timeout=10) as server:
-                if cfg.get("MAIL_USE_TLS"):
-                    server.starttls()
-                if cfg.get("SMTP_USERNAME"):
-                    server.login(cfg["SMTP_USERNAME"], cfg["SMTP_PASSWORD"])
-                server.sendmail(cfg["MAIL_FROM"], [to_email], msg.as_string())
-        except (OSError, smtplib.SMTPException) as exc:
-            LOGGER.exception("Failed to send email to %s: %s", to_email, exc)
-            return False
-        return True

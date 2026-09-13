@@ -2,7 +2,7 @@
 {% set active_page = "dashboard" %}
 {% block title %}Dashboard{% endblock %}
 {% block extra_head %}
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
 {% endblock %}
 {% block content %}
 
@@ -14,9 +14,9 @@
 </div>
 
 <section class="metric-grid">
-  <div class="metric-card"><div class="metric-label">Inventory value <span class="metric-index">A1</span></div><div class="metric-value" id="liveInventoryValue">{{ '{:,.0f}'.format(inventory_value) }}</div><div class="metric-foot"><strong>+6.2%</strong> vs last month</div></div>
+  <div class="metric-card"><div class="metric-label">Inventory value <span class="metric-index">A1</span></div><div class="metric-value" id="liveInventoryValue">{{ '{:,.0f}'.format(inventory_value) }}</div><div class="metric-foot"><strong>{{ '%+.1f'|format(inv_delta_pct|default(0)) }}%</strong> vs last month</div></div>
   <div class="metric-card"><div class="metric-label">Reorder risk <span class="metric-index">A2</span></div><div class="metric-value" id="liveReorderRisk">{{ '%02d'|format(reorder_count) }}</div><div class="metric-foot"><span class="warning" id="liveCriticalCount">{{ critical_count }} critical</span> &middot; <span id="liveWarningCount">{{ warning_count }} monitor</span></div></div>
-  <div class="metric-card"><div class="metric-label">Units moved today <span class="metric-index">A3</span></div><div class="metric-value" id="liveUnitsToday">{{ '{:,}'.format(units_today) }}</div><div class="metric-foot"><strong>+14.8%</strong> vs daily average</div></div>
+  <div class="metric-card"><div class="metric-label">Units moved today <span class="metric-index">A3</span></div><div class="metric-value" id="liveUnitsToday">{{ '{:,}'.format(units_today) }}</div><div class="metric-foot"><strong>{{ '%+.1f'|format(units_delta_pct) }}%</strong> vs daily average</div></div>
   <div class="metric-card"><div class="metric-label">Stock health <span class="metric-index">A4</span></div><div class="metric-value" id="liveHealthPct">{{ health_pct }}<span style="font-size:1.1rem">%</span></div><div class="metric-foot"><strong>{{ 'Good' if health_pct >= 80 else 'Monitor' }}</strong> &middot; target is 80%</div></div>
   {% if app_settings.get('ai_recommendations') != 'off' %}
   <div class="metric-card ai-card"><div class="metric-label">AI savings (YTD) <span class="metric-index">AI</span></div><div class="metric-value" id="aiSavingsKpi">{{ format_money(ai_savings) }}</div><div class="metric-foot"><strong>vs manual ordering</strong></div></div>
@@ -41,33 +41,86 @@
     <div class="panel-header">
       <div>
         <div class="panel-title">Stock movement</div>
-        <div class="panel-caption">Units moved in and out of WH-Pune &middot; last 14 days</div>
+        <div class="panel-caption">Units in vs out of WH-Pune &middot; last 14 days</div>
       </div>
-      <div class="chart-legend"><span class="legend-key"><span class="legend-dot" style="background:var(--green)"></span>Units moved</span></div>
+      <div class="chart-legend">
+        <span class="legend-key"><span class="legend-dot" style="background:#16a34a"></span>IN</span>
+        <span class="legend-key"><span class="legend-dot" style="background:#dc2626"></span>OUT</span>
+      </div>
     </div>
     <div class="panel-content">
       <div class="chart-wrap">
-        {% set max_val = chart.max %}
-        <svg class="chart" viewBox="0 0 600 220" role="img" aria-label="Stock movements over the last fourteen days">
-          <defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#3d997c" stop-opacity=".28"/><stop offset="1" stop-color="#3d997c" stop-opacity="0"/></linearGradient></defs>
-          <line class="chart-grid-line" x1="20" y1="35" x2="580" y2="35"/>
-          <line class="chart-grid-line" x1="20" y1="85" x2="580" y2="85"/>
-          <line class="chart-grid-line" x1="20" y1="135" x2="580" y2="135"/>
-          <line class="chart-grid-line" x1="20" y1="185" x2="580" y2="185"/>
-          <text class="chart-label" x="2" y="39">{{ max_val }}</text>
-          <text class="chart-label" x="2" y="89">{{ (max_val * 2 // 3) }}</text>
-          <text class="chart-label" x="2" y="139">{{ (max_val // 3) }}</text>
-          <text class="chart-label" x="2" y="189">0</text>
-          <polygon class="chart-area" points="{{ chart.area }}"/>
-          <polyline class="chart-line" points="{{ chart.points }}"/>
-          {% for x, y in chart.circles %}
-          <circle class="chart-point" cx="{{ x }}" cy="{{ y }}" r="3.5"/>
-          <text x="{{ x }}" y="{{ y - 10 }}" text-anchor="middle" fill="#1e293b" font-size="9" font-family="JetBrains Mono, Consolas, monospace" font-weight="600" paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round">{{ chart.values[loop.index0] }}</text>
+        {% set max_val = inout_max %}
+        {% set n = in_series | length %}
+        {% set vw = 560 %}
+        {% set vh = 220 %}
+        {% set pad_l = 36 %}
+        {% set pad_r = 14 %}
+        {% set pad_t = 10 %}
+        {% set pad_b = 30 %}
+        {% set plot_w = vw - pad_l - pad_r %}
+        {% set plot_h = vh - pad_t - pad_b %}
+        {% set x_step = plot_w / ((n - 1) if n > 1 else 1) %}
+
+        {% set in_pts = [] %}
+        {% set out_pts = [] %}
+        {% for i in range(n) %}
+          {% set x = pad_l + i * x_step %}
+          {% set y_in = pad_t + plot_h - ((in_series[i] / max_val * plot_h) if max_val else 0) %}
+          {% set y_out = pad_t + plot_h - ((out_series[i] / max_val * plot_h) if max_val else 0) %}
+          {% if i == 0 %}
+            {% set _ = in_pts.append('M' ~ x ~ ' ' ~ y_in) %}
+            {% set _ = out_pts.append('M' ~ x ~ ' ' ~ y_out) %}
+          {% else %}
+            {% set prev_x = pad_l + (i - 1) * x_step %}
+            {% set cp = (x - prev_x) * 0.4 %}
+            {% set prev_y_in = pad_t + plot_h - ((in_series[i-1] / max_val * plot_h) if max_val else 0) %}
+            {% set prev_y_out = pad_t + plot_h - ((out_series[i-1] / max_val * plot_h) if max_val else 0) %}
+            {% set _ = in_pts.append('C' ~ (prev_x + cp) ~ ' ' ~ prev_y_in ~ ' ' ~ (x - cp) ~ ' ' ~ y_in ~ ' ' ~ x ~ ' ' ~ y_in) %}
+            {% set _ = out_pts.append('C' ~ (prev_x + cp) ~ ' ' ~ prev_y_out ~ ' ' ~ (x - cp) ~ ' ' ~ y_out ~ ' ' ~ x ~ ' ' ~ y_out) %}
+          {% endif %}
+        {% endfor %}
+
+        <svg class="chart" viewBox="0 0 {{ vw }} {{ vh }}" role="img" aria-label="Stock movements IN vs OUT">
+          <defs>
+            <linearGradient id="inArea" x1="0" y1="0" x2="0" y2="{{ vh }}" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#16a34a" stop-opacity=".50" />
+              <stop offset="1" stop-color="#16a34a" stop-opacity=".10" />
+            </linearGradient>
+            <linearGradient id="outArea" x1="0" y1="0" x2="0" y2="{{ vh }}" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#dc2626" stop-opacity=".50" />
+              <stop offset="1" stop-color="#dc2626" stop-opacity=".10" />
+            </linearGradient>
+          </defs>
+          {# Grid #}
+          <g class="grid">
+            <line x1="{{ pad_l }}" y1="{{ pad_t + plot_h * 0.25 }}" x2="{{ vw - pad_r }}" y2="{{ pad_t + plot_h * 0.25 }}" />
+            <line x1="{{ pad_l }}" y1="{{ pad_t + plot_h * 0.5 }}" x2="{{ vw - pad_r }}" y2="{{ pad_t + plot_h * 0.5 }}" />
+            <line x1="{{ pad_l }}" y1="{{ pad_t + plot_h * 0.75 }}" x2="{{ vw - pad_r }}" y2="{{ pad_t + plot_h * 0.75 }}" />
+          </g>
+          {# Y-axis labels #}
+          <text class="chart-label" x="{{ pad_l - 4 }}" y="{{ pad_t + 4 }}" text-anchor="end">{{ max_val }}</text>
+          <text class="chart-label" x="{{ pad_l - 4 }}" y="{{ pad_t + plot_h * 0.5 + 4 }}" text-anchor="end">{{ max_val // 2 }}</text>
+          <text class="chart-label" x="{{ pad_l - 4 }}" y="{{ pad_t + plot_h + 4 }}" text-anchor="end">0</text>
+          {# Area fills #}
+          <path class="area" fill="url(#inArea)"
+            d="{{ in_pts | join(' ') }} L{{ pad_l + (n - 1) * x_step }} {{ pad_t + plot_h }} L{{ pad_l }} {{ pad_t + plot_h }} Z" />
+          <path class="area" fill="url(#outArea)"
+            d="{{ out_pts | join(' ') }} L{{ pad_l + (n - 1) * x_step }} {{ pad_t + plot_h }} L{{ pad_l }} {{ pad_t + plot_h }} Z" />
+          {# Lines #}
+          <path class="line" stroke="#16a34a" d="{{ in_pts | join(' ') }}" />
+          <path class="line" stroke="#dc2626" d="{{ out_pts | join(' ') }}" />
+          {# Data points + X-axis dates #}
+          {% for i in range(n) %}
+          {% set cx = pad_l + i * x_step %}
+          {% set cy_in = pad_t + plot_h - ((in_series[i] / max_val * plot_h) if max_val else 0) %}
+          {% set cy_out = pad_t + plot_h - ((out_series[i] / max_val * plot_h) if max_val else 0) %}
+          <circle cx="{{ cx }}" cy="{{ cy_in }}" r="3.5" fill="#16a34a" stroke="var(--panel-bg)" stroke-width="1.5"/>
+          <circle cx="{{ cx }}" cy="{{ cy_out }}" r="3.5" fill="#dc2626" stroke="var(--panel-bg)" stroke-width="1.5"/>
+          <text x="{{ cx }}" y="{{ cy_in - 8 }}" text-anchor="middle" fill="#16a34a" font-size="8" font-family="JetBrains Mono, Consolas, monospace" font-weight="600">{{ in_series[i] }}</text>
+          <text x="{{ cx }}" y="{{ cy_out + 14 }}" text-anchor="middle" fill="#dc2626" font-size="8" font-family="JetBrains Mono, Consolas, monospace" font-weight="600">{{ out_series[i] }}</text>
+          <text x="{{ cx }}" y="{{ pad_t + plot_h + 16 }}" text-anchor="middle" class="chart-label" font-size="8">{{ inout_dates[i] }}</text>
           {% endfor %}
-          <text class="chart-label" x="18" y="205">{{ d0 }}</text>
-          <text class="chart-label" x="190" y="205">{{ d1 }}</text>
-          <text class="chart-label" x="365" y="205">{{ d2 }}</text>
-          <text class="chart-label" x="530" y="205">{{ d3 }}</text>
         </svg>
       </div>
     </div>
@@ -103,7 +156,7 @@
         <div class="panel-title">Reorder queue</div>
         <div class="panel-caption">The shortest path from stock signal to purchase decision</div>
       </div>
-      <a href="{{ url_for('ui.reorder_alerts') }}" class="btn btn-ghost">View all &rarr</a>
+      <a href="{{ url_for('ui.reorder_alerts') }}" class="btn btn-ghost">Procurement Queue &rarr;</a>
     </div>
     <div class="table-scroll">
       <table>
@@ -395,18 +448,28 @@ document.addEventListener('DOMContentLoaded', function () {
         labels: labels,
         datasets: [
           { label: 'Units on hand', data: profileData.map(function (w) { return w.total_units; }),
-            backgroundColor: 'rgba(61,153,124,0.75)', borderColor: '#3d997c', borderWidth: 1, yAxisID: 'y' },
+            backgroundColor: 'rgba(61,153,124,0.75)', borderColor: '#3d997c', borderWidth: 1, yAxisID: 'y', order: 2 },
+          { label: 'Avg price', data: profileData.map(function (w) { return w.avg_price; }),
+            type: 'line', borderColor: 'var(--ink-3)', backgroundColor: 'transparent', borderWidth: 2,
+            pointRadius: 3, pointBackgroundColor: 'var(--ink-3)', yAxisID: 'y1', order: 1, tension: 0.3 },
         ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          y: { beginAtZero: true, title: { display: true, text: 'Units' } },
+          y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Units' } },
+          y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Avg Price' } },
         },
         plugins: { legend: { labels: { boxWidth: 10 } } },
       },
     });
+  }
+
+  // Animate stock movement line chart (like landing page)
+  var moveChart = document.querySelector('.panel .chart');
+  if (moveChart) {
+    setTimeout(function() { moveChart.classList.add('in'); }, 200);
   }
 
   if (window.StockflowDashboardForecast) {

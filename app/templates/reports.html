@@ -18,12 +18,49 @@
 
   <div class="report-filter-row">
     <label class="report-filter-label">
-      <span>From month</span>
-      <input type="month" name="date_from" value="{{ date_from or '' }}" class="date-filter-input">
+      <span>Month</span>
+      <div class="multi-select-wrapper">
+        <button type="button" class="filter-button" id="monthButton" aria-expanded="false" aria-controls="monthMenu">All months</button>
+        <div class="filter-menu" id="monthMenu">
+          <div class="filter-header">Select Months</div>
+          <div class="filter-options">
+            <label class="filter-option">
+              <input type="checkbox" name="month_all" value="" data-all="true" {% if not (selected_months|default([])) %}checked{% endif %}>
+              <span>All months</span>
+            </label>
+            {% set month_names = ['January','February','March','April','May','June','July','August','September','October','November','December'] %}
+            {% for m in range(1, 13) %}
+            <label class="filter-option">
+              <input type="checkbox" name="month" value="{{ m }}" {% if m|string in (selected_months|default([])) %}checked{% endif %}>
+              <span>{{ month_names[m - 1] }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <input type="hidden" name="month_json" id="monthJson" value='{{ (selected_months|default([]))|tojson }}'>
+      </div>
     </label>
     <label class="report-filter-label">
-      <span>To month</span>
-      <input type="month" name="date_to" value="{{ date_to or '' }}" class="date-filter-input">
+      <span>Year</span>
+      <div class="multi-select-wrapper">
+        <button type="button" class="filter-button" id="yearButton" aria-expanded="false" aria-controls="yearMenu">All years</button>
+        <div class="filter-menu" id="yearMenu">
+          <div class="filter-header">Select Years</div>
+          <div class="filter-options">
+            <label class="filter-option">
+              <input type="checkbox" name="year_all" value="" data-all="true" {% if not (selected_years|default([])) %}checked{% endif %}>
+              <span>All years</span>
+            </label>
+            {% for y in range(2024, today.year + 1) %}
+            <label class="filter-option">
+              <input type="checkbox" name="year" value="{{ y }}" {% if y|string in (selected_years|default([])) %}checked{% endif %}>
+              <span>{{ y }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <input type="hidden" name="year_json" id="yearJson" value='{{ (selected_years|default([]))|tojson }}'>
+      </div>
     </label>
     <label class="report-filter-label">
       <span>Warehouse</span>
@@ -71,15 +108,15 @@
     </label>
     <div class="report-actions">
       <button type="button" class="btn btn-primary" id="reportApplyBtn">Apply</button>
-      <a href="{{ url_for('ui.reports') }}" class="btn btn-secondary">Reset</a>
+      <a href="{{ url_for('ui.reports') }}" class="btn btn-secondary" id="reportResetBtn">Reset</a>
     </div>
   </div>
 
   <!-- ============================ 1 · OVERVIEW ============================ -->
   <div class="report-section active" id="tab-overview" role="tabpanel">
     <div class="metric-grid">
-      <div class="metric-card"><div class="metric-label">Inventory value</div><div class="metric-value">₹ {{ '{:,.0f}'.format(total) }}</div><div class="metric-foot">across warehouses</div></div>
-      <div class="metric-card"><div class="metric-label">Units in stock</div><div class="metric-value">{{ '{:,.0f}'.format(total_units) }}</div><div class="metric-foot">total on-hand</div></div>
+      <div class="metric-card"><div class="metric-label">{% if date_from or date_to %}Movement value{% else %}Inventory value{% endif %}</div><div class="metric-value">₹ {{ '{:,.0f}'.format(total) }}</div><div class="metric-foot">{% if date_from or date_to %}throughput in period{% else %}across warehouses{% endif %}</div></div>
+      <div class="metric-card"><div class="metric-label">{% if date_from or date_to %}Units moved{% else %}Units in stock{% endif %}</div><div class="metric-value">{{ '{:,.0f}'.format(total_units) }}</div><div class="metric-foot">{% if date_from or date_to %}in selected period{% else %}total on-hand{% endif %}</div></div>
       <div class="metric-card"><div class="metric-label">Stock health</div><div class="metric-value">{{ healthy }}</div><div class="metric-foot"><strong>{{ '%.0f' % (healthy * 100.0 / sku_count) if sku_count else 0 }}%</strong> healthy SKUs</div></div>
       <div class="metric-card"><div class="metric-label">Below reorder point</div><div class="metric-value">{{ unders }}</div><div class="metric-foot">need replenishment</div></div>
       <div class="metric-card"><div class="metric-label">Out of stock</div><div class="metric-value">{{ out_stock }}</div><div class="metric-foot">{{ '%.0f' % (out_stock * 100.0 / sku_count) if sku_count else 0 }}% of catalogue</div></div>
@@ -141,48 +178,61 @@
         </div>
       </article>
       <article class="panel">
-        <div class="panel-header"><div class="panel-title">Open purchase orders</div><div class="panel-caption">Incoming supply, earliest ETA first</div></div>
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead><tr><th>PO</th><th>Supplier</th><th>Status</th><th>ETA</th><th>Value</th></tr></thead>
-            <tbody>
-              {% for po in open_pos[:6] %}
-              <tr>
-                <td><span class="sku">{{ po.po_number }}</span></td>
-                <td>{{ po.supplier_name or '—' }}</td>
-                <td><span class="status {{ 'good' if po.status == 'received' else 'warning' if po.status == 'in_transit' else '' }}">{{ po.status|replace('_', ' ') }}</span></td>
-                <td>{{ po.eta_date.strftime('%d %b %Y') if po.eta_date else '—' }}</td>
-                <td>₹ {{ '{:,.0f}'.format(po.value or 0) }}</td>
-              </tr>
+        <div class="panel-header"><div class="panel-title">Purchase order pipeline</div><div class="panel-caption">{{ open_pos|length }} open orders</div></div>
+        <div class="panel-content">
+          <div class="po-summary-badges">
+            {% set po_statuses = {} %}
+            {% for po in open_pos %}
+              {% set s = po.status|replace('_', ' ') %}
+              {% if s in po_statuses %}
+                {% set _ = po_statuses.update({s: po_statuses[s] + 1}) %}
               {% else %}
-              <tr><td colspan="5" class="empty-state">No open purchase orders</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
+                {% set _ = po_statuses.update({s: 1}) %}
+              {% endif %}
+            {% endfor %}
+            {% for status, count in po_statuses.items() %}
+            <div class="po-badge">
+              <span class="po-badge-count">{{ count }}</span>
+              <span class="po-badge-label">{{ status }}</span>
+            </div>
+            {% endfor %}
+            {% if not open_pos %}
+            <div class="empty-state">No open purchase orders</div>
+            {% endif %}
+          </div>
+          {% if open_pos %}
+          <div class="po-summary-top">
+            <div class="po-summary-heading">Earliest ETA</div>
+            {% for po in open_pos[:3] %}
+            <div class="po-summary-row">
+              <span class="sku">{{ po.po_number }}</span>
+              <span>{{ po.supplier_name or '—' }}</span>
+              <span class="status {{ 'good' if po.status == 'received' else 'warning' if po.status == 'in_transit' else '' }}">{{ po.status|replace('_', ' ') }}</span>
+              <span>{{ po.eta_date.strftime('%d %b') if po.eta_date else '—' }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
         </div>
       </article>
       <article class="panel wide">
-        <div class="panel-header"><div class="panel-title">Warehouse snapshot</div><div class="panel-caption">Stock position per location</div></div>
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead><tr><th>Warehouse</th><th>City</th><th>SKUs</th><th>Units</th><th>Value</th><th>Low</th><th>Critical</th></tr></thead>
-            <tbody>
-              {% for w in warehouse_analytics %}
-              <tr>
-                <td><strong>{{ w.warehouse }}</strong></td>
-                <td>{{ w.city or '—' }}</td>
-                <td>{{ w.sku_count }}</td>
-                <td>{{ '{:,.0f}'.format(w.total_units or 0) }}</td>
-                <td><strong>₹ {{ '{:,.0f}'.format(w.total_value or 0) }}</strong></td>
-                <td><span class="status warning">{{ w.low_count or 0 }}</span></td>
-                <td><span class="status critical">{{ w.critical_count or 0 }}</span></td>
-              </tr>
-              {% else %}
-              <tr><td colspan="7" class="empty-state">No warehouse data yet</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
+        <div class="panel-header"><div class="panel-title">Warehouse overview</div><div class="panel-caption">Units on hand per location</div></div>
+        <div class="panel-content">
+          <div class="report-chart"><canvas id="warehouseOverviewChart"></canvas></div>
         </div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Stock aging</div><div class="panel-caption">Inventory value by time since last sale</div></div>
+        <div class="panel-content">
+          <div class="chart-with-legend">
+            <div class="report-chart chart-doughnut"><canvas id="stockAgingChart"></canvas></div>
+            <div class="legend-grid" id="stockAgingLegend"></div>
+          </div>
+        </div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Most Active SKUs</div><div class="panel-caption">Units moved in the last 30 days</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="topActiveSkusChart"></canvas></div></div>
       </article>
     </div>
   </div>
@@ -291,6 +341,14 @@
         <div class="panel-header"><div class="panel-title">Supplier lead time</div><div class="panel-caption">Delivery lead days by supplier</div></div>
         <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="leadTimeChart"></canvas></div></div>
       </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Supplier Spend Concentration</div><div class="panel-caption">Cumulative spend share of top vendors</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="supplierParetoChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Reliability vs Lead Time</div><div class="panel-caption">Vendor performance quadrant</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="supplierScatterChart"></canvas></div></div>
+      </article>
       <article class="panel wide">
         <div class="panel-header"><div class="panel-title">Supplier analytics</div><div class="panel-caption">Procurement performance by vendor</div></div>
         <div class="table-scroll">
@@ -379,20 +437,19 @@
         <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesQuarterChart"></canvas></div></div>
       </article>
 
-      {# Row 3: Quarter Comparison & Month Comparison #}
-      <article class="panel">
-        <div class="panel-header"><div class="panel-title">Quarter-over-Quarter Comparison</div><div class="panel-caption">Current quarter vs previous quarter by category (₹)</div></div>
-        <div class="panel-content">
-          <div class="report-chart report-chart-tall chart-scroll">
-            <div class="chart-inner" id="quarterCompareInner"><canvas id="salesQuarterCompareChart"></canvas></div>
-          </div>
+      {# Row 3: Period Comparison (merged MoM/QoQ) #}
+      <article class="panel wide">
+        <div class="panel-header">
+          <div class="panel-title">Period-over-Period Comparison</div>
+          <div class="panel-caption">Current vs previous period by category (₹)</div>
+          <select id="periodCompareSelect" class="report-select" style="margin-top:6px;" aria-label="Select comparison period">
+            <option value="month">Month-over-Month</option>
+            <option value="quarter">Quarter-over-Quarter</option>
+          </select>
         </div>
-      </article>
-      <article class="panel">
-        <div class="panel-header"><div class="panel-title">Month-over-Month Comparison</div><div class="panel-caption">Current month vs previous month by category (₹)</div></div>
         <div class="panel-content">
           <div class="report-chart report-chart-tall chart-scroll">
-            <div class="chart-inner" id="monthCompareInner"><canvas id="salesMonthCompareChart"></canvas></div>
+            <div class="chart-inner" id="periodCompareInner"><canvas id="periodCompareChart"></canvas></div>
           </div>
         </div>
       </article>
@@ -405,6 +462,20 @@
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Top-Selling SKUs</div><div class="panel-caption">Products ranked by sales revenue</div></div>
         <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="topSellersChart"></canvas></div></div>
+      </article>
+
+      {# Row 5: MoM growth, revenue pareto, category mix #}
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">MoM Growth Rate</div><div class="panel-caption">Month-over-month revenue change (%)</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesGrowthChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Revenue Concentration (Pareto)</div><div class="panel-caption">Cumulative revenue share of top SKUs</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesParetoChart"></canvas></div></div>
+      </article>
+      <article class="panel wide">
+        <div class="panel-header"><div class="panel-title">Category Revenue Mix</div><div class="panel-caption">Monthly sales composition by category (₹)</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="salesMixTrendChart"></canvas></div></div>
       </article>
     </div>
   </div>
@@ -424,34 +495,24 @@
 
     <div class="report-grid">
       <article class="panel">
-        <div class="panel-header"><div class="panel-title">Stock health breakdown</div><div class="panel-caption">SKUs by stock status</div></div>
-        <div class="panel-content">
-          <div class="chart-with-legend">
-            <div class="report-chart chart-doughnut"><canvas id="invStatusChart"></canvas></div>
-            <div class="legend-grid" id="invStatusLegend"></div>
-          </div>
-        </div>
+        <div class="panel-header"><div class="panel-title">Stock coverage distribution</div><div class="panel-caption">SKUs grouped by stock coverage ratio</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invCoverageDistChart"></canvas></div></div>
       </article>
       <article class="panel">
-        <div class="panel-header"><div class="panel-title">Inventory value by category</div><div class="panel-caption">Capital tied up per category</div></div>
-        <div class="panel-content">
-          <div class="chart-with-legend">
-            <div class="report-chart report-chart-tall chart-doughnut"><canvas id="invCategoryChart"></canvas></div>
-            <div class="legend-grid" id="invCategoryLegend"></div>
-          </div>
-        </div>
+        <div class="panel-header"><div class="panel-title">Category stock coverage</div><div class="panel-caption">Days of stock remaining per category</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invCategoryCoverageChart"></canvas></div></div>
       </article>
       <article class="panel">
-        <div class="panel-header"><div class="panel-title">Inventory value by warehouse</div><div class="panel-caption">Capital per location</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invWarehouseChart"></canvas></div></div>
+        <div class="panel-header"><div class="panel-title">Warehouse turnover rate</div><div class="panel-caption">Annual COGS / avg inventory value per warehouse</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invWarehouseTurnoverChart"></canvas></div></div>
       </article>
       <article class="panel">
-        <div class="panel-header"><div class="panel-title">12-month movement trend</div><div class="panel-caption">Monthly stock in / out volume</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invMonthlyChart"></canvas></div></div>
+        <div class="panel-header"><div class="panel-title">Net movement trend</div><div class="panel-caption">Monthly stock additions minus deductions</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invNetMovementChart"></canvas></div></div>
       </article>
       <article class="panel">
-        <div class="panel-header"><div class="panel-title">Top SKUs by inventory value</div><div class="panel-caption">Products with most capital held in stock</div></div>
-        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invTopSkusChart"></canvas></div></div>
+        <div class="panel-header"><div class="panel-title">ABC analysis (Pareto)</div><div class="panel-caption">Cumulative inventory value by SKU rank</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="invParetoChart"></canvas></div></div>
       </article>
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Below ROP by category</div><div class="panel-caption">SKUs at or below reorder point</div></div>
@@ -464,6 +525,14 @@
       <article class="panel">
         <div class="panel-header"><div class="panel-title">Stock coverage</div><div class="panel-caption">Stock ÷ reorder point for pressured SKUs</div></div>
         <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="coverageChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">Reorder value gap</div><div class="panel-caption">₹ needed to restore SKUs below reorder point</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="reorderGapChart"></canvas></div></div>
+      </article>
+      <article class="panel">
+        <div class="panel-header"><div class="panel-title">SKU Idle Distribution</div><div class="panel-caption">SKUs grouped by days since last movement</div></div>
+        <div class="panel-content"><div class="report-chart report-chart-tall"><canvas id="idleDistChart"></canvas></div></div>
       </article>
       <article class="panel wide">
         <div class="panel-header"><div class="panel-title">Reorder pressure</div><div class="panel-caption">SKUs at or below reorder point — thinnest: {{ thinnest.sku if thinnest else 'n/a' }} ({{ thinnest.current_stock if thinnest else 0 }} / ROP {{ thinnest.reorder_point if thinnest else 0 }})</div></div>
@@ -499,7 +568,6 @@
 (function () {
   if (!window.REPORT_DATA) window.REPORT_DATA = JSON.parse(document.getElementById('report-data').textContent);
   window.REORDER_COVERAGE = JSON.parse(document.getElementById('reorder-coverage').textContent || '[]');
-  function getDlColor() { return document.documentElement.getAttribute('data-theme') === 'dark' ? '#e2e8f0' : '#1e293b'; }
   function waitForLibs() {
     return new Promise(function (resolve) {
       if (window.Chart && window.ChartDataLabels) { resolve(); return; }
@@ -742,6 +810,37 @@
         scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
       },
     });
+    makeChart('warehouseOverviewChart', {
+      type: 'bar',
+      data: { labels: D.warehouseUnits.labels, datasets: [{ label: 'Units on hand', data: D.warehouseUnits.units, backgroundColor: '#2563eb', borderRadius: 6, borderSkipped: false }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtNum, color: getDlColor, font: { size: 9, weight: '600' }, maxRotation: 45, minRotation: 30 } },
+        scales: { x: { ticks: { font: font, maxRotation: 45, minRotation: 30 } }, y: { beginAtZero: true, ticks: { font: font } } },
+      },
+    });
+    makeChart('stockAgingChart', {
+      type: 'doughnut',
+      data: { labels: D.stockAging.labels, datasets: [{ data: D.stockAging.values, backgroundColor: ['#3d997c', '#e3a43c', '#c34c4c'], borderWidth: 2, borderColor: '#ffffff' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtPct }) } },
+    });
+    renderScrollLegend('stockAgingLegend', D.stockAging.labels, ['#3d997c', '#e3a43c', '#c34c4c'], function (i) {
+      return fmtMoney(D.stockAging.values[i]);
+    }, 1);
+    if (D.topActiveSkus && D.topActiveSkus.labels && D.topActiveSkus.labels.length) {
+      makeChart('topActiveSkusChart', {
+        type: 'bar',
+        data: { labels: D.topActiveSkus.labels, datasets: [{ label: 'Units moved', data: D.topActiveSkus.values, backgroundColor: '#1d4ed8', borderRadius: 8, borderSkipped: false }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+          plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end', color: getDlColor, font: { size: 9, weight: '600' } } },
+          scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+        },
+      });
+    } else {
+      var ae = document.getElementById('topActiveSkusChart');
+      if (ae) ae.closest('.panel-content').innerHTML = '<p class="empty-state">No movements in the last 30 days</p>';
+    }
   }
 
   function buildWarehouse(D) {
@@ -840,6 +939,73 @@
         scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
       },
     });
+    // Supplier spend Pareto: top 10 bars + cumulative % line
+    // ponytail: cap at 10 — 36 squeezed labels made axis ticks unreadable.
+    // Cumulative % is computed against ALL suppliers so the line still shows
+    // true concentration ("top 10 = X% of total spend"), not just top-10 share.
+    var spAllVals = (D.supplierSpend.values || []);
+    var spAllLabels = (D.supplierSpend.labels || []);
+    var spTotal = spAllVals.reduce(function (a, b) { return a + (b || 0); }, 0) || 1;
+    var spN = Math.min(10, spAllVals.length);
+    var spVals = spAllVals.slice(0, spN);
+    var spLabels = spAllLabels.slice(0, spN);
+    var spCum = 0;
+    var spCumPct = spVals.map(function (v) { spCum += v; return Math.round((spCum / spTotal) * 100); });
+    makeChart('supplierParetoChart', {
+      type: 'bar',
+      data: {
+        labels: spLabels,
+        datasets: [
+          { label: 'YTD spend', data: spVals, backgroundColor: '#0d9488', borderRadius: 6, borderSkipped: false, yAxisID: 'y' },
+          { type: 'line', label: 'Cumulative %', data: spCumPct, borderColor: '#e3a43c', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, yAxisID: 'y1', tension: 0.2 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top', labels: { boxWidth: 12, font: font } },
+          datalabels: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function (items) { return items[0].label; },
+              label: function (ctx) {
+                if (ctx.dataset.label === 'Cumulative %') return 'Cumulative: ' + ctx.parsed.y + '% of total spend';
+                return 'Spend: ₹' + Number(ctx.parsed.y).toLocaleString('en-IN');
+              },
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { font: font, maxRotation: 45, minRotation: 30, autoSkip: false } },
+          y: { beginAtZero: true, ticks: { font: font }, title: { display: true, text: 'Spend (₹)' } },
+          y1: { position: 'right', beginAtZero: true, max: 100, grid: { drawOnChartArea: false }, ticks: { font: font, callback: function (v) { return v + '%'; } } },
+        },
+      },
+    });
+    // Reliability vs lead time scatter
+    var scatPoints = (D.supplierLeadTimes.labels || []).map(function (s, i) {
+      return {
+        x: (D.supplierLeadTimes.leadDays || [])[i],
+        y: (D.supplierLeadTimes.reliability || [])[i],
+        label: s,
+      };
+    });
+    makeChart('supplierScatterChart', {
+      type: 'scatter',
+      data: { datasets: [{ label: 'Suppliers', data: scatPoints, backgroundColor: 'rgba(37,99,235,0.75)', pointRadius: 6, pointHoverRadius: 8 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: function (ctx) { var p = ctx.raw; return p.label + ': ' + p.x + 'd lead, ' + Math.round(p.y) + '% reliable'; } } },
+          datalabels: { display: false },
+        },
+        scales: {
+          x: { beginAtZero: true, title: { display: true, text: 'Lead time (days)', font: font }, ticks: { font: font } },
+          y: { beginAtZero: true, max: 100, title: { display: true, text: 'Reliability (%)', font: font }, ticks: { font: font } },
+        },
+      },
+    });
   }
 
   function buildPeriod(D) {
@@ -923,40 +1089,35 @@
         scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
       },
     });
-        var qCompareInner = document.getElementById('quarterCompareInner');
-    if (qCompareInner && D.salesQuarterCompare.labels) qCompareInner.style.height = Math.max(480, D.salesQuarterCompare.labels.length * 44) + 'px';
-    makeChart('salesQuarterCompareChart', {
-      type: 'bar',
-      data: {
-        labels: D.salesQuarterCompare.labels,
-        datasets: [
-          { label: 'This quarter', data: D.salesQuarterCompare.current, backgroundColor: '#3d997c', borderRadius: 6, borderSkipped: false },
-          { label: 'Previous quarter', data: D.salesQuarterCompare.previous, backgroundColor: '#e3a43c', borderRadius: 6, borderSkipped: false },
-        ],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', color: getDlColor, font: { size: 9, weight: '600' } } },
-        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
-      },
-    });
-    var mCompareInner = document.getElementById('monthCompareInner');
-    if (mCompareInner && D.salesMonthCompare.labels) mCompareInner.style.height = Math.max(480, D.salesMonthCompare.labels.length * 44) + 'px';
-    makeChart('salesMonthCompareChart', {
-      type: 'bar',
-      data: {
-        labels: D.salesMonthCompare.labels,
-        datasets: [
-          { label: 'This month', data: D.salesMonthCompare.current, backgroundColor: '#3d997c', borderRadius: 6, borderSkipped: false },
-          { label: 'Previous month', data: D.salesMonthCompare.previous, backgroundColor: '#e3a43c', borderRadius: 6, borderSkipped: false },
-        ],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', color: getDlColor, font: { size: 9, weight: '600' } } },
-        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
-      },
-    });
+    // Merged period comparison chart with MoM/QoQ toggle
+    function renderPeriodCompare() {
+      var sel = document.getElementById('periodCompareSelect');
+      var mode = sel ? sel.value : 'month';
+      var dataKey = mode === 'quarter' ? D.salesQuarterCompare : D.salesMonthCompare;
+      var thisLabel = mode === 'quarter' ? 'This quarter' : 'This month';
+      var prevLabel = mode === 'quarter' ? 'Previous quarter' : 'Previous month';
+      var inner = document.getElementById('periodCompareInner');
+      if (inner && dataKey.labels) inner.style.height = Math.max(480, dataKey.labels.length * 44) + 'px';
+      if (charts['periodCompareChart']) { charts['periodCompareChart'].destroy(); delete charts['periodCompareChart']; }
+      makeChart('periodCompareChart', {
+        type: 'bar',
+        data: {
+          labels: dataKey.labels,
+          datasets: [
+            { label: thisLabel, data: dataKey.current, backgroundColor: '#3d997c', borderRadius: 6, borderSkipped: false },
+            { label: prevLabel, data: dataKey.previous, backgroundColor: '#e3a43c', borderRadius: 6, borderSkipped: false },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+          plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', color: getDlColor, font: { size: 9, weight: '600' } } },
+          scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+        },
+      });
+    }
+    var pSel = document.getElementById('periodCompareSelect');
+    if (pSel) pSel.addEventListener('change', renderPeriodCompare);
+    renderPeriodCompare();
     makeChart('salesWarehouseChart', {
       type: 'bar',
       data: {
@@ -981,47 +1142,150 @@
         scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
       },
     });
-  }
-
-  function buildReorder(D) {
-    makeChart('invStatusChart', {
-      type: 'doughnut',
-      data: { labels: D.status.labels, datasets: [{ data: D.status.values, backgroundColor: ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtPct }) } },
-    });
-    renderScrollLegend('invStatusLegend', D.status.labels, ['#3d997c', '#e3a43c', '#c34c4c', '#1f2937'], function (i) {
-      return fmtNum(D.status.values[i]);
-    }, 2);
-    makeChart('invCategoryChart', {
-      type: 'doughnut',
-      data: { labels: D.category.labels, datasets: [{ data: D.category.values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#ffffff' }] },
-      options: { responsive: true, maintainAspectRatio: false, cutout: '45%', plugins: { legend: { display: false }, datalabels: dlPie({ formatter: fmtPct }) } },
-    });
-    renderScrollLegend('invCategoryLegend', D.category.labels, PALETTE, function (i) {
-      return fmtMoney(D.category.values[i]);
-    }, 2);
-    makeChart('invWarehouseChart', {
+    // MoM growth rate: % change of monthly sales revenue
+    var vals = D.salesMonthly.value || [];
+    var growth = [null];
+    for (var gi = 1; gi < vals.length; gi++) {
+      var prev = vals[gi - 1];
+      growth.push(prev ? Math.round(((vals[gi] - prev) / prev) * 1000) / 10 : null);
+    }
+    makeChart('salesGrowthChart', {
       type: 'bar',
-      data: { labels: D.warehouse.labels, datasets: [{ label: 'Inventory value', data: D.warehouse.values, backgroundColor: '#2563eb', borderRadius: 8, borderSkipped: false }] },
+      data: {
+        labels: D.salesMonthly.labels,
+        datasets: [{ label: 'MoM growth %', data: growth, backgroundColor: growth.map(function (v) { return v === null ? 'rgba(148,163,184,0.4)' : v >= 0 ? 'rgba(61,153,124,0.85)' : 'rgba(195,76,76,0.85)'; }), borderRadius: 6, borderSkipped: false }],
+      },
       options: {
-        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', color: getDlColor } },
-        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, datalabels: { formatter: function (v) { return v === null ? '' : (v > 0 ? '+' : '') + v + '%'; }, color: getDlColor, font: { size: 9, weight: '600' } } },
+        scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { ticks: { font: font, callback: function (v) { return v + '%'; } } } },
       },
     });
-    makeChart('invMonthlyChart', {
-      type: 'line',
+    // Revenue Pareto: top SKU bars + cumulative share line
+    var pVals = (D.topSellers.values || []).slice();
+    var pTotal = pVals.reduce(function (a, b) { return a + (b || 0); }, 0) || 1;
+    var pCum = 0;
+    var pCumPct = pVals.map(function (v) { pCum += v; return Math.round((pCum / pTotal) * 100); });
+    makeChart('salesParetoChart', {
+      type: 'bar',
       data: {
-        labels: D.monthly.labels,
+        labels: D.topSellers.labels,
         datasets: [
-          { label: 'In', data: D.monthly.in, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.12)', fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2 },
-          { label: 'Out', data: D.monthly.out, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.10)', fill: false, tension: 0.3, pointRadius: 2, borderWidth: 2 },
+          { label: 'Revenue', data: pVals, backgroundColor: '#2563eb', borderRadius: 6, borderSkipped: false, yAxisID: 'y' },
+          { type: 'line', label: 'Cumulative %', data: pCumPct, borderColor: '#e3a43c', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, yAxisID: 'y1', tension: 0.2 },
         ],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { color: getDlColor, font: { size: 9, weight: '600' } } },
-        scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font } } },
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { display: false } },
+        scales: {
+          x: { ticks: { font: font, maxRotation: 45, minRotation: 30 } },
+          y: { beginAtZero: true, ticks: { font: font }, title: { display: true, text: 'Revenue (₹)' } },
+          y1: { position: 'right', beginAtZero: true, max: 100, grid: { drawOnChartArea: false }, ticks: { font: font, callback: function (v) { return v + '%'; } } },
+        },
+      },
+    });
+    // Category revenue mix: stacked area over 12 months
+    if (D.categoryMixTrend && D.categoryMixTrend.labels && D.categoryMixTrend.labels.length) {
+      var mixDatasets = D.categoryMixTrend.categories.map(function (cat, ci) {
+        return {
+          label: cat,
+          data: D.categoryMixTrend.series.map(function (m) { return m[ci] || 0; }),
+          backgroundColor: PALETTE[ci % PALETTE.length].replace(')', ',0.35)').replace('rgb', 'rgba'),
+          borderColor: PALETTE[ci % PALETTE.length],
+          fill: true, tension: 0.35, borderWidth: 1.5, pointRadius: 0,
+        };
+      });
+      makeChart('salesMixTrendChart', {
+        type: 'line',
+        data: { labels: D.categoryMixTrend.labels, datasets: mixDatasets },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 9 } } }, datalabels: { display: false } },
+          scales: { x: { ticks: { font: font, maxTicksLimit: 12 }, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: font, callback: function (v) { return fmtNum(v); } }, stacked: true } },
+          elements: { line: { borderJoinStyle: 'round' } },
+        },
+      });
+    } else {
+      var mixEl = document.getElementById('salesMixTrendChart');
+      if (mixEl) mixEl.closest('.panel-content').innerHTML = '<p class="empty-state">No sales data in the last 12 months</p>';
+    }
+  }
+
+  function buildReorder(D) {
+    makeChart('invCoverageDistChart', {
+      type: 'bar',
+      data: {
+        labels: D.coverageDistribution.map(function (c) { return c.bucket; }),
+        datasets: [{ label: 'SKUs', data: D.coverageDistribution.map(function (c) { return c.count; }), backgroundColor: ['#c34c4c', '#e3873c', '#e3a43c', '#8ea43c', '#3d997c'], borderRadius: 8, borderSkipped: false }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end', color: getDlColor, font: { size: 10, weight: '600' } } },
+        scales: { x: { ticks: { font: font } }, y: { beginAtZero: true, ticks: { font: font } } },
+      },
+    });
+    var catCov = (D.categoryCoverage || []).filter(function (c) { return c.days !== null && c.days !== undefined; });
+    makeChart('invCategoryCoverageChart', {
+      type: 'bar',
+      data: {
+        labels: catCov.map(function (c) { return c.category; }),
+        datasets: [{ label: 'Days of stock', data: catCov.map(function (c) { return c.days; }), backgroundColor: '#0d9488', borderRadius: 8, borderSkipped: false }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: function (v) { return Math.round(v) + 'd'; }, anchor: 'end', align: 'end', color: getDlColor, font: { size: 9, weight: '600' } } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    makeChart('invWarehouseTurnoverChart', {
+      type: 'bar',
+      data: {
+        labels: (D.warehouseTurnover || []).map(function (w) { return w.warehouse; }),
+        datasets: [{ label: 'Turnover rate', data: (D.warehouseTurnover || []).map(function (w) { return w.turnover; }), backgroundColor: '#2563eb', borderRadius: 8, borderSkipped: false }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, datalabels: { formatter: function (v) { return v ? v.toFixed(1) + 'x' : '—'; }, anchor: 'end', align: 'end', color: getDlColor, font: { size: 9, weight: '600' } } },
+        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+      },
+    });
+    var net = (D.monthly.in || []).map(function (v, i) { return v - ((D.monthly.out || [])[i] || 0); });
+    makeChart('invNetMovementChart', {
+      type: 'bar',
+      data: {
+        labels: D.monthly.labels,
+        datasets: [{ label: 'Net movement', data: net, backgroundColor: net.map(function (v) { return v >= 0 ? 'rgba(61,153,124,0.8)' : 'rgba(195,76,76,0.8)'; }), borderRadius: 6, borderSkipped: false }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, datalabels: { formatter: fmtNum, color: getDlColor, font: { size: 9, weight: '600' } } },
+        scales: { x: { ticks: { font: font }, grid: { display: false } }, y: { ticks: { font: font } } },
+      },
+    });
+    // ABC Pareto: sorted bars + cumulative % line
+    var paretoLabels = D.topSkus.labels.slice();
+    var paretoValues = D.topSkus.values.slice();
+    var paretoTotal = paretoValues.reduce(function (a, b) { return a + (b || 0); }, 0) || 1;
+    var cum = 0;
+    var paretoCum = paretoValues.map(function (v) { cum += v; return Math.round((cum / paretoTotal) * 100); });
+    makeChart('invParetoChart', {
+      type: 'bar',
+      data: {
+        labels: paretoLabels,
+        datasets: [
+          { label: 'Inventory value', data: paretoValues, backgroundColor: '#0d9488', borderRadius: 6, borderSkipped: false, yAxisID: 'y' },
+          { type: 'line', label: 'Cumulative %', data: paretoCum, borderColor: '#e3a43c', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, yAxisID: 'y1', tension: 0.2 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: font } }, datalabels: { display: false } },
+        scales: {
+          x: { ticks: { font: font, maxRotation: 45, minRotation: 30 } },
+          y: { beginAtZero: true, ticks: { font: font }, title: { display: true, text: 'Value (₹)' } },
+          y1: { position: 'right', beginAtZero: true, max: 100, grid: { drawOnChartArea: false }, ticks: { font: font, callback: function (v) { return v + '%'; } } },
+        },
       },
     });
     makeChart('reorderCategoryChart', {
@@ -1030,15 +1294,6 @@
       options: {
         responsive: true, maintainAspectRatio: false, indexAxis: 'y',
         plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end', color: getDlColor } },
-        scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
-      },
-    });
-    makeChart('invTopSkusChart', {
-      type: 'bar',
-      data: { labels: D.topSkus.labels, datasets: [{ label: 'Inventory value', data: D.topSkus.values, backgroundColor: '#0d9488', borderRadius: 6, borderSkipped: false }] },
-      options: {
-        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-        plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', color: getDlColor, font: { size: 9, weight: '600' } } },
         scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
       },
     });
@@ -1069,6 +1324,39 @@
     } else {
       var ce = document.getElementById('coverageChart');
       if (ce) ce.closest('.panel-content').innerHTML = '<p class="empty-state">No SKUs below reorder point</p>';
+    }
+    // Reorder value gap by category
+    if (D.reorderValueGap && D.reorderValueGap.labels && D.reorderValueGap.labels.length) {
+      makeChart('reorderGapChart', {
+        type: 'bar',
+        data: { labels: D.reorderValueGap.labels, datasets: [{ label: 'Gap value', data: D.reorderValueGap.values, backgroundColor: '#c34c4c', borderRadius: 8, borderSkipped: false }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+          plugins: { legend: { display: false }, datalabels: { formatter: fmtMoney, anchor: 'end', align: 'end', color: getDlColor, font: { size: 9, weight: '600' } } },
+          scales: { x: { beginAtZero: true, ticks: { font: font } }, y: { ticks: { font: font } } },
+        },
+      });
+    } else {
+      var ge = document.getElementById('reorderGapChart');
+      if (ge) ge.closest('.panel-content').innerHTML = '<p class="empty-state">No replenishment gap — all SKUs above reorder point</p>';
+    }
+    // SKU idle-days distribution
+    if (D.idleDistribution && D.idleDistribution.labels && D.idleDistribution.labels.length) {
+      makeChart('idleDistChart', {
+        type: 'bar',
+        data: {
+          labels: D.idleDistribution.labels,
+          datasets: [{ label: 'SKUs', data: D.idleDistribution.values, backgroundColor: ['#3d997c', '#8ea43c', '#e3a43c', '#c34c4c'], borderRadius: 8, borderSkipped: false }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, datalabels: { anchor: 'end', align: 'end', color: getDlColor, font: { size: 10, weight: '600' } } },
+          scales: { x: { ticks: { font: font } }, y: { beginAtZero: true, ticks: { font: font } } },
+        },
+      });
+    } else {
+      var ie = document.getElementById('idleDistChart');
+      if (ie) ie.closest('.panel-content').innerHTML = '<p class="empty-state">No SKU data available</p>';
     }
   }
 
@@ -1104,10 +1392,20 @@
     if (applyBtn) {
       applyBtn.addEventListener('click', function() {
         var params = new URLSearchParams();
-        var from = document.querySelector('input[name="date_from"]');
-        var to = document.querySelector('input[name="date_to"]');
-        if (from && from.value) params.set('date_from', from.value);
-        if (to && to.value) params.set('date_to', to.value);
+        var monthJson = document.getElementById('monthJson');
+        var yearJson = document.getElementById('yearJson');
+        if (monthJson) {
+          try {
+            var months = JSON.parse(monthJson.value);
+            if (months.length > 0) params.set('month_json', JSON.stringify(months));
+          } catch(e) {}
+        }
+        if (yearJson) {
+          try {
+            var years = JSON.parse(yearJson.value);
+            if (years.length > 0) params.set('year_json', JSON.stringify(years));
+          } catch(e) {}
+        }
         var whJson = document.getElementById('warehouseJson');
         var catJson = document.getElementById('categoryJson');
         if (whJson) {
@@ -1123,7 +1421,18 @@
           } catch(e) {}
         }
         var qs = params.toString();
-        window.location.href = '/reports' + (qs ? '?' + qs : '');
+        var activeTab = document.querySelector('.report-tab.active');
+        var tabParam = activeTab ? activeTab.dataset.tab : '';
+        window.location.href = '/reports' + (qs ? '?' + qs : '') + (tabParam ? (qs ? '&' : '?') + 'tab=' + tabParam : '');
+      });
+    }
+    var resetBtn = document.getElementById('reportResetBtn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var activeTab = document.querySelector('.report-tab.active');
+        var tabParam = activeTab ? activeTab.dataset.tab : '';
+        window.location.href = '/reports' + (tabParam ? '?tab=' + tabParam : '');
       });
     }
     var tabs = document.querySelectorAll('.report-tab');
@@ -1132,7 +1441,8 @@
     });
     waitForLibs().then(function () {
       window.Chart.register(window.ChartDataLabels);
-      activate('overview');
+      var urlTab = new URLSearchParams(window.location.search).get('tab');
+      activate(urlTab || 'overview');
     });
   });
 })();

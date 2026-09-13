@@ -1,7 +1,7 @@
 """Authentication blueprint — login, register, logout."""
 from __future__ import annotations
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
 from ..extensions import limiter
@@ -31,6 +31,15 @@ def login():
             flash(str(exc), "error")
             return render_template("auth/login.html", username=username), 401
         login_user(user, remember=remember)
+        # Warm caches so first page load is fast
+        try:
+            from ..utils.cache import global_cache
+            from ..repositories import SettingsRepository
+            stored = SettingsRepository.all(user.id)
+            global_cache.set(f"settings:{user.id}", stored)
+            global_cache.invalidate("reorder_count")
+        except Exception:
+            pass
         flash(f"Welcome back, {user['username']}!", "success")
         return redirect(_role_home(user["role"]))
     return render_template("auth/login.html")
@@ -140,7 +149,29 @@ def reset_password(token: str):
     return render_template("auth/reset_password.html", token=token)
 
 
-@auth_bp.route("/logout")
+@auth_bp.route("/check-username")
+@limiter.limit("30 per minute")
+def check_username():
+    """AJAX endpoint: return {available: bool} for a username."""
+    username = request.args.get("username", "").strip()
+    if len(username) < 3:
+        return jsonify({"available": False, "reason": "too_short"})
+    exists = UserRepository.find_by_username(username.lower())
+    return jsonify({"available": exists is None})
+
+
+@auth_bp.route("/check-email")
+@limiter.limit("30 per minute")
+def check_email():
+    """AJAX endpoint: return {available: bool} for an email."""
+    email = request.args.get("email", "").strip()
+    if "@" not in email:
+        return jsonify({"available": False, "reason": "invalid"})
+    exists = UserRepository.find_by_email(email.lower())
+    return jsonify({"available": exists is None})
+
+
+@auth_bp.route("/logout", methods=["POST"])
 @login_required
 def logout():
     # End session tracking

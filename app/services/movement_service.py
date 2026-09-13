@@ -61,4 +61,18 @@ class MovementService:
                 "new_stock": new_stock,
             },
         )
+
+        # Send notification
+        try:
+            from .notification_service import notify_movement
+            notify_movement(
+                sku=product["sku"],
+                product_name=product["name"],
+                movement_type=mtype,
+                qty=int(quantity),
+                warehouse=product.get("warehouse", ""),
+            )
+        except Exception:
+            pass
+
         return movement_id

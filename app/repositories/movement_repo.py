@@ -18,6 +18,12 @@ class MovementRepository:
             return list(cur.fetchall())
 
     @staticmethod
+    def daily_inout(days: int = 14) -> list[dict]:
+        with get_cursor() as cur:
+            cur.execute("SELECT * FROM sp_movement_daily_inout(%s)", (days,))
+            return list(cur.fetchall())
+
+    @staticmethod
     def daily_for_product(product_id: int, days: int = 90) -> list[dict]:
         with get_cursor() as cur:
             cur.execute("SELECT * FROM sp_movement_daily_for_product(%s, %s)", (product_id, days))

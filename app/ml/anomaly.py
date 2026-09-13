@@ -1,10 +1,9 @@
 """Anomaly detection: Isolation Forest + SPC z-score control limits."""
 from __future__ import annotations
 
+import importlib.util as _iu
 import logging
-import math
 from statistics import mean, pstdev
-from typing import Iterable
 
 LOGGER = logging.getLogger(__name__)
 
@@ -14,11 +13,7 @@ _HAS_SKLEARN = None
 def _check_sklearn():
     global _HAS_SKLEARN
     if _HAS_SKLEARN is None:
-        try:
-            from sklearn.ensemble import IsolationForest  # noqa: F401
-            _HAS_SKLEARN = True
-        except Exception:
-            _HAS_SKLEARN = False
+        _HAS_SKLEARN = _iu.find_spec("sklearn") is not None
     return _HAS_SKLEARN
 
 

@@ -22,6 +22,7 @@ from werkzeug.security import generate_password_hash
 
 from flask import current_app
 
+from .connection import _open_conn
 from ..services.dataset_service import get_products
 
 LOGGER = logging.getLogger(__name__)
@@ -94,17 +95,6 @@ def _drain_bucket(idx: int) -> bool:
     reorder queue.
     """
     return idx % 6 == 0
-
-
-def _open_conn():
-    params = current_app.config["psycopg2_params"]()
-    if "dsn" in params:
-        return psycopg2.connect(
-            params["dsn"], cursor_factory=psycopg2.extras.RealDictCursor
-        )
-    return psycopg2.connect(
-        cursor_factory=psycopg2.extras.RealDictCursor, **params
-    )
 
 
 def _seed_users(cur) -> int:

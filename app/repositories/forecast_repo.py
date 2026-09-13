@@ -72,19 +72,6 @@ class AnomalyRepository:
             return cur.fetchone()["id"]
 
     @staticmethod
-    def recent(limit: int = 50) -> list[dict]:
-        with get_cursor() as cur:
-            cur.execute(
-                """
-                SELECT a.*, p.sku, p.name AS product_name
-                FROM anomaly_log a LEFT JOIN products p ON p.id = a.product_id
-                ORDER BY a.detected_at DESC LIMIT %s
-                """,
-                (limit,),
-            )
-            return list(cur.fetchall())
-
-    @staticmethod
     def find_by_id(alert_id: int) -> dict | None:
         with get_cursor() as cur:
             cur.execute(
@@ -96,20 +83,6 @@ class AnomalyRepository:
                 (alert_id,),
             )
             return cur.fetchone()
-
-    @staticmethod
-    def find_by_product(product_id: int, limit: int = 50) -> list[dict]:
-        with get_cursor() as cur:
-            cur.execute(
-                """
-                SELECT a.*, p.sku, p.name AS product_name
-                FROM anomaly_log a LEFT JOIN products p ON p.id = a.product_id
-                WHERE a.product_id = %s
-                ORDER BY a.detected_at DESC LIMIT %s
-                """,
-                (product_id, limit),
-            )
-            return list(cur.fetchall())
 
     @staticmethod
     def filter_alerts(*, risk_level: str | None = None, status: str | None = None,
@@ -190,17 +163,3 @@ class AnomalyRepository:
         with get_cursor() as cur:
             cur.execute("SELECT COUNT(*) AS c FROM anomaly_log")
             return cur.fetchone()["c"]
-
-    @staticmethod
-    def recent_alerts(limit: int = 20) -> list[dict]:
-        """Return recent alerts with product info for dashboard display."""
-        with get_cursor() as cur:
-            cur.execute(
-                """
-                SELECT a.*, p.sku, p.name AS product_name
-                FROM anomaly_log a LEFT JOIN products p ON p.id = a.product_id
-                ORDER BY a.detected_at DESC LIMIT %s
-                """,
-                (limit,),
-            )
-            return list(cur.fetchall())

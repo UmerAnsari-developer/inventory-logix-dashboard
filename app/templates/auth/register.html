@@ -17,16 +17,19 @@
     </div>
     <h1>Create your account</h1>
     <p class="auth-tagline">Get instant access to live inventory, EOQ, and AI features</p>
-    <form method="post" action="{{ url_for('auth.register') }}" class="auth-form">
+    <form method="post" action="{{ url_for('auth.register') }}" class="auth-form" novalidate>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <label><span>Username</span>
         <div class="input-wrapper">
-          <input type="text" name="username" value="{{ form.username or '' }}" required minlength="3" maxlength="60" placeholder=" ">
+          <input type="text" name="username" value="{{ form.username or '' }}" required minlength="3" maxlength="60" pattern="[A-Za-z0-9_.\-]{3,60}" placeholder=" " id="reg-username" autocomplete="username">
+          <span class="field-status" id="username-status"></span>
         </div>
+        <span class="field-hint"></span>
       </label>
       <label><span>Email</span>
         <div class="input-wrapper">
-          <input type="email" name="email" value="{{ form.email or '' }}" required placeholder=" ">
+          <input type="email" name="email" value="{{ form.email or '' }}" required placeholder=" " id="reg-email" autocomplete="email">
+          <span class="field-status" id="email-status"></span>
         </div>
       </label>
       <label><span>Password</span>
@@ -37,11 +40,110 @@
             <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72 1.88a3 3 0 1 1 4.24 4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
           </button>
         </div>
+        <div class="pw-strength" id="reg-pw-strength">
+          <div class="pw-bar"><div class="pw-fill" id="reg-pw-fill"></div></div>
+          <div class="pw-rules">
+            <span class="pw-rule" id="reg-rule-len">8+ characters</span>
+            <span class="pw-rule" id="reg-rule-letter">1 letter</span>
+            <span class="pw-rule" id="reg-rule-digit">1 digit</span>
+          </div>
+        </div>
+      </label>
+      <label><span>Confirm password</span>
+        <div class="password-wrapper">
+          <input type="password" name="confirm" required minlength="8" autocomplete="new-password" id="reg-confirm" placeholder=" ">
+          <button type="button" class="password-toggle" data-target="reg-confirm" aria-label="Show password">
+            <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72 1.88a3 3 0 1 1 4.24 4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          </button>
+        </div>
+        <span class="field-hint" id="reg-match-hint"></span>
       </label>
       <p class="auth-helper">New accounts are created with <strong>Viewer</strong> access. Higher roles are assigned by an administrator.</p>
-      <button type="submit" class="btn btn-primary auth-submit">Create account</button>
+      <button type="submit" class="btn btn-primary auth-submit" id="reg-submit">Create account</button>
     </form>
     <p class="auth-helper">Already registered? <a href="{{ url_for('auth.login') }}">Sign in</a></p>
   </div>
 </section>
+<script nonce="{{ csp_nonce }}">
+(function(){
+  var csrf = document.querySelector('input[name="csrf_token"]').value;
+
+  /* ── Username availability ── */
+  var uInput = document.getElementById('reg-username');
+  var uStatus = document.getElementById('username-status');
+  var uTimer = null;
+  if(uInput) uInput.addEventListener('input', function(){
+    clearTimeout(uTimer);
+    var v = this.value.trim();
+    uStatus.textContent = '';
+    uStatus.className = 'field-status';
+    if(v.length < 3){ return; }
+    uTimer = setTimeout(function(){
+      fetch('/auth/check-username?username='+encodeURIComponent(v))
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(d.available){ uStatus.textContent = '\u2713 available'; uStatus.className = 'field-status ok'; }
+          else { uStatus.textContent = '\u2717 taken'; uStatus.className = 'field-status err'; }
+        });
+    }, 400);
+  });
+
+  /* ── Email availability ── */
+  var eInput = document.getElementById('reg-email');
+  var eStatus = document.getElementById('email-status');
+  var eTimer = null;
+  if(eInput) eInput.addEventListener('input', function(){
+    clearTimeout(eTimer);
+    var v = this.value.trim();
+    eStatus.textContent = '';
+    eStatus.className = 'field-status';
+    if(v.indexOf('@') < 1){ return; }
+    eTimer = setTimeout(function(){
+      fetch('/auth/check-email?email='+encodeURIComponent(v))
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(d.available){ eStatus.textContent = '\u2713 available'; eStatus.className = 'field-status ok'; }
+          else { eStatus.textContent = '\u2717 already registered'; eStatus.className = 'field-status err'; }
+        });
+    }, 400);
+  });
+
+  /* ── Password strength ── */
+  var pwInput = document.getElementById('register-password');
+  var pwFill = document.getElementById('reg-pw-fill');
+  var ruleLen = document.getElementById('reg-rule-len');
+  var ruleLetter = document.getElementById('reg-rule-letter');
+  var ruleDigit = document.getElementById('reg-rule-digit');
+  var confirmInput = document.getElementById('reg-confirm');
+  var matchHint = document.getElementById('reg-match-hint');
+
+  function checkPw(){
+    var v = pwInput.value;
+    var score = 0;
+    var hasLen = v.length >= 8;
+    var hasLetter = /[A-Za-z]/.test(v);
+    var hasDigit = /\d/.test(v);
+    if(hasLen) score++;
+    if(hasLetter) score++;
+    if(hasDigit) score++;
+    ruleLen.className = 'pw-rule' + (hasLen ? ' pass' : '');
+    ruleLetter.className = 'pw-rule' + (hasLetter ? ' pass' : '');
+    ruleDigit.className = 'pw-rule' + (hasDigit ? ' pass' : '');
+    pwFill.style.width = (score/3*100)+'%';
+    pwFill.className = 'pw-fill' + (score <= 1 ? ' weak' : score === 2 ? ' fair' : ' strong');
+    checkMatch();
+  }
+  function checkMatch(){
+    if(!confirmInput || !matchHint) return;
+    var p = pwInput.value;
+    var c = confirmInput.value;
+    if(!c){ matchHint.textContent = ''; matchHint.className = 'field-hint'; return; }
+    if(p === c){ matchHint.textContent = '\u2713 Passwords match'; matchHint.className = 'field-hint ok'; }
+    else { matchHint.textContent = '\u2717 Passwords don\'t match'; matchHint.className = 'field-hint err'; }
+  }
+  if(pwInput){ pwInput.addEventListener('input', checkPw); }
+  if(confirmInput){ confirmInput.addEventListener('input', checkMatch); }
+})();
+</script>
 {% endblock %}

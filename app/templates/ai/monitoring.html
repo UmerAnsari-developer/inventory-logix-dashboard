@@ -2,7 +2,7 @@
 {% set active_page = "monitoring" %}
 {% block title %}Model Monitoring{% endblock %}
 {% block extra_head %}
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" defer></script>
 {% endblock %}
 {% block content %}
 <section>
@@ -296,15 +296,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ── Actions ──
+  var csrfToken = document.querySelector('meta[name="csrf-token"]').content;
   document.getElementById('evalPendingBtn').addEventListener('click', async () => {
-    try { await fetch(BASE + '/evaluate', { method: 'POST' }); loadAll(); } catch(e) {}
+    try { await fetch(BASE + '/evaluate', { method: 'POST', headers: { 'X-CSRFToken': csrfToken } }); loadAll(); } catch(e) {}
   });
   document.getElementById('computeMetricsBtn').addEventListener('click', async () => {
     const sku = document.getElementById('monSku').value;
     if (!sku) { alert('Select a SKU first'); return; }
     const model = document.getElementById('monModel').value || 'prophet';
     try {
-      await fetch(BASE + '/compute', { method: 'POST', headers: {'Content-Type':'application/json'},
+      await fetch(BASE + '/compute', { method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRFToken': csrfToken},
         body: JSON.stringify({ sku, model_name: model }) });
       loadAll();
     } catch(e) {}

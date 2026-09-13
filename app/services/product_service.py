@@ -46,11 +46,17 @@ class ProductService:
                 if payload.get("sku")
                 else payload.get("sku")
             )
+            if payload["sku"] and len(payload["sku"]) < 2:
+                raise ValidationError("SKU must be at least 2 characters.")
+            if payload["sku"] and len(payload["sku"]) > 50:
+                raise ValidationError("SKU must be at most 50 characters.")
             payload["name"] = validate_string_length(payload.get("name", ""), "Name", 2, 150)
             payload["category"] = (payload.get("category") or "").strip() or None
-            payload["warehouse"] = (payload.get("warehouse") or "WH-Pune").strip()
+            payload["warehouse"] = (payload.get("warehouse") or "").strip()
+            if not payload["warehouse"]:
+                raise ValidationError("Warehouse is required.")
             payload["unit_price"] = validate_positive_number(
-                payload.get("unit_price"), "Unit price", allow_zero=True
+                payload.get("unit_price"), "Unit price", allow_zero=False
             )
             payload["current_stock"] = int(payload.get("current_stock") or 0)
             payload["reorder_point"] = int(payload.get("reorder_point") or 0)
@@ -61,6 +67,12 @@ class ProductService:
             for key in ("demand_rate", "ordering_cost", "holding_cost"):
                 if payload.get(key) not in (None, ""):
                     payload[key] = validate_positive_number(payload.get(key), key.replace("_", " ").title(), allow_zero=True)
+            # EOQ trio: if any 1 filled, all 3 required
+            eoq_keys = ("demand_rate", "ordering_cost", "holding_cost")
+            eoq_filled = [k for k in eoq_keys if payload.get(k) not in (None, "")]
+            if eoq_filled and len(eoq_filled) < 3:
+                missing = [k.replace("_", " ").title() for k in eoq_keys if k not in eoq_filled]
+                raise ValidationError(f"All EOQ fields required. Missing: {', '.join(missing)}")
             payload["supplier_id"] = int(payload["supplier_id"]) if payload.get("supplier_id") else None
         except ValidationError as exc:
             raise ProductError(str(exc)) from exc

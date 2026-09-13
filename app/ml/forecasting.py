@@ -10,12 +10,13 @@ import logging
 import math
 from datetime import date, timedelta
 from statistics import mean, pstdev
-from typing import Iterable
 
 LOGGER = logging.getLogger(__name__)
 
 # Lazy-loaded: only imported when actually called, not at module import time.
 # This avoids loading heavy pandas/prophet/statsmodels on every page request.
+import importlib.util as _iu
+
 _HAS_PROPHET = None
 _HAS_ARIMA = None
 
@@ -23,22 +24,14 @@ _HAS_ARIMA = None
 def _check_prophet():
     global _HAS_PROPHET
     if _HAS_PROPHET is None:
-        try:
-            import prophet  # noqa: F401
-            _HAS_PROPHET = True
-        except Exception:
-            _HAS_PROPHET = False
+        _HAS_PROPHET = _iu.find_spec("prophet") is not None
     return _HAS_PROPHET
 
 
 def _check_arima():
     global _HAS_ARIMA
     if _HAS_ARIMA is None:
-        try:
-            from statsmodels.tsa.arima.model import ARIMA  # noqa: F401
-            _HAS_ARIMA = True
-        except Exception:
-            _HAS_ARIMA = False
+        _HAS_ARIMA = _iu.find_spec("statsmodels") is not None
     return _HAS_ARIMA
 
 

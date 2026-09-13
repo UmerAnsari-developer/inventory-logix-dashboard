@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 
 from ..repositories import ProductRepository
-from ..utils import calculate_eoq, calculate_total_cost
+from ..utils import calculate_eoq
 from ..utils.helpers import calculate_total_cost as _cost
 
 LOGGER = logging.getLogger(__name__)
@@ -44,23 +44,6 @@ class EOQService:
                 "total_cost": round(total, 2) if total else None,
             })
         return out
-
-    @staticmethod
-    def cost_curve(eoq: float, demand: float, ordering_cost: float, holding_cost: float) -> list[dict]:
-        """Return ``{order_qty, total_cost}`` points across an EOQ range."""
-        if not eoq or eoq <= 0:
-            return []
-        points = []
-        max_q = max(eoq * 2.2, eoq + 1)
-        step = max(1, int(max_q / 60))
-        q = max(1, step)
-        while q <= max_q:
-            orders = demand / q if q else 0
-            order_cost = orders * ordering_cost
-            hold_cost = (q / 2) * holding_cost
-            points.append({"q": q, "total": order_cost + hold_cost})
-            q += step
-        return points
 
     @staticmethod
     def sensitivity_surface(demand: float, ordering_cost: float, holding_cost: float) -> dict:
