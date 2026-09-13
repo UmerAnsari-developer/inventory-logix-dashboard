@@ -11,7 +11,7 @@ from ..repositories import ProductRepository
 from ..security import write_roles_required
 from ..services import AnomalyService, ForecastService, MonitoringService, SettingsService
 from ..utils import api_error, api_response
-from ..utils.cache import TTLCache
+from ..utils.cache import TTLCache, products_cache
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,7 +24,9 @@ _portfolio_cache = TTLCache(ttl=3600, max_entries=10)
 @ai_bp.route("/forecast")
 @login_required
 def forecast_page():
-    products, _ = ProductRepository.list(limit=100)
+    products = products_cache.get_or_set(
+        "ai_product_list", lambda: ProductRepository.list(limit=100)[0]
+    )
     return render_template(
         "ai/forecast.html",
         products=products,
@@ -70,7 +72,9 @@ def forecast_portfolio():
 @ai_bp.route("/anomaly")
 @login_required
 def anomaly_page():
-    products, _ = ProductRepository.list(limit=100)
+    products = products_cache.get_or_set(
+        "ai_product_list", lambda: ProductRepository.list(limit=100)[0]
+    )
     return render_template(
         "ai/anomaly.html",
         products=products,

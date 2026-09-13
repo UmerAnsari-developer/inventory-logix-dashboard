@@ -89,8 +89,8 @@ class TTLCache:
 
 products_cache = TTLCache(ttl=120, max_entries=50)   # lists + details
 suppliers_cache = TTLCache(ttl=120, max_entries=50)  # lists + details
-dashboard_cache = TTLCache(ttl=60, max_entries=10)   # dashboard context
-reports_cache = TTLCache(ttl=300, max_entries=20)     # heavy report queries
+dashboard_cache = TTLCache(ttl=300, max_entries=10)   # dashboard context
+reports_cache = TTLCache(ttl=3600, max_entries=20)    # heavy report queries (~30 DB queries cold)
 global_cache = TTLCache(ttl=600, max_entries=20)       # reorder count, settings, cross-request
 api_cache = TTLCache(ttl=60, max_entries=50)          # REST GET responses
 landing_cache = TTLCache(ttl=300, max_entries=5)      # public landing stats
