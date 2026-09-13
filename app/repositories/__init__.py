@@ -9,6 +9,7 @@ from .forecast_repo import ForecastRepository, AnomalyRepository
 from .settings_repo import SettingsRepository
 from .warehouse_repo import WarehouseRepository
 from .monitoring_repo import MonitoringRepository
+from .notification_repo import NotificationRepository
 
 __all__ = [
     "UserRepository",
@@ -22,4 +23,5 @@ __all__ = [
     "SettingsRepository",
     "WarehouseRepository",
     "MonitoringRepository",
+    "NotificationRepository",
 ]

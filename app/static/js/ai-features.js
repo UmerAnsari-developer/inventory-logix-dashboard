@@ -3,7 +3,6 @@
    Adds: theme persistence, toast helper, AI forecast, anomaly, EOQ 3D surface.
    ============================================================================= */
 (function () {
-  function getDlColor() { return document.documentElement.getAttribute('data-theme') === 'dark' ? '#e2e8f0' : '#1e293b'; }
     'use strict';
 
     const $ = (sel, root) => (root || document).querySelector(sel);

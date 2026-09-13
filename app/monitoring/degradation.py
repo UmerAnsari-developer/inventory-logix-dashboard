@@ -1,11 +1,7 @@
 """Model performance degradation detection."""
 from __future__ import annotations
 
-from ..config.settings import Config
-
-
-def _threshold(name: str) -> float:
-    return float(getattr(Config, name, 10))
+from .alerts import _threshold
 
 
 def detect_degradation(current_mae: float | None, baseline_mae: float | None) -> dict:
