@@ -62,8 +62,11 @@ class SettingsService:
         data = dict(DEFAULTS)
         if user_id:
             try:
-                stored = SettingsRepository.all(user_id)
-                # Filter out any keys not in the schema to prevent silent misconfiguration
+                from ..utils.cache import global_cache
+                stored = global_cache.get(f"settings:{user_id}")
+                if stored is None:
+                    stored = SettingsRepository.all(user_id)
+                    global_cache.set(f"settings:{user_id}", stored)
                 data.update({k: v for k, v in stored.items() if k in DEFAULTS})
             except Exception:
                 pass

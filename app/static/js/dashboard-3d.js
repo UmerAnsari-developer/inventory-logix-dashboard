@@ -10,11 +10,16 @@
     panel.style.transition = 'transform 0.35s cubic-bezier(.22,1,.36,1), box-shadow 0.35s ease';
 
     panel.addEventListener('mousemove', function (e) {
-      var rect = panel.getBoundingClientRect();
-      var x = (e.clientX - rect.left) / rect.width - 0.5;
-      var y = (e.clientY - rect.top) / rect.height - 0.5;
-      panel.style.transform = 'perspective(800px) rotateY(' + (x * 6) + 'deg) rotateX(' + (-y * 6) + 'deg) scale(1.008)';
-      panel.style.boxShadow = '0 ' + (12 + Math.abs(y) * 8) + 'px ' + (28 + Math.abs(x) * 12) + 'px rgba(0,0,0,0.25)';
+      if (panel._tilting) return;
+      panel._tilting = true;
+      requestAnimationFrame(function () {
+        var rect = panel.getBoundingClientRect();
+        var x = (e.clientX - rect.left) / rect.width - 0.5;
+        var y = (e.clientY - rect.top) / rect.height - 0.5;
+        panel.style.transform = 'perspective(800px) rotateY(' + (x * 6) + 'deg) rotateX(' + (-y * 6) + 'deg) scale(1.008)';
+        panel.style.boxShadow = '0 ' + (12 + Math.abs(y) * 8) + 'px ' + (28 + Math.abs(x) * 12) + 'px rgba(0,0,0,0.25)';
+        panel._tilting = false;
+      });
     });
 
     panel.addEventListener('mouseleave', function () {

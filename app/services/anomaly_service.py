@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 from ..ml.anomaly import detect_anomalies_enriched, detect_anomalies_isoforest, spc_zscore_analysis
 from ..repositories import AnomalyRepository
@@ -156,11 +156,48 @@ class AnomalyService:
         from ..database import get_cursor
         out = []
         with get_cursor() as cur:
-            cur.execute("SELECT id, sku, name FROM products ORDER BY id LIMIT 30")
+            cur.execute("SELECT id, sku, name, current_stock, reorder_point FROM products ORDER BY id LIMIT 30")
             products = list(cur.fetchall())
+            if not products:
+                return out
+            product_ids = [p["id"] for p in products]
+            cur.execute(
+                """
+                SELECT m.product_id, m.created_at::date AS day, m.type,
+                       COALESCE(SUM(CASE WHEN m.type='IN' THEN m.quantity
+                                         WHEN m.type='OUT' THEN -m.quantity
+                                         ELSE 0 END), 0) AS total
+                FROM movements m
+                WHERE m.product_id = ANY(%s) AND m.created_at >= NOW() - INTERVAL '120 days'
+                GROUP BY m.product_id, m.created_at::date, m.type
+                ORDER BY m.product_id, day
+                """,
+                (product_ids,),
+            )
+            movement_rows = cur.fetchall()
+        # Group movement rows by product_id
+        from collections import defaultdict
+        movements_by_product: dict[int, list] = defaultdict(list)
+        for row in movement_rows:
+            movements_by_product[row["product_id"]].append(row)
         for p in products:
             try:
-                result = AnomalyService.run_for_product(p["id"], contamination=contamination)
+                rows = movements_by_product.get(p["id"], [])
+                series = [{"day": r["day"].isoformat(), "value": int(r["total"])} for r in rows]
+                inv_pos = float(p.get("current_stock") or 0)
+                safety = float(p.get("reorder_point") or 0) * 0.25
+                rop = float(p.get("reorder_point") or 0)
+                try:
+                    from .settings_service import SettingsService
+                    z_threshold = SettingsService.z_score_threshold()
+                except Exception:
+                    z_threshold = 3.0
+                result = detect_anomalies_enriched(
+                    series, product_id=p["id"], sku=p.get("sku", ""),
+                    product_name=p.get("name", ""), contamination=contamination,
+                    z_threshold=z_threshold, inventory_position=inv_pos,
+                    safety_stock=safety, reorder_point=rop,
+                )
                 anomalies = result.get("anomalies", [])
                 if anomalies:
                     out.append({

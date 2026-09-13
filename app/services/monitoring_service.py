@@ -14,34 +14,17 @@ LOGGER = logging.getLogger(__name__)
 
 class MonitoringService:
 
-    # ── Store predictions ────────────────────────────────────────
-
-    @staticmethod
-    def record_prediction(*, sku: str, model_name: str, forecast_date,
-                          predicted_value: float, forecast_horizon: int = 1) -> int:
-        return MonitoringRepository.save_prediction(
-            sku=sku, model_name=model_name, forecast_date=forecast_date,
-            predicted_value=predicted_value, forecast_horizon=forecast_horizon,
-        )
-
-    @staticmethod
-    def attach_actual(prediction_id: int, actual_value: float) -> None:
-        MonitoringRepository.update_actual(prediction_id, actual_value)
-
     # ── Evaluate pending forecasts ───────────────────────────────
 
     @staticmethod
     def evaluate_pending() -> int:
         """Evaluate all pending predictions that now have actual values."""
         pending = MonitoringRepository.find_pending_evaluations()
-        count = 0
-        for row in pending:
-            pred_id = row["id"]
-            predicted = float(row["predicted_value"])
-            actual = float(row["actual_value"])
-            MonitoringRepository.update_actual(pred_id, actual)
-            count += 1
-        return count
+        if not pending:
+            return 0
+        pairs = [(float(row["actual_value"]), row["id"]) for row in pending]
+        MonitoringRepository.batch_update_actuals(pairs)
+        return len(pairs)
 
     # ── Compute and store monitoring metrics ─────────────────────
 

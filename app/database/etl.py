@@ -20,6 +20,8 @@ from psycopg2.extras import execute_values
 
 from flask import current_app
 
+from .connection import _open_conn
+
 LOGGER = logging.getLogger(__name__)
 
 INVENTORY_HISTORY_DAYS = 30
@@ -32,17 +34,6 @@ _REGION_HINT = {
     "Bengaluru": "South",
     "Chennai": "South",
 }
-
-
-def _open_conn():
-    params = current_app.config["psycopg2_params"]()
-    if "dsn" in params:
-        return psycopg2.connect(
-            params["dsn"], cursor_factory=psycopg2.extras.RealDictCursor
-        )
-    return psycopg2.connect(
-        cursor_factory=psycopg2.extras.RealDictCursor, **params
-    )
 
 
 def _parse_warehouse(name: str) -> tuple[str, str, str]:
@@ -254,11 +245,8 @@ def _build_movement_facts(cur, start: date, end: date) -> int:
 def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) -> int:
     """Reconstruct stock history for days in ``[start_day, end_day]``.
 
-    Walks the movement history backwards from ``products.current_stock``, so
-    the value stored for a day only depends on movements *after* that day.
-    For incremental runs ``start_day`` is the earliest day touched by new
-    movements; days before it are unchanged and left alone. For a full build
-    ``start_day`` defaults to the start of the trailing window.
+    Uses a SQL window function to do the backward stock walk in one query
+    instead of a Python loop over products × days.
     """
     if start_day is None:
         start_day = end_day - timedelta(days=INVENTORY_HISTORY_DAYS - 1)
@@ -266,52 +254,55 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
         "DELETE FROM fact_inventory_daily WHERE date_key BETWEEN %s AND %s",
         (start_day, end_day),
     )
-    cur.execute(
-        "SELECT sku, warehouse, current_stock, reorder_point, unit_price FROM products"
-    )
-    products = [dict(r) for r in cur.fetchall()]
-    cur.execute(
-        """
-        SELECT m.sku, m.created_at::date AS day,
-               COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
-                                 WHEN m.type = 'OUT' THEN -m.quantity ELSE 0 END), 0) AS net
-        FROM movements m
-        WHERE m.created_at::date BETWEEN %s AND %s
-        GROUP BY m.sku, m.created_at::date
-        """,
-        (start_day, end_day),
-    )
-    net_by_sku_day: dict[tuple[str, date], float] = {}
-    for r in cur.fetchall():
-        net_by_sku_day[(r["sku"], r["day"])] = float(r["net"])
-
     wh_keys = getattr(cur, "_etl_warehouse_keys", {})
     prod_keys = getattr(cur, "_etl_product_keys", {})
-    days_list = [
-        end_day - timedelta(days=i)
-        for i in range((end_day - start_day).days + 1)
-    ]
-    rows: list[tuple[date, int, int, float, float, float]] = []
-    negative_clamped = 0
-    for p in products:
-        wh_key = wh_keys.get(p["warehouse"])
-        prod_key = prod_keys.get(p["sku"])
+    if not wh_keys or not prod_keys:
+        return 0
+    # Build the warehouse/product key lookup arrays for SQL
+    wh_names = list(wh_keys.keys())
+    wh_ids = [wh_keys[n] for n in wh_names]
+    prod_skus = list(prod_keys.keys())
+    prod_ids = [prod_keys[s] for s in prod_skus]
+    cur.execute(
+        """
+        WITH daily_net AS (
+            SELECT m.sku, m.created_at::date AS day,
+                   SUM(CASE WHEN m.type='IN' THEN m.quantity
+                            WHEN m.type='OUT' THEN -m.quantity ELSE 0 END) AS net
+            FROM movements m
+            WHERE m.created_at::date BETWEEN %s AND %s
+            GROUP BY m.sku, m.created_at::date
+        ),
+        product_days AS (
+            SELECT p.sku, p.warehouse, p.current_stock, p.reorder_point, p.unit_price,
+                   gs::date AS day
+            FROM products p
+            CROSS JOIN generate_series(%s::date, %s::date, '1 day'::interval) gs
+            WHERE p.sku = ANY(%s)
+        )
+        SELECT pd.day, pd.warehouse, pd.sku,
+               pd.current_stock - COALESCE(
+                   SUM(dn.net) OVER (
+                       PARTITION BY pd.sku ORDER BY pd.day DESC
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                   ), 0
+               ) AS stock_on_hand,
+               pd.reorder_point, pd.unit_price
+        FROM product_days pd
+        LEFT JOIN daily_net dn ON dn.sku = pd.sku AND dn.day = pd.day
+        ORDER BY pd.sku, pd.day
+        """,
+        (start_day, end_day, start_day, end_day, prod_skus),
+    )
+    rows = []
+    for r in cur.fetchall():
+        wh_key = wh_keys.get(r["warehouse"])
+        prod_key = prod_keys.get(r["sku"])
         if wh_key is None or prod_key is None:
             continue
-        rop = float(p["reorder_point"] or 0)
-        price = float(p["unit_price"] or 0)
-        stock = float(p["current_stock"] or 0)
-        for d in days_list:
-            rows.append((d, wh_key, prod_key, stock, rop, stock * price))
-            stock -= net_by_sku_day.get((p["sku"], d), 0)
-            if stock < 0:
-                negative_clamped += 1
-                stock = 0.0
-    if negative_clamped:
-        LOGGER.warning(
-            "Inventory backward walk: clamped %d negative stock values to 0 "
-            "(data inconsistency in movement history)", negative_clamped,
-        )
+        stock = max(float(r["stock_on_hand"] or 0), 0.0)
+        price = float(r["unit_price"] or 0)
+        rows.append((r["day"], wh_key, prod_key, stock, float(r["reorder_point"] or 0), stock * price))
     if rows:
         execute_values(
             cur,
@@ -370,8 +361,6 @@ def run_etl(force: bool = False) -> dict:
                 summary["dim_dates"] = added_dates
                 _build_dims(cur, summary, (first_day, last_day))
                 summary["fact_movements"] = _build_movement_facts(cur, first_day, last_day)
-                # Rebuild inventory only from the earliest day affected by the
-                # new movements forward; earlier days are unchanged.
                 summary["fact_inventory"] = _build_inventory_facts(cur, today, first_day)
                 _write_state(cur, "last_movement_id", max_id)
                 _write_state(cur, "last_run_at", today.isoformat())
@@ -398,6 +387,12 @@ def run_etl(force: bool = False) -> dict:
                 _write_state(cur, "last_movement_id", max_id)
                 _write_state(cur, "last_run_at", end.isoformat())
 
+        # Run warehouse layer ETL (SCD merges + event fact loads) — same connection
+        try:
+            _run_warehouse_etl(conn)
+        except Exception:
+            LOGGER.warning("Warehouse ETL failed (non-fatal):", exc_info=True)
+
         conn.commit()
         LOGGER.info("ETL complete%s: %s", " (incremental)" if summary["incremental"] else "", summary)
     except Exception:
@@ -406,18 +401,14 @@ def run_etl(force: bool = False) -> dict:
     finally:
         conn.close()
 
-    # Run warehouse layer ETL (SCD merges + event fact loads)
-    try:
-        _run_warehouse_etl()
-    except Exception:
-        LOGGER.warning("Warehouse ETL failed (non-fatal):", exc_info=True)
-
     return summary
 
 
-def _run_warehouse_etl():
+def _run_warehouse_etl(conn=None):
     """Call warehouse stored procedures for SCD merges and event fact loads."""
-    conn = _open_conn()
+    own_conn = conn is None
+    if own_conn:
+        conn = _open_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM etl_full_build()")
@@ -429,4 +420,5 @@ def _run_warehouse_etl():
         conn.rollback()
         raise
     finally:
-        conn.close()
+        if own_conn:
+            conn.close()

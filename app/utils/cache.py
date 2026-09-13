@@ -25,6 +25,7 @@ class TTLCache:
         self.max_entries = max_entries
         self._store: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = threading.Lock()
+        self._rebuild_locks: dict[str, threading.Lock] = {}
 
     def get(self, key: str, default=None):
         with self._lock:
@@ -46,14 +47,25 @@ class TTLCache:
                 self._store.popitem(last=False)
 
     def get_or_set(self, key: str, producer: Callable[[], Any]) -> Any:
-        """Read-through: return cached value or call producer and cache it."""
+        """Read-through: return cached value or call producer and cache it.
+        Per-key lock prevents thundering herd on cold cache."""
         value = self.get(key, _SENTINEL)
         if value is not _SENTINEL:
             return value
-        value = producer()
-        if value is not None:
-            self.set(key, value)
-        return value
+        # Per-key lock: only one thread rebuilds, others wait and read
+        with self._lock:
+            if key not in self._rebuild_locks:
+                self._rebuild_locks[key] = threading.Lock()
+            key_lock = self._rebuild_locks[key]
+        with key_lock:
+            # Double-check after acquiring lock
+            value = self.get(key, _SENTINEL)
+            if value is not _SENTINEL:
+                return value
+            value = producer()
+            if value is not None:
+                self.set(key, value)
+            return value
 
     def invalidate(self, prefix: str) -> int:
         """Drop every key starting with `prefix`. Returns count dropped."""
@@ -79,7 +91,7 @@ products_cache = TTLCache(ttl=120, max_entries=50)   # lists + details
 suppliers_cache = TTLCache(ttl=120, max_entries=50)  # lists + details
 dashboard_cache = TTLCache(ttl=60, max_entries=10)   # dashboard context
 reports_cache = TTLCache(ttl=300, max_entries=20)     # heavy report queries
-global_cache = TTLCache(ttl=60, max_entries=10)       # reorder count etc.
+global_cache = TTLCache(ttl=600, max_entries=20)       # reorder count, settings, cross-request
 api_cache = TTLCache(ttl=60, max_entries=50)          # REST GET responses
 landing_cache = TTLCache(ttl=300, max_entries=5)      # public landing stats
 monitoring_cache = TTLCache(ttl=30, max_entries=5)     # monitoring DB stats

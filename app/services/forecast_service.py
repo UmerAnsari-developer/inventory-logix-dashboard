@@ -1,7 +1,6 @@
 """Forecast service — bridges the ML module with the rest of the app."""
 from __future__ import annotations
 
-import json
 import logging
 from datetime import date, timedelta
 
@@ -110,22 +109,37 @@ class ForecastService:
             LOGGER.debug("Monitoring update skipped", exc_info=True)
 
     @staticmethod
-    def recent_for_product(product_id: int, limit: int = 5):
-        return ForecastRepository.recent(product_id, limit=limit)
-
-    @staticmethod
     def portfolio(horizon: int = 30, model: str = "prophet") -> list[dict]:
         """Lightweight forecast summary — uses 7-day moving average, no model fitting."""
         from ..database import get_cursor
         out = []
         with get_cursor() as cur:
-            cur.execute(
-                "SELECT id, sku, name FROM products ORDER BY id LIMIT 12"
-            )
+            cur.execute("SELECT id, sku, name FROM products ORDER BY id LIMIT 12")
             products = list(cur.fetchall())
+            if not products:
+                return out
+            product_ids = [p["id"] for p in products]
+            cur.execute(
+                """
+                SELECT m.product_id, m.created_at::date AS day,
+                       COALESCE(SUM(CASE WHEN m.type='IN' THEN m.quantity
+                                         WHEN m.type='OUT' THEN -m.quantity
+                                         ELSE 0 END), 0) AS total
+                FROM movements m
+                WHERE m.product_id = ANY(%s) AND m.created_at >= NOW() - INTERVAL '90 days'
+                GROUP BY m.product_id, m.created_at::date
+                ORDER BY m.product_id, day
+                """,
+                (product_ids,),
+            )
+            movement_rows = cur.fetchall()
+        from collections import defaultdict
+        movements_by_product: dict[int, list] = defaultdict(list)
+        for row in movement_rows:
+            movements_by_product[row["product_id"]].append(row)
         for p in products:
             try:
-                rows = MovementRepository.daily_for_product(p["id"], days=90)
+                rows = movements_by_product.get(p["id"], [])
                 totals = [int(r["total"]) for r in rows]
                 if not totals:
                     continue

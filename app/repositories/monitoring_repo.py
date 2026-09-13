@@ -11,22 +11,6 @@ class MonitoringRepository:
     # ── Predictions ──────────────────────────────────────────────
 
     @staticmethod
-    def save_prediction(*, sku: str, model_name: str, forecast_date,
-                        predicted_value: float, forecast_horizon: int = 1,
-                        forecast_generated_at=None) -> int:
-        with get_cursor(commit=True) as cur:
-            cur.execute(
-                """INSERT INTO forecast_predictions
-                   (sku, model_name, forecast_date, predicted_value, forecast_horizon,
-                    forecast_generated_at, status)
-                   VALUES (%s,%s,%s,%s,%s, COALESCE(%s, NOW()), 'pending')
-                   RETURNING id""",
-                (sku, model_name, forecast_date, predicted_value, forecast_horizon,
-                 forecast_generated_at),
-            )
-            return cur.fetchone()["id"]
-
-    @staticmethod
     def save_predictions_batch(rows: list[dict]) -> None:
         """Batch insert predictions with actual values already set (single round-trip)."""
         if not rows:
@@ -57,6 +41,22 @@ class MonitoringRepository:
                    SET actual_value = %s, status = 'evaluated'
                    WHERE id = %s""",
                 (actual_value, prediction_id),
+            )
+
+    @staticmethod
+    def batch_update_actuals(pairs: list[tuple[float, int]]) -> None:
+        """Batch UPDATE actual_value+status for multiple predictions (single round-trip)."""
+        if not pairs:
+            return
+        with get_cursor(commit=True) as cur:
+            from psycopg2.extras import execute_values
+            execute_values(
+                cur,
+                """UPDATE forecast_predictions SET actual_value = v.actual_value, status = 'evaluated'
+                   FROM (VALUES %s) AS v(actual_value, id)
+                   WHERE forecast_predictions.id = v.id::int""",
+                [(a, pid) for a, pid in pairs],
+                template="(%s, %s)",
             )
 
     @staticmethod
@@ -165,17 +165,6 @@ class MonitoringRepository:
                 params + [limit],
             )
             return list(cur.fetchall())
-
-    @staticmethod
-    def latest_metrics(sku: str, model_name: str) -> dict | None:
-        with get_cursor() as cur:
-            cur.execute(
-                """SELECT * FROM forecast_monitoring_metrics
-                   WHERE sku = %s AND model_name = %s
-                   ORDER BY monitoring_date DESC LIMIT 1""",
-                (sku, model_name),
-            )
-            return cur.fetchone()
 
     @staticmethod
     def baseline_metrics(sku: str, model_name: str) -> dict | None:
@@ -289,22 +278,6 @@ class MonitoringRepository:
                    GROUP BY severity"""
             )
             return {r["severity"]: r["cnt"] for r in cur.fetchall()}
-
-    @staticmethod
-    def alert_counts_by_status() -> dict:
-        with get_cursor() as cur:
-            cur.execute(
-                """SELECT status, COUNT(*) AS cnt
-                   FROM model_monitoring_alerts
-                   GROUP BY status"""
-            )
-            return {r["status"]: r["cnt"] for r in cur.fetchall()}
-
-    @staticmethod
-    def total_alerts() -> int:
-        with get_cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM model_monitoring_alerts")
-            return cur.fetchone()["count"]
 
     @staticmethod
     def distinct_models() -> list[str]:

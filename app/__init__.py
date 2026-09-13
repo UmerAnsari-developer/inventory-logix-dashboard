@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -154,23 +153,26 @@ def _register_blueprints(app: Flask) -> None:
 def _register_context(app: Flask) -> None:
     @app.context_processor
     def inject_globals():
-        from flask_login import current_user
         settings = {}
         reorder_count = 0
         try:
             if current_user.is_authenticated:
-                from .services.settings_service import SettingsService
-                settings = SettingsService.get_settings()
-                from .database import get_cursor
-                with get_cursor() as cur:
-                    cur.execute(
-                        "SELECT COUNT(*) AS c FROM products "
-                        "WHERE current_stock <= reorder_point AND on_order <= 0"
-                    )
-                    reorder_count = int(cur.fetchone()["c"] or 0)
+                from .utils.cache import global_cache
+                settings = global_cache.get(f"settings:{current_user.id}") or {}
+                reorder_count = global_cache.get("reorder_count") or 0
         except Exception:
             pass
         return {"app_settings": settings, "reorder_count": reorder_count}
+
+
+def _fetch_reorder_count() -> int:
+    from .database import get_cursor
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS c FROM products "
+            "WHERE current_stock <= reorder_point AND on_order <= 0"
+        )
+        return int(cur.fetchone()["c"] or 0)
 
 
 def _register_error_handlers(app: Flask) -> None:
