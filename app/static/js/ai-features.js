@@ -203,15 +203,15 @@
                 tbody.innerHTML = rows.length ? rows.map(r => (
                     '<tr><td><span class="sku">' + r.sku + '</span></td>' +
                     '<td>' + r.name + '</td>' +
+                    '<td>' + (r.model || '—') + '</td>' +
                     '<td>' + r.baseline + '</td>' +
                     '<td>' + r.predicted_units + '</td>' +
                     '<td>' + r.delta_pct + '%</td>' +
                     '<td>' + r.accuracy + '%</td></tr>'
-                )).join('') : '<tr><td colspan="6" class="empty-state">No data</td></tr>';
+                )).join('') : '<tr><td colspan="7" class="empty-state">No data</td></tr>';
             } catch (e) {}
         }
         if (cfg.runButton) cfg.runButton.addEventListener('click', run);
-        loadPortfolio();
     }
     window.StockflowForecast = { init: initForecast, render: renderForecast };
 

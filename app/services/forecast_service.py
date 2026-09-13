@@ -122,9 +122,7 @@ class ForecastService:
             cur.execute(
                 """
                 SELECT m.product_id, m.created_at::date AS day,
-                       COALESCE(SUM(CASE WHEN m.type='IN' THEN m.quantity
-                                         WHEN m.type='OUT' THEN -m.quantity
-                                         ELSE 0 END), 0) AS total
+                       COALESCE(SUM(CASE WHEN m.type='OUT' THEN m.quantity ELSE 0 END), 0) AS total
                 FROM movements m
                 WHERE m.product_id = ANY(%s) AND m.created_at >= NOW() - INTERVAL '90 days'
                 GROUP BY m.product_id, m.created_at::date
@@ -141,20 +139,25 @@ class ForecastService:
             try:
                 rows = movements_by_product.get(p["id"], [])
                 totals = [int(r["total"]) for r in rows]
-                if not totals:
+                # No outbound demand in the window → nothing to forecast
+                if not totals or sum(totals) == 0:
                     continue
                 baseline = sum(totals) / len(totals)
                 window = min(7, len(totals))
                 recent_avg = sum(totals[-window:]) / window
                 predicted = round(recent_avg * horizon, 1)
                 delta_pct = round(((recent_avg / max(baseline, 1)) - 1) * 100, 1)
-                residuals = [abs(t - baseline) for t in totals]
-                mae = sum(residuals) / len(residuals) if residuals else 0
-                accuracy = max(0, round(100 - (mae / max(baseline, 1)) * 100, 1))
+                # Intermittent demand: evaluate accuracy on days with demand only —
+                # zero-demand days deflate the baseline and clamp accuracy to 0.
+                active = [t for t in totals if t > 0]
+                avg_active = sum(active) / len(active)
+                mae = sum(abs(t - baseline) for t in active) / len(active)
+                accuracy = max(0, round(100 - (mae / max(avg_active, 1)) * 100, 1))
                 out.append({
                     "id": p["id"],
                     "sku": p["sku"],
                     "name": p["name"],
+                    "model": ForecastService.MODELS.get(model, "Prophet (Seasonality)"),
                     "predicted_units": int(predicted),
                     "baseline": round(baseline, 1),
                     "delta_pct": delta_pct,
