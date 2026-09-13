@@ -407,6 +407,8 @@ def inventory():
         categories=cached["categories"],
         warehouses=cached["warehouses"],
         query=query,
+        selected_categories=[c for c in query["category"].split(",") if c],
+        selected_warehouses=[w for w in query["warehouse"].split(",") if w],
         format_money=format_money_display,
     )
 
@@ -986,21 +988,25 @@ def reports():
         )
 
     with get_cursor() as cur:
-        # --- Category breakdown + KPIs + stock status (1 query instead of 3) ---
+# --- Category breakdown + KPIs + stock status using fact tables ---
         low_pct, critical_pct = SettingsService.threshold_pcts()
         crit_ratio = critical_pct / 100.0
         if date_from_start or date_to_end:
+            period_start = date_from_start if date_from_start else (date.today() - timedelta(days=3650))
+            period_end = (date_to_end + timedelta(days=1)) if date_to_end else (date.today() + timedelta(days=1))
             _pc = ("AND " + " AND ".join(product_conditions)) if product_conditions else ""
             cur.execute(
                 f"""
                 SELECT p.category,
-                       SUM(m.quantity * p.unit_price) AS cat_value,
-                       SUM(m.quantity) AS cat_units,
-                       COUNT(DISTINCT m.product_id) AS sku_count,
-                       SUM(m.quantity) AS total_units,
-                       SUM(m.quantity * p.unit_price) AS inventory_value,
+                       SUM(fm.out_qty * p.unit_price) AS cat_value,
+                       SUM(fm.out_qty) AS cat_units,
+                       COUNT(DISTINCT fm.product_key) AS sku_count,
+                       SUM(fm.out_qty) AS total_units,
+                       SUM(fm.out_qty * p.unit_price) AS inventory_value,
                        SUM(CASE WHEN p.current_stock <= 0 THEN 1 ELSE 0 END) AS out_of_stock,
-                       SUM(CASE WHEN p.current_stock <= p.reorder_point AND p.on_order <= 0
+                       SUM(CASE WHEN p.current_stock > 0 AND p.reorder_point > 0
+                                AND p.current_stock <= p.reorder_point
+                                AND p.on_order <= 0
                                 THEN 1 ELSE 0 END) AS below_rop,
                        SUM(CASE WHEN p.current_stock <= 0 THEN 1 ELSE 0 END) AS out_count,
                        SUM(CASE WHEN p.current_stock > 0 AND p.reorder_point > 0
@@ -1008,10 +1014,12 @@ def reports():
                        SUM(CASE WHEN p.current_stock > 0 AND p.reorder_point > 0
                                   AND p.current_stock > p.reorder_point * %s
                                   AND p.current_stock <= p.reorder_point THEN 1 ELSE 0 END) AS warning_count,
-                       COUNT(DISTINCT m.product_id) AS total_count
-                FROM movements m
-                JOIN products p ON p.id = m.product_id
-                WHERE m.created_at >= %s AND m.created_at < %s {_pc}
+                       COUNT(DISTINCT fm.product_key) AS total_count
+                FROM fact_movement_daily fm
+                JOIN dim_product dp ON fm.product_key = dp.product_key
+                JOIN products p ON dp.sku = p.sku
+                JOIN dim_warehouse dw ON fm.warehouse_key = dw.warehouse_key
+                WHERE fm.date_key >= %s AND fm.date_key < %s {_pc}
                   AND p.unit_price IS NOT NULL
                 GROUP BY p.category ORDER BY cat_value DESC
                 """,
@@ -1079,7 +1087,7 @@ def reports():
                        COALESCE(SUM(current_stock * unit_price), 0) AS inventory_value,
                        SUM(CASE WHEN current_stock <= 0 THEN 1 ELSE 0 END) AS out_of_stock,
                        SUM(CASE WHEN current_stock <= reorder_point AND on_order <= 0
-                                THEN 1 ELSE 0 END) AS below_rop
+                                 THEN 1 ELSE 0 END) AS below_rop
                 FROM products p
                 {product_where}
                 """,
@@ -1150,19 +1158,33 @@ def reports():
         warehouses.sort()
         categories.sort()
 
-        # --- 30-day movement series ---
+# --- 30-day movement series using fact tables ---
+        # Determine date range for movement series (same logic as original)
+        if date_from_start:
+            movement_date_from = date_from_start
+        else:
+            movement_date_from = None
+        if date_to_end:
+            movement_date_to = date_to_end + timedelta(days=1)
+        else:
+            movement_date_to = None
+        if not movement_date_from and not movement_date_to:
+            movement_date_from = date.today() - timedelta(days=29)
+            movement_date_to = date.today() + timedelta(days=1)
         cur.execute(
             f"""
-            SELECT m.created_at::date AS day,
-                   COALESCE(SUM(CASE WHEN type = 'IN' THEN quantity ELSE 0 END), 0) AS qty_in,
-                   COALESCE(SUM(CASE WHEN type = 'OUT' THEN quantity ELSE 0 END), 0) AS qty_out
-            FROM movements m
-            JOIN products p ON p.id = m.product_id
-            {movement_where}
-            {("AND " + " AND ".join(product_conditions)) if product_conditions else ""}
-            GROUP BY m.created_at::date ORDER BY day
+            SELECT fm.date_key AS day,
+                   SUM(fm.in_qty) AS qty_in,
+                   SUM(fm.out_qty) AS qty_out
+FROM fact_movement_daily fm
+                JOIN dim_product dp ON fm.product_key = dp.product_key
+                JOIN products p ON dp.sku = p.sku
+                JOIN dim_warehouse dw ON fm.warehouse_key = dw.warehouse_key
+            WHERE fm.date_key >= %s AND fm.date_key < %s
+              {("AND " + " AND ".join(product_conditions)) if product_conditions else ""}
+            GROUP BY fm.date_key ORDER BY day
             """,
-            tuple(movement_params + product_params)
+            tuple([movement_date_from, movement_date_to] + product_params)
         )
         mv_rows = {r["day"]: (int(r["qty_in"] or 0), int(r["qty_out"] or 0))
                    for r in cur.fetchall()}
@@ -1182,18 +1204,25 @@ def reports():
             movement["out"].append(qout)
             d += timedelta(days=1)
 
-        # --- Top SKUs by inventory value ---
+# --- Top SKUs by inventory value using fact tables ---
+        if date_from_start or date_to_end:
+            # Use same period_start, period_end as used in category breakdown
+            period_start = date_from_start if date_from_start else (date.today() - timedelta(days=3650))
+            period_end = (date_to_end + timedelta(days=1)) if date_to_end else (date.today() + timedelta(days=1))
+        # --- Top SKUs by inventory value using fact tables ---
         if date_from_start or date_to_end:
             cur.execute(
                 f"""
-                SELECT p.sku, p.name, COALESCE(SUM(m.quantity), 0) AS current_stock,
-                       p.unit_price, SUM(m.quantity * p.unit_price) AS value
-                FROM movements m
-                JOIN products p ON p.id = m.product_id
-                WHERE m.created_at >= %s AND m.created_at < %s
-                {("AND " + " AND ".join(product_conditions)) if product_conditions else ""}
-                AND p.unit_price IS NOT NULL
-                GROUP BY p.sku, p.name, p.unit_price
+SELECT dp.sku, dp.product_name AS name, SUM(fm.in_qty + fm.out_qty) AS current_stock,
+                        p.unit_price, SUM((fm.in_qty + fm.out_qty) * p.unit_price) AS value
+                FROM fact_movement_daily fm
+                JOIN dim_product dp ON fm.product_key = dp.product_key
+                JOIN products p ON dp.sku = p.sku
+                JOIN dim_warehouse dw ON fm.warehouse_key = dw.warehouse_key
+                WHERE fm.date_key >= %s AND fm.date_key < %s
+                  {("AND " + " AND ".join(product_conditions)) if product_conditions else ""}
+                  AND p.unit_price IS NOT NULL
+                GROUP BY dp.sku, dp.product_name, p.unit_price
                 ORDER BY value DESC LIMIT 8
                 """,
                 tuple([period_start, period_end] + product_params)
@@ -2228,7 +2257,8 @@ def reports():
 @login_required
 def eoq_calculator():
     from ..services import EOQService
-    return render_template("eoq_calculator.html", product_eoq=EOQService.per_product_table())
+    product_eoq = products_cache.get_or_set("eoq_table", EOQService.per_product_table)
+    return render_template("eoq_calculator.html", product_eoq=product_eoq)
 
 
 @ui_bp.route("/settings")
