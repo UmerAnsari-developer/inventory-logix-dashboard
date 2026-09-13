@@ -632,7 +632,7 @@ All tables have RLS enabled with zero policies (deny-by-default for Supabase aut
 | GET/POST | `/auth/register` | `auth.register` | 5/min |
 | GET/POST | `/auth/forgot-password` | `auth.forgot_password` | 5/hr |
 | GET/POST | `/auth/reset-password/<token>` | `auth.reset_password` | — |
-| GET | `/auth/logout` | `auth.logout` | — |
+| POST | `/auth/logout` | `auth.logout` | — |
 
 ### UI Blueprint (`/`)
 

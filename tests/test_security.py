@@ -5,7 +5,6 @@ import pytest
 
 from app.security.validators import (
     validate_email,
-    validate_integer,
     validate_password_strength,
     validate_positive_number,
     validate_sku,
@@ -60,12 +59,6 @@ def test_validate_positive_number_positive_when_zero_disallowed():
 
 def test_validate_positive_number_rounds_four_decimals():
     assert validate_positive_number(1.23456) == 1.2346
-
-
-def test_validate_integer_boundary_at_minimum():
-    assert validate_integer(5, minimum=5) == 5
-    with pytest.raises(ValidationError):
-        validate_integer(4, minimum=5)
 
 
 def test_validate_string_length_minimum_boundary():

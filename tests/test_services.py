@@ -12,6 +12,7 @@ def test_validate_payload_normalises_sku():
     payload = {
         "sku": " sku-test-001 ",
         "name": "Test SKU",
+        "warehouse": "WH-Pune",
         "current_stock": "5",
         "reorder_point": "2",
         "unit_price": "12.50",
@@ -46,6 +47,7 @@ def _full_payload(**overrides):
     payload = {
         "sku": "SKU-BND-001",
         "name": "Test Product",
+        "warehouse": "WH-Pune",
         "current_stock": "10",
         "reorder_point": "2",
         "unit_price": "12.50",
@@ -72,9 +74,9 @@ def test_validate_payload_category_optional():
     assert result["category"] is None
 
 
-def test_validate_payload_warehouse_default():
-    result = ProductService.validate_payload(_full_payload(warehouse=""))
-    assert result["warehouse"] == "WH-Pune"
+def test_validate_payload_warehouse_required():
+    with pytest.raises(ProductError, match="Warehouse"):
+        ProductService.validate_payload(_full_payload(warehouse=""))
 
 
 def test_validate_payload_zero_stock_and_reorder_ok():
@@ -85,9 +87,9 @@ def test_validate_payload_zero_stock_and_reorder_ok():
     assert result["reorder_point"] == 0
 
 
-def test_validate_payload_zero_unit_price_ok():
-    result = ProductService.validate_payload(_full_payload(unit_price="0"))
-    assert result["unit_price"] == 0.0
+def test_validate_payload_zero_unit_price_fails():
+    with pytest.raises(ProductError, match="Unit price"):
+        ProductService.validate_payload(_full_payload(unit_price="0"))
 
 
 def test_validate_payload_zero_demand_rate_ok():

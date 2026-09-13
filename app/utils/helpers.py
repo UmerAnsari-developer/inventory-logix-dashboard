@@ -1,12 +1,11 @@
 """Utility helpers used across blueprints."""
 from __future__ import annotations
 
-import json
 import logging
 import math
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Iterable
+from typing import Any
 
 from flask import jsonify
 
@@ -97,14 +96,3 @@ def stock_status(stock: int, reorder_point: int,
     if stock <= reorder_point:
         return "warning", "Monitor"
     return "good", "Healthy"
-
-
-def chunked(iterable: Iterable, size: int):
-    buf: list = []
-    for item in iterable:
-        buf.append(item)
-        if len(buf) >= size:
-            yield buf
-            buf = []
-    if buf:
-        yield buf

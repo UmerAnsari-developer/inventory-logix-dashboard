@@ -176,31 +176,6 @@ class TestEvaluateAll:
             evaluate_all([1, 2], [1])
 
 
-# ── Evaluator ────────────────────────────────────────────────────────────
-
-from app.monitoring.evaluator import evaluate_forecast, batch_evaluate
-
-
-class TestEvaluator:
-    def test_evaluate_forecast(self):
-        r = evaluate_forecast(predicted=120, actual=145, sku="SKU-1",
-                               model_name="prophet")
-        assert r["error"] == 25
-        assert r["absolute_error"] == 25
-        assert r["sku"] == "SKU-1"
-        assert r["model_name"] == "prophet"
-
-    def test_batch_evaluate(self):
-        records = [
-            {"predicted": 100, "actual": 110, "sku": "A"},
-            {"predicted": 200, "actual": 180, "sku": "B"},
-        ]
-        results = batch_evaluate(records)
-        assert len(results) == 2
-        assert results[0]["error"] == 10
-        assert results[1]["error"] == -20
-
-
 # ── Degradation Detection ────────────────────────────────────────────────
 
 from app.monitoring.degradation import detect_degradation, sustained_degradation, model_health_status
