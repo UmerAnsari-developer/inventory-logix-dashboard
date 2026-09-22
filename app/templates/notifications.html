@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Notifications - InventoryLogix{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Account</div>
+      <h1>Notifications</h1>
+      <p class="heading-note">{{ notifications|length }} notification{{ '' if notifications|length == 1 else 's' }}</p>
+    </div>
+    <div class="page-actions">
+      <button type="button" class="btn btn-outline" id="markAllReadBtn">Mark all read</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-content">
+      {% if notifications %}
+      <div class="alert-list">
+        {% for n in notifications %}
+        <a href="{{ url_for('ui.notification_detail', notif_id=n.id) }}" class="alert-item" style="text-decoration:none; color:inherit;">
+          <div class="product-cell">
+            <span class="product-icon">{{ n.icon | default('&#9675;', true) | safe }}</span>
+            <div>
+              <div class="product-name">{{ n.title }}{% if not n.is_read %} <span class="badge new">NEW</span>{% endif %}</div>
+              <div class="product-meta">{{ n.message }}</div>
+            </div>
+          </div>
+          <div class="alert-stats">
+            <div><span class="label">Received</span><span class="value">{{ n.created_at.strftime('%b %d, %Y %H:%M') if n.created_at else '' }}</span></div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">No notifications yet</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+  (function () {
+    var btn = document.getElementById('markAllReadBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var token = document.querySelector('meta[name="csrf-token"]').content;
+      fetch('/api/notifications/read-all', { method: 'POST', headers: { 'X-CSRFToken': token } })
+        .then(function () { window.location.reload(); })
+        .catch(function (e) { console.error('Mark all read failed:', e); });
+    });
+  })();
+</script>
+{% endblock %}

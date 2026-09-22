@@ -212,7 +212,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (cats.length) params.set('category', cats.join(','));
         var whs = JSON.parse(document.getElementById('warehouseJson').value || '[]');
         if (whs.length) params.set('warehouse', whs.join(','));
-      } catch (e) {}
+      } catch (e) { console.error('inventory error:', e); }
       var status = document.querySelector('#invFilterForm select[name="stock_status"]');
       if (status && status.value) params.set('stock_status', status.value);
       var qs = params.toString();

@@ -177,7 +177,7 @@
     darkToggle.addEventListener('change', function () {
       var theme = darkToggle.checked ? 'dark' : 'light';
       document.documentElement.setAttribute('data-theme', theme);
-      try { localStorage.setItem('stockflow-theme', theme); } catch (e) {}
+      try { localStorage.setItem('stockflow-theme', theme); } catch (e) { /* ignore: localStorage may be unavailable */ }
       darkToggle.disabled = true;
       save('dark_mode', theme).then(function () { darkToggle.disabled = false; });
     });

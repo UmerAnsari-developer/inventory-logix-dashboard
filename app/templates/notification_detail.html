@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ notif.title }} - InventoryLogix{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Notification</div>
+      <h1>{{ notif.title }}</h1>
+      <p class="heading-note">{{ notif.created_at.strftime('%B %d, %Y %H:%M') if notif.created_at else '' }}</p>
+    </div>
+    <div class="page-actions">
+      <a href="{{ url_for('ui.notifications_page') }}" class="btn btn-outline">Back to notifications</a>
+      {% if notif.link %}
+      <a href="{{ notif.link }}" class="btn btn-primary">Open</a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-content">
+      <p>{{ notif.message }}</p>
+      {% if not notif.is_read %}
+      <button type="button" class="btn btn-outline btn-sm" id="markReadBtn" style="margin-top:12px;">Mark as read</button>
+      {% else %}
+      <p class="heading-note" style="margin-top:12px;">Read</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+  (function () {
+    var btn = document.getElementById('markReadBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var token = document.querySelector('meta[name="csrf-token"]').content;
+      fetch('/api/notifications/{{ notif.id }}/read', { method: 'POST', headers: { 'X-CSRFToken': token } })
+        .then(function () {
+          btn.disabled = true;
+          btn.textContent = 'Read';
+        })
+        .catch(function (e) { console.error('Mark read failed:', e); });
+    });
+  })();
+</script>
+{% endblock %}

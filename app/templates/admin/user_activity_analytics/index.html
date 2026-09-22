@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}User Activity Analytics - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>User Activity Analytics</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_user_activity_analytics.index') }}" class="btn btn-outline">Refresh</a>
+  </div>
+</div>
+
+<div class="dashboard-grid">
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Daily Activity Counts (Last 30 Days)</h5>
+    </div>
+    <div class="panel-content">
+      {% if activity_counts %}
+        <canvas id="activityChart" height="200"></canvas>
+      {% else %}
+        <p style="color: var(--muted);">No activity data available.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Top Users</h5>
+    </div>
+    <div class="panel-content">
+      {% if top_users %}
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Username</th>
+              <th>Activities</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for user in top_users %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ user.username }}</td>
+              <td>{{ user.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p style="color: var(--muted);">No user data available.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="dashboard-grid mt-4">
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Top Actions</h5>
+    </div>
+    <div class="panel-content">
+      {% if top_actions %}
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Action</th>
+              <th>Occurrences</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for action in top_actions %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ action.action }}</td>
+              <td>{{ action.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p style="color: var(--muted);">No action data available.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Recent Activities</h5>
+    </div>
+    <div class="panel-content">
+      {% if recent_activities %}
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>User ID</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for activity in recent_activities %}
+            <tr>
+              <td>{{ activity.user_id }}</td>
+              <td>{{ activity.action }}</td>
+              <td>
+                {{ activity.target_type or '' }}
+                {% if activity.target_id %} (ID: {{ activity.target_id }}){% endif %}
+              </td>
+              <td>{{ activity.created_at.strftime('%m/%d %H:%M') }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p style="color: var(--muted);">No recent activities.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+  document.addEventListener('DOMContentLoaded', function () {
+    // Activity chart (guarded: canvas only rendered when activity_counts exists)
+    if (typeof Chart === 'undefined') {
+      console.error('activity analytics: Chart.js not loaded');
+      return;
+    }
+    const chartCanvas = document.getElementById('activityChart');
+    if (chartCanvas) {
+      const ctx = chartCanvas.getContext('2d');
+      const activityChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: {{ activity_counts | map(attribute='day') | list | tojson }},
+        datasets: [{
+          label: 'Activities per Day',
+          data: {{ activity_counts | map(attribute='count') | list | tojson }},
+          fill: false,
+          borderColor: 'rgb(75, 192, 192)',
+          tension: 0.1
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'top',
+          },
+          title: {
+            display: true,
+            text: 'User Activity Over Time'
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
+    });
+    }
+  });
+</script>
+{% endblock %}

@@ -1398,13 +1398,13 @@
           try {
             var months = JSON.parse(monthJson.value);
             if (months.length > 0) params.set('month_json', JSON.stringify(months));
-          } catch(e) {}
+          } catch(e) { console.error('reports error:', e); }
         }
         if (yearJson) {
           try {
             var years = JSON.parse(yearJson.value);
             if (years.length > 0) params.set('year_json', JSON.stringify(years));
-          } catch(e) {}
+          } catch(e) { console.error('reports error:', e); }
         }
         var whJson = document.getElementById('warehouseJson');
         var catJson = document.getElementById('categoryJson');
@@ -1412,13 +1412,13 @@
           try {
             var wh = JSON.parse(whJson.value);
             if (wh.length > 0) params.set('warehouse_json', JSON.stringify(wh));
-          } catch(e) {}
+          } catch(e) { console.error('reports error:', e); }
         }
         if (catJson) {
           try {
             var cat = JSON.parse(catJson.value);
             if (cat.length > 0) params.set('category_json', JSON.stringify(cat));
-          } catch(e) {}
+          } catch(e) { console.error('reports error:', e); }
         }
         var qs = params.toString();
         var activeTab = document.querySelector('.report-tab.active');
