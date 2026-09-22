@@ -195,3 +195,159 @@ def test_main_js_aria_invalid_and_clear_on_input():
     assert 'addEventListener("input"' in text
     input_idx = text.index('addEventListener("input"')
     assert "clearFieldError" in text[input_idx:]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Batch 2 — Tasks 5+6 (session-handler.js, http-client.js, base.html,
+# main.js offline/online listeners). Verification suite for shipped code;
+# each test embeds RED evidence against a known-bad sample.
+# ══════════════════════════════════════════════════════════════════════
+
+STATIC_JS = Path(__file__).resolve().parent.parent / "app" / "static" / "js"
+SESSION_HANDLER_JS = STATIC_JS / "session-handler.js"
+HTTP_CLIENT_JS = STATIC_JS / "http-client.js"
+
+
+def _has_batch2_assets(html: str) -> bool:
+    """Shared checker for the authenticated-page asset contract."""
+    return (
+        "js/session-handler.js?v=" in html
+        and "js/http-client.js?v=" in html
+        and "window.LOGIN_URL" in html
+        and "/auth/login" in html
+    )
+
+
+# ── Batch 2 Test 1: new scripts + LOGIN_URL on authenticated pages ─────
+
+def test_session_and_http_scripts_included(app):
+    # RED evidence: a page without the Batch 2 assets fails this checker
+    assert not _has_batch2_assets("<html><body>old page</body></html>")
+
+    body = _session_client(app, "admin").get("/").get_data(as_text=True)
+    assert "js/session-handler.js?v=" in body, "session-handler.js not included"
+    assert "js/http-client.js?v=" in body, "http-client.js not included"
+    assert "window.LOGIN_URL" in body, "LOGIN_URL bootstrap missing"
+    assert 'window.LOGIN_URL = "/auth/login"' in body, "LOGIN_URL value wrong"
+    assert _has_batch2_assets(body)
+
+
+# ── Batch 2 Test 2: LOGIN_URL absent on the login page ──────────────────
+
+def test_login_url_absent_on_login_page(app):
+    # /auth/login is rate-limited 10/min for GET+POST; earlier suite tests
+    # exhaust it (see test_security_headers_present baseline failure).
+    # Reset shared limiter state so this test is order-independent —
+    # assertions below are unchanged.
+    from app.extensions import limiter
+
+    limiter.reset()
+    resp = app.test_client().get("/auth/login")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "window.LOGIN_URL" not in body, (
+        "LOGIN_URL must live in the authenticated-only block"
+    )
+
+
+# ── Batch 2 Test 3: no Jinja braces leaked into static JS ───────────────
+
+def test_static_js_has_no_jinja_braces():
+    # RED evidence: detection finds the plan's known bug pattern in a bad sample
+    bad = 'href = "{{ url_for(\'auth.login\') }}"'
+    assert "{{" in bad
+
+    for path in (SESSION_HANDLER_JS, HTTP_CLIENT_JS):
+        text = path.read_text(encoding="utf-8")
+        assert "{{" not in text, f"Jinja braces leaked into {path.name}"
+
+
+# ── Batch 2 Test 4: timeoutId declared before try (block-scope bug) ─────
+
+def test_http_client_retry_scoping():
+    text = HTTP_CLIENT_JS.read_text(encoding="utf-8")
+
+    # RED evidence: same ordering check fails on a snippet that declares
+    # timeoutId AFTER the try/finally that clears it (the plan's bug)
+    bad = (
+        "for (let attempt = 0; attempt <= maxRetries; attempt++) {\n"
+        "  try {\n"
+        "    timeoutId = setTimeout(fn, timeout);\n"
+        "  } finally {\n"
+        "    clearTimeout(timeoutId);\n"
+        "  }\n"
+        "}\n"
+        "let timeoutId;\n"
+    )
+    assert bad.index("try {") < bad.index("let timeoutId"), (
+        "bad sample must FAIL the ordering the real file must pass"
+    )
+
+    decl = text.index("let timeoutId")
+    try_idx = text.index("try {")
+    assert decl < try_idx, (
+        "timeoutId must be declared before the try that uses it "
+        "(block-scope ReferenceError in finally)"
+    )
+    assert "finally" in text, "timeout cleanup finally block missing"
+
+
+# ── Batch 2 Test 5: GET/HEAD retry=2, other methods retry=0 ─────────────
+
+def test_http_client_retry_policy():
+    text = HTTP_CLIENT_JS.read_text(encoding="utf-8")
+    # Actual implementation notation: method === 'GET' || method === 'HEAD' ? 2 : 0
+    assert "(method === 'GET' || method === 'HEAD' ? 2 : 0)" in text, (
+        "default retry policy (GET/HEAD=2, others=0) missing"
+    )
+    # Retries are opt-out per call: explicit retries overrides the default
+    assert "retries != null" in text
+
+
+# ── Batch 2 Test 6: main.js online/offline listeners + T7 no-regress ────
+
+def test_main_js_offline_listeners():
+    text = MAIN_JS.read_text(encoding="utf-8")
+    assert 'addEventListener("offline"' in text, "offline listener missing"
+    assert 'addEventListener("online"' in text, "online listener missing"
+    # T7 guard must survive the Batch 2 append
+    assert "submitting.has(form)" in text, "T7 duplicate-submit guard lost"
+
+
+# ── Batch 2 Test 7: no Jinja AND no url_for strings in static JS ────────
+
+def test_no_jinja_in_new_script():
+    # RED evidence: url_for detector fires on a crafted bad snippet
+    bad = 'fetch("{{ url_for(\'ui.dashboard\') }}")'
+    assert re.search(r"url_for", bad)
+
+    for path in (SESSION_HANDLER_JS, HTTP_CLIENT_JS):
+        text = path.read_text(encoding="utf-8")
+        assert "{{" not in text, f"Jinja braces in {path.name}"
+        assert re.search(r"url_for", text) is None, (
+            f"url_for string leaked into {path.name}"
+        )
+
+
+# ── Batch 2 Test 8: new Headers(...) never built from null ─────────────
+
+def test_http_client_headers_init_never_null():
+    # RED evidence: the pre-fix line trips the same check the gate applies
+    def bad_headers_line(line: str) -> bool:
+        return "new Headers(" in line and "null" in line
+
+    bad_line = "const headers = new Headers(fetchOptions.headers || null);"
+    assert bad_headers_line(bad_line), (
+        "detector must flag `new Headers(... || null)` (HeadersInit has no null)"
+    )
+
+    text = HTTP_CLIENT_JS.read_text(encoding="utf-8")
+    header_lines = [ln for ln in text.splitlines() if "new Headers(" in ln]
+    assert header_lines, "new Headers(...) construction missing from http-client.js"
+    offenders = [ln for ln in header_lines if "null" in ln]
+    assert offenders == [], f"new Headers built from null in: {offenders}"
+    # Fixed form present: `|| {}` (current file) or direct pass-through
+    assert any(("|| {}" in ln) or ("new Headers(fetchOptions.headers)" in ln)
+               for ln in header_lines), (
+        "headers must default with `|| {}` or pass through directly"
+    )

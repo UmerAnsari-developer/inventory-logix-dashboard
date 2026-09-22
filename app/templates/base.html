@@ -25,6 +25,9 @@
   </script>
   {% if current_user.is_authenticated %}
   <script nonce="{{ csp_nonce }}">
+    window.LOGIN_URL = {{ url_for('auth.login')|tojson }};
+  </script>
+  <script nonce="{{ csp_nonce }}">
     window.appSettings = {{ app_settings | tojson | safe }};
     (function() {
       var t = window.appSettings && window.appSettings.dark_mode;
@@ -243,8 +246,10 @@
 
 <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
-  <script defer src="{{ url_for('static', filename='js/main.js') }}?v=1.3"></script>
+  <script defer src="{{ url_for('static', filename='js/main.js') }}?v=1.4"></script>
   <script defer src="{{ url_for('static', filename='js/ai-features.js') }}?v=9.2"></script>
+  <script defer src="{{ url_for('static', filename='js/http-client.js') }}?v=1.0"></script>
+  <script defer src="{{ url_for('static', filename='js/session-handler.js') }}?v=1.0"></script>
   <script defer src="{{ url_for('static', filename='js/saas-animations.js') }}"></script>
   <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}"></script>
   {% if not current_user.is_authenticated %}

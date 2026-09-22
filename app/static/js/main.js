@@ -150,6 +150,93 @@
     });
   });
 
+  // ── Batch 2: duplicate-submit guard + novalidate validation + aria-invalid ──
+  var submitting = new WeakSet();
+
+  function fieldErrorId(field) {
+    if (field.id) return field.id + "-error";
+    return (field.name || "field") + "-error";
+  }
+
+  function setFieldError(field, message) {
+    var errId = fieldErrorId(field);
+    var err = document.getElementById(errId);
+    if (!err) {
+      err = document.createElement("span");
+      err.className = "field-error";
+      err.id = errId;
+      err.setAttribute("role", "alert");
+      var anchor = field.closest("label") || field.parentNode;
+      anchor.appendChild(err);
+    }
+    err.textContent = message;
+    err.hidden = false;
+    field.setAttribute("aria-invalid", "true");
+    var ids = (field.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+    if (ids.indexOf(errId) === -1) ids.push(errId);
+    field.setAttribute("aria-describedby", ids.join(" "));
+  }
+
+  function clearFieldError(field) {
+    field.removeAttribute("aria-invalid");
+    var err = document.getElementById(fieldErrorId(field));
+    if (err) { err.textContent = ""; err.hidden = true; }
+    var ids = (field.getAttribute("aria-describedby") || "").split(/\s+/)
+      .filter(function (id) { return id && id !== fieldErrorId(field); });
+    if (ids.length) field.setAttribute("aria-describedby", ids.join(" "));
+    else field.removeAttribute("aria-describedby");
+  }
+
+  function validateNovalidateForm(form) {
+    var firstBad = null;
+    form.querySelectorAll("input, select, textarea").forEach(function (field) {
+      if (field.disabled || field.type === "hidden" || field.type === "submit" || field.type === "button") return;
+      if (field.readOnly) { clearFieldError(field); return; }
+      if (field.checkValidity()) clearFieldError(field);
+      else {
+        setFieldError(field, field.validationMessage || "Invalid value");
+        if (!firstBad) firstBad = field;
+      }
+    });
+    // Register-style password match (opt-in via data-match form attribute)
+    var matchSel = form.getAttribute("data-match");
+    if (matchSel) {
+      var a = form.querySelector(matchSel.split("=>")[0].trim());
+      var b = form.querySelector(matchSel.split("=>")[1].trim());
+      if (a && b && a.value && b.value && a.value !== b.value) {
+        setFieldError(b, "Passwords don't match");
+        if (!firstBad) firstBad = b;
+      }
+    }
+    if (firstBad) { firstBad.focus(); return false; }
+    return true;
+  }
+
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    // T8: validate novalidate forms (checkValidity still works with novalidate)
+    if (form.hasAttribute("novalidate")) {
+      if (!validateNovalidateForm(form)) { e.preventDefault(); return; }
+    }
+    // T7: duplicate-submit guard
+    if (submitting.has(form)) { e.preventDefault(); return; }
+    submitting.add(form);
+    form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(function (btn) {
+      if (btn.dataset.origText === undefined) btn.dataset.origText = btn.textContent || btn.value;
+      btn.disabled = true;
+      if (btn.tagName === "BUTTON") btn.textContent = "Submitting\u2026";
+      else btn.value = "Submitting\u2026";
+    });
+  });
+
+  // T9: clear error state as user fixes fields
+  document.addEventListener("input", function (e) {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) {
+      if (e.target.checkValidity()) clearFieldError(e.target);
+    }
+  });
+
   document.querySelectorAll("[data-toggle-target]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       const target = document.getElementById(btn.dataset.toggleTarget);
@@ -199,6 +286,18 @@
       el.classList.add("in");
     });
   }
+
+  // Connectivity toasts (guarded — showToast lives in ai-features.js)
+  window.addEventListener("offline", function () {
+    if (typeof window.showToast === "function") {
+      window.showToast("You are offline. Changes may fail until connection returns.", "error");
+    }
+  });
+  window.addEventListener("online", function () {
+    if (typeof window.showToast === "function") {
+      window.showToast("Back online.", "success");
+    }
+  });
 });
 
 function toast(title, message) {
