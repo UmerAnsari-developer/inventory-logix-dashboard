@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Data Import Hub - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Data Import Hub</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_data_import.index') }}" class="btn btn-outline">Refresh</a>
+  </div>
+</div>
+
+{# ── Entity tabs ───────────────────────────────────────────────────────── #}
+<div class="panel" style="margin-top:0;">
+  <div class="panel-header" style="gap:0;padding-bottom:0;border-bottom:none;">
+    {% set tabs = [
+      ('products', 'Products'),
+      ('suppliers', 'Suppliers'),
+      ('warehouses', 'Warehouses'),
+      ('movements', 'Movements'),
+      ('purchase_orders', 'Purchase Orders')
+    ] %}
+    {% for key, label in tabs %}
+    <a href="{{ url_for('admin_data_import.index', tab=key) }}"
+       class="btn {% if active_tab == key %}btn-primary{% else %}btn-outline{% endif %}"
+       style="border-radius:var(--radius-md) var(--radius-md) 0 0;margin-right:2px;">
+      {{ label }}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+{# ── Active tab content ────────────────────────────────────────────────── #}
+<div class="panel" style="margin-top:0;">
+  <div class="panel-header">
+    <h5 class="panel-title">{{ stats[active_tab].label }} Import</h5>
+    <span class="status good">{{ stats[active_tab].count }} records in database</span>
+  </div>
+  <div class="panel-content">
+    {% set descriptions = {
+      'products': 'Import products with SKU, name, price, stock levels, category, and supplier. CSV must have columns: sku, product_name, unit_price, current_stock, reorder_point, category, supplier_id.',
+      'suppliers': 'Import suppliers with name, email, phone, and address. CSV must have columns: supplier_name, contact_email, phone, address.',
+      'warehouses': 'Import warehouse locations. CSV must have columns: warehouse_name, location.',
+      'movements': 'Import inventory movements. CSV must have columns: product_id, quantity, movement_type (in/out/adjustment), reason.',
+      'purchase_orders': 'Import purchase orders. CSV must have columns: supplier_id, product_id, quantity, status.'
+    } %}
+
+    <p style="color:var(--muted);font-size:0.78rem;margin-bottom:16px;">{{ descriptions.get(active_tab, '') }}</p>
+
+    <form method="post" action="{{ url_for('admin_data_import.upload', entity=active_tab) }}"
+          enctype="multipart/form-data"
+          data-confirm="Upload will overwrite existing records. Continue?"
+          style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <label class="btn btn-outline" style="cursor:pointer;margin:0;">
+        Choose CSV File
+        <input type="file" name="csv_file" accept=".csv" required
+               style="display:none;" id="csv_file_{{ active_tab }}">
+      </label>
+      <span id="file_name_{{ active_tab }}"
+            style="font-size:0.82rem;color:var(--text-secondary);min-width:120px;"></span>
+      <button type="submit" class="btn btn-primary">Import {{ stats[active_tab].label }}</button>
+    </form>
+  </div>
+</div>
+
+{# ── Quick stats grid ──────────────────────────────────────────────────── #}
+<div class="dashboard-grid" style="margin-top:16px;">
+  {% for key, label in tabs %}
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">{{ label }}</h5>
+    </div>
+    <div class="panel-content">
+      <div style="display:flex;align-items:baseline;gap:8px;">
+        <span style="font-size:1.6rem;font-weight:800;color:var(--ink-color,var(--ink));">{{ stats[key].count }}</span>
+        <span style="color:var(--muted);font-size:0.72rem;">records</span>
+      </div>
+      <a href="{{ url_for('admin_data_import.index', tab=key) }}" class="btn btn-sm btn-outline" style="margin-top:10px;">
+        {% if active_tab == key %}Active{% else %}Import{% endif %}
+      </a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+  document.addEventListener('DOMContentLoaded', function() {
+    var activeTab = '{{ active_tab }}';
+    var input = document.getElementById('csv_file_' + activeTab);
+    var span = document.getElementById('file_name_' + activeTab);
+    if (input && span) {
+      input.addEventListener('change', function() {
+        if (this.files && this.files[0]) {
+          span.textContent = this.files[0].name;
+          span.style.color = 'var(--green)';
+        } else {
+          span.textContent = '';
+        }
+      });
+    }
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Edit User - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Edit User: {{ user.username }}</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_user_management.index') }}" class="btn btn-secondary">Back to Users</a>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('admin_user_management.edit', user_id=user.id) }}"
+      data-confirm="Save changes to this user?">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+  <div class="mb-3">
+    <label><span>Username</span>
+      <div class="input-wrapper">
+        <input type="text" value="{{ user.username }}" readonly
+               style="opacity:0.6;cursor:not-allowed;">
+      </div>
+    </label>
+    <div class="form-text">Username cannot be changed.</div>
+  </div>
+
+  <div class="mb-3">
+    <label><span>Email</span>
+      <div class="input-wrapper">
+        <input type="text" value="{{ user.email }}" readonly
+               style="opacity:0.6;cursor:not-allowed;">
+      </div>
+    </label>
+    <div class="form-text">Email cannot be changed from here.</div>
+  </div>
+
+  <div class="mb-3">
+    <label><span>Role</span>
+      <div class="input-wrapper">
+        <select name="role">
+          <option value="viewer" {% if user.role == 'viewer' %}selected{% endif %}>Viewer (read-only)</option>
+          <option value="manager" {% if user.role == 'manager' %}selected{% endif %}>Manager (read-write)</option>
+          <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin (full access)</option>
+        </select>
+      </div>
+    </label>
+    <div class="form-text">Controls what the user can access.</div>
+  </div>
+
+  <div class="mb-3">
+    <label>
+      <input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}
+             style="margin-right:6px;">
+      <span>Active</span>
+    </label>
+    <div class="form-text">Inactive users cannot log in.</div>
+  </div>
+
+  <div class="mb-3">
+    <label><span>New Password (optional)</span>
+      <div class="input-wrapper">
+        <input type="password" name="password" minlength="6"
+               placeholder="Leave blank to keep current password">
+      </div>
+    </label>
+    <div class="form-text">Only fill in to reset the user's password.</div>
+  </div>
+
+  <div class="d-grid">
+    <button type="submit" class="btn btn-primary">Update User</button>
+  </div>
+</form>
+{% endblock %}

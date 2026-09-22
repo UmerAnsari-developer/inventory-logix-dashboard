@@ -351,3 +351,182 @@ def test_http_client_headers_init_never_null():
                for ln in header_lines), (
         "headers must default with `|| {}` or pass through directly"
     )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Batch 3 — Tasks 10, 11, 14, 17.
+# ══════════════════════════════════════════════════════════════════════
+
+STYLE_CSS = Path(__file__).resolve().parent.parent / "app" / "static" / "css" / "style.css"
+
+
+# ── T10: pagination links preserve filter query params ─────────────────
+
+def test_inventory_pagination_preserves_filters(app):
+    client = _session_client(app, "manager")
+    # search=a matches 112 of 118 seeded products -> 6 pages, real next link.
+    # (search=cable matches 0 rows: no pagination links render, vacuous pass.)
+    resp = client.get("/inventory?search=a&page=1")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # RED evidence: the pre-fix markup drops every filter
+    assert 'href="?page=2"' not in body, "bare ?page= link still drops filters"
+    assert 'href="?page=1"' not in body, "bare ?page= link still drops filters"
+    import re as _re
+    next_match = _re.search(r'href="([^"]*page=2[^"]*)"', body)
+    assert next_match, "no pagination link to page 2 found (test not vacuous)"
+    href = next_match.group(1)
+    assert "search=a" in href, f"next-page link lost the search filter: {href}"
+    assert "page=2" in href, f"next-page link lost page param: {href}"
+
+
+# ── T11: destructive forms carry data-confirm ──────────────────────────
+
+def test_destructive_forms_have_data_confirm():
+    # RED evidence: an unguarded destructive form fails the same checker
+    def has_guard(form_html: str) -> bool:
+        return (
+            "data-confirm=" in form_html
+            or "onsubmit=" in form_html
+            or "confirm(" in form_html
+        )
+
+    assert not has_guard(
+        '<form method="post" action="/admin/backup/1/restore"></form>'
+    ), "checker must flag an unguarded destructive form"
+
+    # Every destructive form must be guarded
+    destructive_actions = (
+        "admin_data_import.upload",       # CSV import overwrites data
+        "ui.monitoring_run_etl",          # warehouse rebuild
+        "admin_user_management.edit",     # can deactivate/reset password
+        "ui.delete_supplier",             # existing inline onsubmit
+        "admin_backup.restore",           # existing inline onclick
+        "admin_backup.delete",            # existing inline onclick
+        "admin_system_config.delete",     # existing inline onclick
+        "notification_center.delete_notification",  # existing inline onclick
+        "admin_audit_report.delete",      # existing inline onclick
+        "ui.update_po_status",            # existing inline onchange confirm
+        "admin_user_management.change_role",  # existing inline onchange confirm
+        "admin_user_management.toggle_active",  # existing inline onclick confirm
+    )
+    offenders = []
+    for path in sorted(TEMPLATES.rglob("*.html")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for action in destructive_actions:
+            if f"url_for('{action}" not in text:
+                continue
+            # Extract each <form ...>...</form> block containing this action
+            for m in __import__("re").finditer(
+                r"<form\b[^>]*url_for\('" + __import__("re").escape(action)
+                + r"'[^>]*>.*?</form>",
+                text,
+                __import__("re").S,
+            ):
+                if not has_guard(m.group(0)):
+                    offenders.append(f"{path.relative_to(TEMPLATES)}::{action}")
+    assert offenders == [], f"destructive forms missing confirm: {offenders}"
+
+    # The shared data-confirm mechanism must still exist in main.js
+    js = MAIN_JS.read_text(encoding="utf-8")
+    assert 'form[data-confirm]' in js, "data-confirm submit listener removed"
+    assert "confirm(msg)" in js
+
+
+# ── T14: .table-responsive horizontal scroll rule ──────────────────────
+
+def test_table_responsive_rule_exists():
+    # RED evidence: pre-fix CSS has the class nowhere
+    bad_css = ".table-scroll { overflow-x: auto; }"
+    assert ".table-responsive" not in bad_css
+
+    text = STYLE_CSS.read_text(encoding="utf-8")
+    import re as _re
+    rule = _re.search(r"\.table-responsive\s*\{[^}]*\}", text)
+    assert rule, ".table-responsive rule missing from style.css"
+    assert "overflow-x: auto" in rule.group(0), (
+        ".table-responsive must enable horizontal scrolling"
+    )
+
+
+# ── T17: filter bar z-index regression guard ───────────────────────────
+
+def test_filter_bar_zindex_regression_guard():
+    import re as _re
+
+    # RED evidence: removing the property trips the same guard
+    def rule_body(css: str, selector: str) -> str:
+        import re as _re
+        m = _re.search(_re.escape(selector) + r"\s*\{([^}]*)\}", css)
+        assert m, f"{selector} rule missing"
+        return m.group(1)
+
+    bad = ".filter-bar { position: relative; }"
+    assert "z-index: 30" not in bad
+    assert "z-index: 30" in rule_body(
+        ".filter-bar { position: relative; z-index: 30; }", ".filter-bar"
+    )
+
+    text = STYLE_CSS.read_text(encoding="utf-8")
+    for selector in (".filter-bar", ".report-filter-row"):
+        # .filter-bar is declared twice (base layout + glass override at
+        # L3658); the z-index lives in the later rule. Scan every match.
+        bodies = [
+            m.group(1)
+            for m in _re.finditer(_re.escape(selector) + r"\s*\{([^}]*)\}", text)
+        ]
+        assert bodies, f"{selector} rule missing"
+        combined = "\n".join(bodies)
+        assert "position: relative" in combined, (
+            f"{selector} lost position: relative (dropdown trap regression)"
+        )
+        assert "z-index: 30" in combined, (
+            f"{selector} lost z-index: 30 (dropdown trap regression)"
+        )
+
+
+# ── Fix-round: PO status select declarative confirm (CSP-dead onchange) ─
+
+def test_po_status_select_no_inline_handlers():
+    # RED evidence: the not-contains detector fires on the old inline pattern
+    bad = '<select name="status" onchange="this.form.submit()">'
+    assert "onchange" in bad, "detector must trip on the pre-fix sample"
+    good = '<select name="status" data-confirm-value="cancelled">'
+    assert "onchange" not in good
+
+    text = (TEMPLATES / "purchase_orders.html").read_text(encoding="utf-8")
+    assert "onchange" not in text, (
+        "inline onchange is CSP-dead (nonce-only script-src, no "
+        "script-src-attr) and must stay gone"
+    )
+    assert 'data-confirm-value="cancelled"' in text, (
+        "declarative confirm value missing from PO status select"
+    )
+    assert 'data-confirm="Cancel this purchase order?"' in text, (
+        "confirm message missing from PO status select"
+    )
+
+
+# ── Fix-round: main.js select[data-confirm-value] handler + T11 no-regress ─
+
+def test_main_js_select_confirm_handler():
+    text = MAIN_JS.read_text(encoding="utf-8")
+    assert 'select[data-confirm-value]' in text, (
+        "select confirm-value change handler missing"
+    )
+    assert "requestSubmit" in text, (
+        "requestSubmit() (with .submit() fallback) missing"
+    )
+    # T11 form-level listener must survive this fix round
+    assert 'form[data-confirm]' in text, "T11 data-confirm submit listener lost"
+    assert "confirm(msg)" in text
+
+
+# ── Fix-round: base.html main.js cache-bust bump ───────────────────────
+
+def test_main_js_version_bumped():
+    text = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+    # url_for emits: js/main.js') }}?v=1.5 — match across the quote/brace gap
+    assert re.search(r"main\.js[')\s}{]*\?v=1\.5", text), (
+        "base.html must reference main.js?v=1.5 (handler change needs bust)"
+    )

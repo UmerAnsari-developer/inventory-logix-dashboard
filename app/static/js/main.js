@@ -150,6 +150,23 @@
     });
   });
 
+  // Select dropdowns that confirm a destructive value then auto-submit
+  // (CSP blocks inline onchange; declarative data-* + this listener instead)
+  document.querySelectorAll("select[data-confirm-value]").forEach(function (sel) {
+    var original = sel.value;
+    sel.addEventListener("change", function () {
+      var msg = sel.dataset.confirm;
+      if (sel.value === sel.dataset.confirmValue && msg && !confirm(msg)) {
+        sel.value = original;
+        return;
+      }
+      if (sel.form) {
+        if (typeof sel.form.requestSubmit === "function") sel.form.requestSubmit();
+        else sel.form.submit();
+      }
+    });
+  });
+
   // ── Batch 2: duplicate-submit guard + novalidate validation + aria-invalid ──
   var submitting = new WeakSet();
 

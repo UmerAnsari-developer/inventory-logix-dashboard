@@ -58,7 +58,7 @@
           {% if current_user.role in ['admin', 'manager'] %}
           <form method="post" action="{{ url_for('ui.update_po_status', po_id=po.id) }}" class="po-status-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-            <select name="status" onchange="this.form.submit()">
+            <select name="status" data-confirm-value="cancelled" data-confirm="Cancel this purchase order?">
               {% for st in ['draft','approved','in_transit','received','cancelled'] %}
               <option value="{{ st }}" {{ 'selected' if po.status == st }}>{{ st|replace('_',' ')|title }}</option>
               {% endfor %}

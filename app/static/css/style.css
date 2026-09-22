@@ -1364,6 +1364,11 @@ html[data-theme="light"] .chart .grid line {
   width: 100%;
 }
 
+.table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -2609,6 +2614,19 @@ tbody tr:hover {
   outline: none;
   border-color: var(--green);
   box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.1);
+}
+
+/* T9: accessible field errors */
+.field-error {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--danger);
+  margin-top: 2px;
+}
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--danger) !important;
 }
 
 .supplier-add-form {

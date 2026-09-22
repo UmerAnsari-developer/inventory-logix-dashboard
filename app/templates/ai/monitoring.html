@@ -153,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('kpiMape').textContent = pctFmt(d.current_mape);
       document.getElementById('kpiHealthy').textContent = d.healthy_models || 0;
       document.getElementById('kpiDegraded').textContent = d.degraded_models || 0;
-    } catch(e) {}
+    } catch(e) { console.error('AI monitoring error:', e); }
   }
 
   // ── Load health table ──
@@ -173,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
           '<td>' + chg + '</td>' +
           '<td>' + statusBadge(r.model_status) + '</td></tr>';
       }).join('');
-    } catch(e) {}
+    } catch(e) { console.error('AI monitoring error:', e); }
   }
 
   // ── Load charts ──
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ], { margin: { t: 20, b: 40, l: 50, r: 20 }, paper_bgcolor: plotBg, plot_bgcolor: plotBg, font: plotFont,
         xaxis: { gridcolor: plotGrid }, yaxis: { gridcolor: plotGrid, title: 'Demand' },
         legend: { orientation: 'h', y: 1.1 } }, { responsive: true, displaylogo: false });
-    } catch(e) {}
+    } catch(e) { console.error('AI monitoring error:', e); }
   }
 
   async function loadMaeChart() {
@@ -222,7 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ], { margin: { t: 20, b: 40, l: 50, r: 20 }, paper_bgcolor: plotBg, plot_bgcolor: plotBg, font: plotFont,
         xaxis: { gridcolor: plotGrid }, yaxis: { gridcolor: plotGrid, title: 'MAE' },
         legend: { orientation: 'h', y: 1.1 } }, { responsive: true, displaylogo: false });
-    } catch(e) {}
+    } catch(e) { console.error('AI monitoring error:', e); }
   }
 
   async function loadMapeChart() {
@@ -244,7 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ], { margin: { t: 20, b: 40, l: 50, r: 20 }, paper_bgcolor: plotBg, plot_bgcolor: plotBg, font: plotFont,
         xaxis: { gridcolor: plotGrid }, yaxis: { gridcolor: plotGrid, title: 'MAPE %' },
         legend: { orientation: 'h', y: 1.1 } }, { responsive: true, displaylogo: false });
-    } catch(e) {}
+    } catch(e) { console.error('AI monitoring error:', e); }
   }
 
   async function loadErrorDist() {
@@ -263,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ], { margin: { t: 20, b: 40, l: 50, r: 20 }, paper_bgcolor: plotBg, plot_bgcolor: plotBg, font: plotFont,
         xaxis: { title: 'Forecast Error', gridcolor: plotGrid },
         yaxis: { title: 'Count', gridcolor: plotGrid } }, { responsive: true, displaylogo: false });
-    } catch(e) {}
+    } catch(e) { console.error('AI monitoring error:', e); }
   }
 
   // ── Load alerts ──
@@ -292,13 +292,13 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('alertPageInfo').textContent = 'Page ' + (alertPage+1) + ' of ' + Math.ceil(total/alertPageSize);
       document.getElementById('alertPrev').disabled = alertPage === 0;
       document.getElementById('alertNext').disabled = (alertPage+1)*alertPageSize >= total;
-    } catch(e) {}
+    } catch(e) { console.error('AI monitoring error:', e); }
   }
 
   // ── Actions ──
   var csrfToken = document.querySelector('meta[name="csrf-token"]').content;
   document.getElementById('evalPendingBtn').addEventListener('click', async () => {
-    try { await fetch(BASE + '/evaluate', { method: 'POST', headers: { 'X-CSRFToken': csrfToken } }); loadAll(); } catch(e) {}
+    try { await fetch(BASE + '/evaluate', { method: 'POST', headers: { 'X-CSRFToken': csrfToken } }); loadAll(); } catch(e) { console.error('AI monitoring error:', e); }
   });
   document.getElementById('computeMetricsBtn').addEventListener('click', async () => {
     const sku = document.getElementById('monSku').value;
@@ -308,7 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await fetch(BASE + '/compute', { method: 'POST', headers: {'Content-Type':'application/json', 'X-CSRFToken': csrfToken},
         body: JSON.stringify({ sku, model_name: model }) });
       loadAll();
-    } catch(e) {}
+    } catch(e) { console.error('AI monitoring error:', e); }
   });
   document.getElementById('monApply').addEventListener('click', loadCharts);
   document.getElementById('alertPrev').addEventListener('click', () => { alertPage--; loadAlerts(); });

@@ -106,12 +106,15 @@
   <div class="pagination">
     <span>Showing {{ products|length }} of {{ pagination.total }} products</span>
     <div class="pagination-btns">
+      {# T10: carry current filters across pages; pop 'page' to avoid duplicate kwarg #}
+      {% set page_args = request.args.to_dict() %}
+      {% set _ = page_args.pop('page', none) %}
       {% if pagination.has_prev %}
-      <a class="btn btn-outline btn-sm" href="?page={{ pagination.prev_num }}">&laquo;</a>
+      <a class="btn btn-outline btn-sm" href="{{ url_for('ui.inventory', page=pagination.prev_num, **page_args) }}">&laquo;</a>
       {% endif %}
       <span class="btn btn-outline btn-sm" style="cursor:default;opacity:1">{{ pagination.page }} / {{ pagination.pages or 1 }}</span>
       {% if pagination.has_next %}
-      <a class="btn btn-outline btn-sm" href="?page={{ pagination.next_num }}">&raquo;</a>
+      <a class="btn btn-outline btn-sm" href="{{ url_for('ui.inventory', page=pagination.next_num, **page_args) }}">&raquo;</a>
       {% endif %}
     </div>
   </div>
