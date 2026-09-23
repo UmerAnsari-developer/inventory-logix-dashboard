@@ -12,11 +12,10 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=9.2" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=f4d430c1" />
   <script type="importmap" nonce="{{ csp_nonce }}">
   { "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    "three": "/static/js/vendor/three.module.js?v=a762b858"
   } }
   </script>
 </head>
@@ -385,7 +384,7 @@
   </div>
 
   <!-- Shared Three.js background -->
-  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=1.2"></script>
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=13b2159a"></script>
 
   <!-- Landing page interactions -->
   <script nonce="{{ csp_nonce }}">

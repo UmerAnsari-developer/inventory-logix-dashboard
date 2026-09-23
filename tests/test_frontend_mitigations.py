@@ -16,8 +16,11 @@ session keys directly instead of POSTing /auth/login.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
+
+import bump_versions  # repo root — discover()/asset_hash() shared with the script
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "app" / "templates"
 MAIN_JS = Path(__file__).resolve().parent.parent / "app" / "static" / "js" / "main.js"
@@ -529,16 +532,6 @@ def test_main_js_select_confirm_handler():
     assert "confirm(msg)" in text
 
 
-# ── Fix-round: base.html main.js cache-bust bump ───────────────────────
-
-def test_main_js_version_bumped():
-    text = (TEMPLATES / "base.html").read_text(encoding="utf-8")
-    # url_for emits: js/main.js') }}?v=1.5 — match across the quote/brace gap
-    assert re.search(r"main\.js[')\s}{]*\?v=1\.5", text), (
-        "base.html must reference main.js?v=1.5 (handler change needs bust)"
-    )
-
-
 # ══════════════════════════════════════════════════════════════════════
 # Batch 4 — Tasks 12+13: light-theme contrast tokens (T12), --landing-ink
 # rename (T13), asset cache-bust bumps. Verification suite for shipped
@@ -729,19 +722,41 @@ def test_landing_text_muted():
     )
 
 
-# ── T12/T13: base.html cache-bust versions for changed assets ──────────
+# ── T12/T13 → Batch 5 (T16): every local css/js ?v= = md5[:8] of file ─
 
-def test_css_versions():
-    # RED evidence: the previous version fails the same matcher
-    assert not re.search(r"style\.css[')\s}{]*\?v=20\.9", "style.css?v=20.8")
+def test_asset_versions_match_content_hash():
+    # RED proof: mutating one ?v= trips the same comparison the scan applies
+    mutated = "{{ url_for('static', filename='css/style.css') }}?v=deadbeef"
+    refs = bump_versions.discover(mutated)
+    assert refs, "discovery must find the url_for css/js pattern"
+    fn, ref = refs[0]
+    got = re.search(r"\?v=([0-9a-f]+)", ref)
+    assert got, "ref must carry a ?v= for the comparison"
+    assert got.group(1) != bump_versions.asset_hash(fn), (
+        "mutated ?v= must FAIL against the real content hash"
+    )
 
-    text = BASE_HTML.read_text(encoding="utf-8")
-    for pattern in (
-        r"style\.css[')\s}{]*\?v=20\.9",
-        r"ai-features\.css[')\s}{]*\?v=9\.1",
-        r"landing\.css[')\s}{]*\?v=9\.2",
-    ):
-        assert re.search(pattern, text), f"missing cache-bust: {pattern}"
+    # Independent recompute (review MEDIUM): pins asset_hash's algorithm so a
+    # broken shared implementation can't pass both sides of the same helper.
+    style = TEMPLATES.parent / "static" / "css" / "style.css"
+    assert bump_versions.asset_hash("css/style.css") == (
+        hashlib.md5(style.read_bytes()).hexdigest()[:8]
+    ), "asset_hash must be plain md5[:8] of file bytes"
+
+    offenders: list[str] = []
+    seen = 0
+    for path in sorted(TEMPLATES.rglob("*.html")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for fn, ref in bump_versions.discover(text):
+            seen += 1
+            m = re.search(r"\?v=([0-9a-f]+)", ref)
+            want = bump_versions.asset_hash(fn)
+            if not m:
+                offenders.append(f"{path.name}:{fn} missing ?v=")
+            elif m.group(1) != want:
+                offenders.append(f"{path.name}:{fn} ?v={m.group(1)} != {want}")
+    assert seen >= 12, f"discovery too thin ({seen} refs) — regex drift?"
+    assert offenders == [], f"asset ?v= must equal md5[:8]: {offenders}"
 
 
 # ── Fix-round: --success/--danger single source of truth (style.css) ───
@@ -811,3 +826,53 @@ def test_badge_specificity_bumps():
             f"{variant}: dark override L{dark_line} must follow "
             f"base rule L{base_line}"
         )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Batch 5 — T15: vendor-primary CDN elimination (no CDN scripts remain).
+# ══════════════════════════════════════════════════════════════════════
+
+CDN_HOST = re.compile(
+    r"cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|cdn\.plot\.ly"
+)
+CDN_SCRIPT_SRC = re.compile(
+    r"<script\b[^>]*\bsrc\s*=\s*[\"'][^\"']*(?:cdn\.jsdelivr\.net"
+    r"|cdnjs\.cloudflare\.com|cdn\.plot\.ly)",
+    re.I,
+)
+IMPORTMAP_BLOCK = re.compile(
+    r"<script\b[^>]*type\s*=\s*[\"']importmap[\"'][^>]*>(.*?)</script>",
+    re.I | re.S,
+)
+
+
+def _cdn_script_offenders(html: str) -> list[str]:
+    """CDN hosts referenced by a <script src> or an importmap value."""
+    hits: list[str] = []
+    if CDN_SCRIPT_SRC.search(html):
+        hits.append("script src")
+    if any(CDN_HOST.search(block) for block in IMPORTMAP_BLOCK.findall(html)):
+        hits.append("importmap value")
+    return hits
+
+
+def test_no_cdn_script_tags():
+    # RED evidence: crafted CDN script + importmap trip the same detector
+    assert _cdn_script_offenders(
+        '<script src="https://cdn.jsdelivr.net/x.js"></script>'
+    ), "detector must flag a CDN <script src>"
+    assert _cdn_script_offenders(
+        '<script type="importmap">{"imports":{"three":"https://cdn.plot.ly/t.js"}}</script>'
+    ), "detector must flag a CDN importmap value"
+    # Google Fonts <link> is exempt — it is a link, not a script
+    assert not _cdn_script_offenders(
+        '<link href="https://fonts.googleapis.com/css2?family=Inter" rel="stylesheet">'
+    ), "font <link> must NOT be flagged"
+
+    offenders = []
+    for path in sorted(TEMPLATES.rglob("*.html")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        hits = _cdn_script_offenders(text)
+        if hits:
+            offenders.append(f"{path.relative_to(TEMPLATES)} ({', '.join(hits)})")
+    assert offenders == [], f"CDN script references remain: {offenders}"

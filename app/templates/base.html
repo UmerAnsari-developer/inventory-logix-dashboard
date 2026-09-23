@@ -10,8 +10,7 @@
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}" />
   <script type="importmap" nonce="{{ csp_nonce }}">
   { "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    "three": "/static/js/vendor/three.module.js?v=a762b858"
   } }
   </script>
   <!-- Theme init from localStorage (syncs with landing page) -->
@@ -40,13 +39,13 @@
     })();
   </script>
   {% endif %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20.9" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=9.1" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=9.2" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=5adece1c" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=17d23f14" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=f4d430c1" />
+  <script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}?v=ddb8b099" defer></script>
+  <script src="{{ url_for('static', filename='js/vendor/chartjs-plugin-datalabels.min.js') }}?v=f3adb031" defer></script>
+  <script src="{{ url_for('static', filename='js/vendor/gsap.min.js') }}?v=bf3fd8ec" defer></script>
+  <script src="{{ url_for('static', filename='js/vendor/ScrollTrigger.min.js') }}?v=5445d0e9" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 
@@ -246,12 +245,12 @@
 
 <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
-  <script defer src="{{ url_for('static', filename='js/main.js') }}?v=1.5"></script>
-  <script defer src="{{ url_for('static', filename='js/ai-features.js') }}?v=9.2"></script>
-  <script defer src="{{ url_for('static', filename='js/http-client.js') }}?v=1.0"></script>
-  <script defer src="{{ url_for('static', filename='js/session-handler.js') }}?v=1.0"></script>
-  <script defer src="{{ url_for('static', filename='js/saas-animations.js') }}"></script>
-  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=1.2"></script>
+  <script defer src="{{ url_for('static', filename='js/main.js') }}?v=53c0c019"></script>
+  <script defer src="{{ url_for('static', filename='js/ai-features.js') }}?v=37e5c03a"></script>
+  <script defer src="{{ url_for('static', filename='js/http-client.js') }}?v=0a957d3f"></script>
+  <script defer src="{{ url_for('static', filename='js/session-handler.js') }}?v=1d5a4033"></script>
+  <script defer src="{{ url_for('static', filename='js/saas-animations.js') }}?v=eef298f3"></script>
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=13b2159a"></script>
   {% if not current_user.is_authenticated %}
   <!-- Theme toggle for auth pages + localStorage sync -->
   <script nonce="{{ csp_nonce }}">
