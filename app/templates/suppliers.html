@@ -46,7 +46,7 @@
         <dt>Reliability</dt><dd>{{ '%.0f' % (s.reliability or 90) }}%</dd>
       </dl>
       {% if current_user.role in ['admin', 'manager'] %}
-      <form method="post" action="{{ url_for('ui.delete_supplier', supplier_id=s.id) }}" onsubmit="return confirm('Remove this supplier?');">
+      <form method="post" action="{{ url_for('ui.delete_supplier', supplier_id=s.id) }}" data-confirm="Remove this supplier?">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
         <button class="btn btn-ghost btn-sm" type="submit">Remove</button>
       </form>

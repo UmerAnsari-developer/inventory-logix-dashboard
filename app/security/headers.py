@@ -36,10 +36,10 @@ def init_security_headers(app: Flask) -> None:
             "Content-Security-Policy",
             "default-src 'self'; "
             "img-src 'self' data: https:; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
-            "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; "
-            f"script-src 'self' {nonce_src} https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.plot.ly; "
-            "connect-src 'self' https://cdn.jsdelivr.net",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            f"script-src 'self' {nonce_src}; "
+            "connect-src 'self'",
         )
         if app.config.get("SESSION_COOKIE_SECURE"):
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")

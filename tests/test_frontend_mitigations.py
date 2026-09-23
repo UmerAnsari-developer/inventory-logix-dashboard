@@ -126,6 +126,7 @@ def test_admin_nav_links_hidden_from_non_admin(app):
         _session_client(app, "manager").get("/").get_data(as_text=True)
     )
     assert "Administration" in manager_body  # manager keeps the section
+    assert "Settings" in manager_body  # sole live entry inside the section
     assert "User Management" not in manager_body
     assert "Backup & Restore" not in manager_body
     assert "System Configuration" not in manager_body
@@ -135,11 +136,16 @@ def test_admin_nav_links_hidden_from_non_admin(app):
     assert "Administration" not in viewer_body
     assert "User Management" not in viewer_body
 
-    # Admin: all three admin-only entries visible
+    # Admin: sees the role-gated section, but the admin_* anchors are
+    # temporarily stripped from base.html (their endpoints live in
+    # uncommitted backend WIP; re-apply from base-admin-nav-prior-wip.html
+    # when that lands — final-review HIGH fix).
     admin_body = _session_client(app, "admin").get("/").get_data(as_text=True)
-    assert "User Management" in admin_body
-    assert "Backup & Restore" in admin_body
-    assert "System Configuration" in admin_body
+    assert "Administration" in admin_body
+    assert "Settings" in admin_body
+    assert "User Management" not in admin_body  # pending backend re-apply
+    assert "Backup & Restore" not in admin_body
+    assert "System Configuration" not in admin_body
 
 
 # ── Test 4 / Task 3: activityChart null guard ──────────────────────────

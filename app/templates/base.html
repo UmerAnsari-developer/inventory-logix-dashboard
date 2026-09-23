@@ -1,10 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en" data-theme="light">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="InventoryLogix â€” Inventory Logistics Optimization Dashboard" />
+  <meta name="description" content="InventoryLogix — Inventory Logistics Optimization Dashboard" />
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <title>{% block title %}InventoryLogix{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}" />
@@ -137,42 +137,6 @@
                 <span class="nav-drop-label">Administration</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
               </button>
               <div class="nav-drop-menu">
-                {% if current_user.role == 'admin' %}
-                <a href="{{ url_for('admin_user_management.index') }}" class="menu-item {{ 'active' if active_page == 'user_management' else '' }}">
-                  <span class="nav-text">User Management</span>
-                </a>
-                {% endif %}
-                <a href="{{ url_for('admin_data_import.index') }}" class="menu-item {{ 'active' if active_page == 'data_import' else '' }}">
-                  <span class="nav-text">Data Import Hub</span>
-                </a>
-                {% if current_user.role == 'admin' %}
-                <a href="{{ url_for('admin_backup.index') }}" class="menu-item {{ 'active' if active_page == 'backup' else '' }}">
-                  <span class="nav-text">Backup & Restore</span>
-                </a>
-                {% endif %}
-                {% if current_user.role == 'admin' %}
-                <a href="{{ url_for('admin_system_config.index') }}" class="menu-item {{ 'active' if active_page == 'system_config' else '' }}">
-                  <span class="nav-text">System Configuration</span>
-                </a>
-                {% endif %}
-                <a href="{{ url_for('admin_user_activity.index') }}" class="menu-item {{ 'active' if active_page == 'user_activity' else '' }}">
-                  <span class="nav-text">User Activity Monitoring</span>
-                </a>
-                <a href="{{ url_for('admin_log_viewer.index') }}" class="menu-item {{ 'active' if active_page == 'logs' else '' }}">
-                  <span class="nav-text">System Logs Viewer</span>
-                </a>
-                <a href="{{ url_for('notification_center.index') }}" class="menu-item {{ 'active' if active_page == 'notifications' else '' }}">
-                  <span class="nav-text">Notification Center</span>
-                </a>
-                <a href="{{ url_for('admin_user_activity_analytics.index') }}" class="menu-item {{ 'active' if active_page == 'user_activity_analytics' else '' }}">
-                  <span class="nav-text">User Activity Analytics</span>
-                </a>
-                <a href="{{ url_for('admin_export.index') }}" class="menu-item {{ 'active' if active_page == 'export' else '' }}">
-                  <span class="nav-text">Data Export Hub</span>
-                </a>
-                <a href="{{ url_for('admin_audit_report.index') }}" class="menu-item {{ 'active' if active_page == 'audit_reports' else '' }}">
-                  <span class="nav-text">Audit Report Generator</span>
-                </a>
                 <a href="{{ url_for('ui.settings') }}" class="menu-item {{ 'active' if active_page == 'settings' else '' }}">
                   <span class="nav-text">Settings</span>
                 </a>
@@ -213,10 +177,10 @@
               </div>
             </div>
             <div class="user-dropdown-meta">
-              <div class="user-meta-row"><span>Email</span><strong>{{ current_user.email or 'â€”' }}</strong></div>
+              <div class="user-meta-row"><span>Email</span><strong>{{ current_user.email or '—' }}</strong></div>
               <div class="user-meta-row"><span>Role</span><strong>{{ current_user.role|title }}</strong></div>
               <div class="user-meta-row"><span>Last login</span><strong>{{ current_user.last_login.strftime('%d %b %Y, %I:%M %p') if current_user.last_login else 'First visit' }}</strong></div>
-              <div class="user-meta-row"><span>Member since</span><strong>{{ current_user.created_at.strftime('%d %b %Y') if current_user.created_at else 'â€”' }}</strong></div>
+              <div class="user-meta-row"><span>Member since</span><strong>{{ current_user.created_at.strftime('%d %b %Y') if current_user.created_at else '—' }}</strong></div>
             </div>
             <div class="user-dropdown-actions">
               <form action="{{ url_for('auth.logout') }}" method="POST" style="display:inline">
