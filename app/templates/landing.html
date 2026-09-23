@@ -12,7 +12,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=9.2" />
   <script type="importmap" nonce="{{ csp_nonce }}">
   { "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -194,7 +194,7 @@
             </div>
             <div class="dash-body">
               <div class="kpis">
-                <div class="kpi"><small>On-hand value</small><span class="v">${{
+                <div class="kpi"><small>On-hand value</small><span class="v">{{
                     '{:,.0f}'.format(stats.inventory_value|float) if stats.inventory_value else '4.28M' }}</span><span
                     class="d up">▲ 2.1%</span></div>
                 <div class="kpi"><small>Stockout risk (7d)</small><span class="v">3.2%</span><span class="d down">▼
@@ -385,7 +385,7 @@
   </div>
 
   <!-- Shared Three.js background -->
-  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=1.2"></script>
 
   <!-- Landing page interactions -->
   <script nonce="{{ csp_nonce }}">

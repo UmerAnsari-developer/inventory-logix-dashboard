@@ -360,6 +360,18 @@ def test_http_client_headers_init_never_null():
 STYLE_CSS = Path(__file__).resolve().parent.parent / "app" / "static" / "css" / "style.css"
 
 
+def rule_body(css: str, selector: str) -> str:
+    """First matching CSS rule body for an exact selector string.
+
+    Selector is regex-escaped, so pass it literally (e.g. ':root',
+    '[data-theme="dark"]'). Scans in file order; for rules declared
+    twice use rule_bodies(...) [-1] (Batch 4) to get the cascade winner.
+    """
+    m = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css)
+    assert m, f"{selector} rule missing"
+    return m.group(1)
+
+
 # ── T10: pagination links preserve filter query params ─────────────────
 
 def test_inventory_pagination_preserves_filters(app):
@@ -455,12 +467,7 @@ def test_filter_bar_zindex_regression_guard():
     import re as _re
 
     # RED evidence: removing the property trips the same guard
-    def rule_body(css: str, selector: str) -> str:
-        import re as _re
-        m = _re.search(_re.escape(selector) + r"\s*\{([^}]*)\}", css)
-        assert m, f"{selector} rule missing"
-        return m.group(1)
-
+    # (rule_body hoisted to module level for reuse by Batch 4)
     bad = ".filter-bar { position: relative; }"
     assert "z-index: 30" not in bad
     assert "z-index: 30" in rule_body(
@@ -530,3 +537,277 @@ def test_main_js_version_bumped():
     assert re.search(r"main\.js[')\s}{]*\?v=1\.5", text), (
         "base.html must reference main.js?v=1.5 (handler change needs bust)"
     )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Batch 4 — Tasks 12+13: light-theme contrast tokens (T12), --landing-ink
+# rename (T13), asset cache-bust bumps. Verification suite for shipped
+# code; each test embeds RED evidence against a known-bad sample.
+# ══════════════════════════════════════════════════════════════════════
+
+LANDING_CSS = STYLE_CSS.parent / "landing.css"
+AI_FEATURES_CSS = STYLE_CSS.parent / "ai-features.css"
+AUTH_BG_JS = STATIC_JS / "auth-bg.js"
+BASE_HTML = TEMPLATES / "base.html"
+
+
+def rule_bodies(css: str, selector: str) -> list[str]:
+    """Every matching rule body for an exact selector, in file order."""
+    return [
+        m.group(1)
+        for m in re.finditer(re.escape(selector) + r"\s*\{([^}]*)\}", css)
+    ]
+
+
+# ── T13: landing --ink renamed to --landing-ink ───────────────────────
+
+def test_landing_ink_renamed():
+    # RED evidence: pre-rename declaration trips the same checks, and
+    # --ink-color/--ink-rgb are different vars that must NOT trip them
+    assert "--ink:" in ":root { --ink: 238 242 251; }"
+    assert "--ink:" not in ":root { --ink-color: #eef2fb; --ink-rgb: 13 17 23; }"
+    assert re.search(r"var\(--ink(?!-)", "background: var(--ink);")
+    assert not re.search(r"var\(--ink(?!-)", "background: var(--landing-ink);")
+    assert "setProperty('--ink'" in "root.style.setProperty('--ink', v);"
+
+    text = LANDING_CSS.read_text(encoding="utf-8")
+    for selector in (":root", 'html[data-theme="light"]'):
+        body = rule_body(text, selector)
+        assert "--landing-ink:" in body, f"{selector} lost --landing-ink"
+        # declaration pattern, not substring --ink (guards above prove it)
+        assert "--ink:" not in body, f"{selector} still declares --ink"
+    assert not re.search(r"var\(--ink(?!-)", text), "var(--ink) usage remains"
+
+    js = AUTH_BG_JS.read_text(encoding="utf-8")
+    assert "'--landing-ink'" in js, "auth-bg.js must write --landing-ink"
+    assert "setProperty('--ink'" not in js, "auth-bg.js still writes old --ink"
+
+
+# ── T12 guard: style.css hex --ink must NOT have been renamed ──────────
+
+def test_style_hex_ink_intact():
+    # RED evidence: the landing-style rename fails the same presence check
+    renamed = rule_body(":root { --landing-ink: 13 17 23; }", ":root")
+    assert "--ink: #0d1117" not in renamed
+
+    text = STYLE_CSS.read_text(encoding="utf-8")
+    assert "--ink: #0d1117" in rule_body(text, ":root"), "light --ink lost"
+    assert "--ink: #f0f6fc" in rule_body(text, '[data-theme="dark"]'), (
+        "dark --ink lost"
+    )
+
+
+# ── T12: light-theme contrast tokens in :root ──────────────────────────
+
+def test_light_accent_tokens():
+    # RED evidence: pre-fix light values fail the presence checks below
+    old_root = (
+        ":root { --accent: #38bdf8; --success: #22c55e; "
+        "--danger: #ef4444; --amber: #f59e0b; }"
+    )
+    assert "--accent: #0369a1" not in old_root
+    assert "--accent: #38bdf8" in old_root  # stale detector fires
+
+    text = STYLE_CSS.read_text(encoding="utf-8")
+    root = rule_body(text, ":root")
+    for decl in (
+        "--accent: #0369a1",
+        "--accent-rgb: 3, 105, 161",
+        "--accent-hover: #0284c7",
+        "--success: #166534",
+        "--danger: #b91c1c",
+        "--amber: #b45309",
+    ):
+        assert decl in root, f"light token missing: {decl}"
+    # old failing light values must not reappear as declarations
+    for stale in (
+        "--accent: #38bdf8",
+        "--success: #22c55e",
+        "--danger: #ef4444",
+        "--amber: #f59e0b",
+    ):
+        assert stale not in root, f"stale light value: {stale}"
+
+
+# ── T12: dark block keeps bright accents + gains --amber (cascade fix) ─
+
+def test_dark_theme_overrides_preserved():
+    # RED evidence: a dark block without the amber fix fails the check
+    no_amber = (
+        '[data-theme="dark"] { --accent: #38bdf8; '
+        "--success: #22c55e; --danger: #f87171; }"
+    )
+    assert "--amber: #f59e0b" not in no_amber
+
+    text = STYLE_CSS.read_text(encoding="utf-8")
+    dark = rule_body(text, '[data-theme="dark"]')
+    for decl in (
+        "--accent: #38bdf8",
+        "--success: #22c55e",
+        "--danger: #f87171",
+        "--amber: #f59e0b",
+    ):
+        assert decl in dark, f"dark override missing: {decl}"
+
+
+# ── T12: status pills render var() colors, not hardcodes ───────────────
+
+def test_status_pills_use_vars():
+    def pill_uses_var(body: str) -> bool:
+        m = re.search(r"(?:^|[;{])\s*color:\s*([^;]+);", body)
+        if not m:
+            return False
+        color = m.group(1).strip()
+        return color.startswith("var(--") and not re.search(
+            r"#[0-9a-fA-F]{6}", color
+        )
+
+    # RED evidence: crafted hardcoded pill fails the same checker
+    assert not pill_uses_var(".status.good {\n  color: #166534;\n}")
+    assert pill_uses_var(".status.good {\n  color: var(--green);\n}")
+
+    text = STYLE_CSS.read_text(encoding="utf-8")
+    # Each selector is declared twice (base block ~L1521 + glass block
+    # ~L3577); the later same-specificity rule wins the cascade, so the
+    # last body is what actually renders. (First .status.warning still
+    # carries legacy color: #a8751e but is fully overridden.)
+    for selector in (".status.good", ".status.warning", ".status.critical"):
+        bodies = rule_bodies(text, selector)
+        assert bodies, f"{selector} rule missing"
+        assert pill_uses_var(bodies[-1]), (
+            f"{selector} cascade-winning color is not a var()"
+        )
+
+
+# ── T12: badge dark overrides + light critical keeps accessible red ────
+
+def test_badge_dark_overrides():
+    # RED evidence: a dark badge-reviewed override trips the detector
+    assert '[data-theme="dark"] .badge-reviewed' in (
+        '[data-theme="dark"] .badge-reviewed { color: #a78bfa; }'
+    )
+
+    text = AI_FEATURES_CSS.read_text(encoding="utf-8")
+    assert "#ef4444" in rule_body(text, '[data-theme="dark"] .badge-critical')
+    assert "#0284c7" in rule_body(text, '[data-theme="dark"] .badge-new')
+    # light badge keeps the WCAG-passing dark red
+    assert "#b91c1c" in rule_body(text, ".badge-critical")
+    assert '[data-theme="dark"] .badge-reviewed' not in text, (
+        "badge-reviewed needs no dark override"
+    )
+
+
+# ── T12: ai-features --text-secondary light/dark split ─────────────────
+
+def test_ai_text_secondary():
+    # RED evidence: pre-fix value fails the presence check
+    assert "--text-secondary: #5c6a73" not in (
+        ":root { --text-secondary: #8b949e; }"
+    )
+
+    text = AI_FEATURES_CSS.read_text(encoding="utf-8")
+    assert "--text-secondary: #5c6a73" in rule_body(text, ":root"), (
+        "light --text-secondary must meet contrast"
+    )
+    assert "--text-secondary: #8b949e" in rule_body(
+        text, '[data-theme="dark"]'
+    ), "dark --text-secondary lost"
+
+
+# ── T12: landing light --text-muted meets contrast ─────────────────────
+
+def test_landing_text_muted():
+    # RED evidence: pre-fix muted value fails the presence check
+    assert "--text-muted: #5b6b7f" not in (
+        'html[data-theme="light"] { --text-muted: #64748b; }'
+    )
+
+    text = LANDING_CSS.read_text(encoding="utf-8")
+    light = rule_body(text, 'html[data-theme="light"]')
+    assert "--text-muted: #5b6b7f" in light, (
+        "light --text-muted must meet contrast"
+    )
+
+
+# ── T12/T13: base.html cache-bust versions for changed assets ──────────
+
+def test_css_versions():
+    # RED evidence: the previous version fails the same matcher
+    assert not re.search(r"style\.css[')\s}{]*\?v=20\.9", "style.css?v=20.8")
+
+    text = BASE_HTML.read_text(encoding="utf-8")
+    for pattern in (
+        r"style\.css[')\s}{]*\?v=20\.9",
+        r"ai-features\.css[')\s}{]*\?v=9\.1",
+        r"landing\.css[')\s}{]*\?v=9\.2",
+    ):
+        assert re.search(pattern, text), f"missing cache-bust: {pattern}"
+
+
+# ── Fix-round: --success/--danger single source of truth (style.css) ───
+
+def test_no_duplicate_success_danger_tokens():
+    # RED evidence: a crafted landing declaration trips the whole-file scan
+    bad_landing = ":root { --success: #22c55e; }"
+    assert "--success:" in bad_landing, "detector must trip on pre-fix sample"
+    assert "--danger:" in ":root { --danger: #ef4444; }"
+
+    for path in (LANDING_CSS, AI_FEATURES_CSS):
+        text = path.read_text(encoding="utf-8")
+        assert "--success:" not in text, (
+            f"{path.name} redeclares --success (shadows style.css)"
+        )
+        assert "--danger:" not in text, (
+            f"{path.name} redeclares --danger (shadows style.css)"
+        )
+
+    # style.css :root remains the single source of truth
+    root = rule_body(STYLE_CSS.read_text(encoding="utf-8"), ":root")
+    assert "--success:" in root, "style.css :root lost --success"
+    assert "--danger:" in root, "style.css :root lost --danger"
+
+
+# ── Fix-round: badge specificity bump + dark-override source order ──────
+
+DARK_BADGE_VARIANTS = (
+    "critical", "high", "medium", "low", "new", "ack", "resolved",
+)
+
+
+def _first_line(text: str, needle: str) -> int:
+    for n, line in enumerate(text.splitlines(), 1):
+        if needle in line:
+            return n
+    raise AssertionError(f"{needle!r} not found in file")
+
+
+def test_badge_specificity_bumps():
+    # RED evidence: a bare line-start base rule fails the same detector
+    bad_line = ".badge-critical { color: #ef4444; }"
+    assert bad_line.startswith(".badge-critical {"), (
+        "detector must flag the pre-fix bare selector"
+    )
+    assert not bad_line.startswith(".badge.badge-critical {")
+
+    text = AI_FEATURES_CSS.read_text(encoding="utf-8")
+
+    # Bumped base rules present (8 incl. reviewed)
+    for bump in (
+        ".badge.badge-critical",
+        ".badge.badge-low",
+        ".badge.badge-reviewed",
+    ):
+        assert bump in text, f"missing specificity bump: {bump}"
+
+    # No bare line-start base rule survives
+    bare = [ln for ln in text.splitlines() if ln.startswith(".badge-critical {")]
+    assert bare == [], f"bare .badge-critical base rule present: {bare}"
+
+    # 7 dark overrides exist AND sit after their base rule (source-order tiebreak)
+    for variant in DARK_BADGE_VARIANTS:
+        base_line = _first_line(text, f".badge.badge-{variant}")
+        dark_line = _first_line(text, f'[data-theme="dark"] .badge-{variant}')
+        assert dark_line > base_line, (
+            f"{variant}: dark override L{dark_line} must follow "
+            f"base rule L{base_line}"
+        )

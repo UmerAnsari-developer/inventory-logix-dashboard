@@ -40,9 +40,9 @@
     })();
   </script>
   {% endif %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20.8" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=9.0" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=9.1" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20.9" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=9.1" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=9.2" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
@@ -251,7 +251,7 @@
   <script defer src="{{ url_for('static', filename='js/http-client.js') }}?v=1.0"></script>
   <script defer src="{{ url_for('static', filename='js/session-handler.js') }}?v=1.0"></script>
   <script defer src="{{ url_for('static', filename='js/saas-animations.js') }}"></script>
-  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=1.2"></script>
   {% if not current_user.is_authenticated %}
   <!-- Theme toggle for auth pages + localStorage sync -->
   <script nonce="{{ csp_nonce }}">

@@ -14,20 +14,20 @@
   --muted-strong: #8b949e;
 
   /* Sky-blue accent — unified with landing page */
-  --accent: #38bdf8;
-  --accent-rgb: 56, 189, 248;
+  --accent: #0369a1;
+  --accent-rgb: 3, 105, 161;
   --accent-soft: #eef8ff;
-  --accent-hover: #0ea5e9;
-  --accent-glow: rgba(56, 189, 248, 0.35);
+  --accent-hover: #0284c7;
+  --accent-glow: rgba(3, 105, 161, 0.35);
 
   /* Success — inventory health */
-  --success: #22c55e;
+  --success: #166534;
   --success-soft: #eef5f0;
-  --success-hover: #16a34a;
+  --success-hover: #15803d;
 
   /* Danger — alerts, stockouts */
-  --danger: #ef4444;
-  --danger-rgb: 239, 68, 68;
+  --danger: #b91c1c;
+  --danger-rgb: 185, 28, 28;
   --danger-soft: #fef2f2;
   --danger-hover: #dc2626;
 
@@ -48,7 +48,7 @@
   /* Legacy aliases */
   --green: var(--success);
   --green-soft: var(--success-soft);
-  --amber: #f59e0b;
+  --amber: #b45309;
   --amber-soft: #fffbeb;
   --red: var(--danger);
   --red-soft: var(--danger-soft);
@@ -105,6 +105,8 @@
   --danger: #f87171;
   --danger-soft: rgba(248, 113, 113, 0.12);
   --danger-hover: #fca5a5;
+  --amber: #f59e0b;
+  --amber-soft: rgba(245, 158, 11, 0.15);
   --info: #79b8ff;
   --info-soft: rgba(121, 184, 255, 0.12);
   --info-hover: #9ac8ff;

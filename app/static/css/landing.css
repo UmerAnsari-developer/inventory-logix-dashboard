@@ -16,12 +16,12 @@
   --border: rgba(255 255 255 / .08);
   --border-strong: rgba(255 255 255 / .15);
 
-  --ink: 238 242 251;
+  --landing-ink: 238 242 251;
   --ink-color: #eef2fb;
   /* JS-driven adaptive ink */
-  --text-primary: rgb(var(--ink));
-  --text-secondary: rgba(var(--ink) / .65);
-  --text-muted: rgba(var(--ink) / .45);
+  --text-primary: rgb(var(--landing-ink));
+  --text-secondary: rgba(var(--landing-ink) / .65);
+  --text-muted: rgba(var(--landing-ink) / .55);
   --text-inverse: #04070f;
 
   --accent: #38bdf8;
@@ -31,9 +31,7 @@
   --gradt: linear-gradient(92deg, #7dd3fc, #a5b4fc 52%, #e9d5ff);
   --gradt-accent: linear-gradient(135deg, #22d3ee, #6366f1 55%, #a855f7);
 
-  --success: #22c55e;
   --warning: #fbbf24;
-  --danger: #ef4444;
 
   --shadow-sm: 0 2px 8px -2px rgba(0 0 0 / .4);
   --shadow-md: 0 12px 40px -12px rgba(0 0 0 / .55);
@@ -65,12 +63,13 @@ html[data-theme="light"] {
   --border: rgba(0 0 0 / .06);
   --border-strong: rgba(0 0 0 / .12);
 
-  --ink: 15 23 42;
+  --landing-ink: 15 23 42;
   --ink-color: #0f172a;
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --text-muted: #5b6b7f;
   --text-inverse: #ffffff;
+  --warning: #b45309;
 
   --accent: #0369a1;
   --accent-hover: #0284c7;
@@ -512,7 +511,7 @@ header.scrolled .nav-inner {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(58% 55% at 38% 52%, rgb(var(--ink) / var(--scrim-o)), transparent 72%);
+  background: radial-gradient(58% 55% at 38% 52%, rgb(var(--landing-ink) / var(--scrim-o)), transparent 72%);
   transition: background var(--theme-transition);
 }
 
@@ -938,12 +937,12 @@ html[data-theme="light"] .kpi {
 }
 
 .d.up {
-  color: var(--success)
+  color: var(--success, #166534)
 }
 
 .d.down {
-  color: var(--success)
-}
+    color: var(--success, #166534)
+  }
 
 .d.risk {
   color: var(--warning)
@@ -1040,7 +1039,7 @@ html[data-theme="light"] .now-label {
 }
 
 .dot.ok {
-  background: var(--success)
+  background: var(--success, #166534)
 }
 
 .dot.warn {
@@ -1048,7 +1047,7 @@ html[data-theme="light"] .now-label {
 }
 
 .dot.crit {
-  background: var(--danger)
+  background: var(--danger, #b91c1c)
 }
 
 .sku .s-main {
@@ -1425,7 +1424,7 @@ html[data-theme="light"] .input {
 }
 
 .input.err {
-  border-color: var(--danger);
+  border-color: var(--danger, #b91c1c);
   animation: shake .4s
 }
 
