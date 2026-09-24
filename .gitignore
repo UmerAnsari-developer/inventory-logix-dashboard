@@ -59,3 +59,13 @@ PRODUCT.md
 AGENTS.md
 opencode.json
 alembic.ini
+
+# Non-project / scratch (keep out of repo)
+Agents_test/
+backups/
+playwright-cli/
+node_modules/
+package.json
+package-lock.json
+PLAN.md
+DB_CONNECTION_FIX_SUMMARY.md
