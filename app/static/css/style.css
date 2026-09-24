@@ -190,6 +190,8 @@ a {
 
 .app-shell {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand-link {
@@ -350,6 +352,7 @@ a {
 .main-area {
   width: 100%;
   min-width: 0;
+  flex: 1 0 auto;
 }
 
 .topbar {
