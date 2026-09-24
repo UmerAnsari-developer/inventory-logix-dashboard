@@ -3108,8 +3108,8 @@ textarea[aria-invalid="true"] {
 }
 
 .app-footer {
-  max-width: 1500px;
-  margin: 0 auto;
+  width: 100%;
+  align-self: stretch;
   padding: 18px 38px 26px;
   border-top: 1px solid var(--line);
   color: var(--muted);
