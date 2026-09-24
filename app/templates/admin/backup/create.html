@@ -12,34 +12,24 @@
   </div>
 </div>
 
-<form method="post" action="{{ url_for('admin_backup.create') }}">
+<form method="post" class="form-card" action="{{ url_for('admin_backup.create') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-  
-  <div class="mb-3">
-    <label><span>Backup Name</span>
-      <div class="input-wrapper">
-        <input type="text" name="backup_name" required
-               placeholder="Enter a descriptive name for this backup">
-      </div>
+  <div class="form-grid">
+    <label class="full"><span>Backup Name *</span>
+      <input type="text" name="backup_name" required maxlength="100"
+             placeholder="Descriptive name to identify this backup later">
     </label>
-    <div class="form-text">This name will help you identify the backup later.</div>
-  </div>
-  
-  <div class="mb-3">
-    <label><span>Backup Type</span>
-      <div class="input-wrapper">
-        <select name="backup_type">
-          <option value="full">Full Backup (Schema + Data)</option>
-          <option value="schema">Schema Only</option>
-          <option value="data">Data Only</option>
-        </select>
-      </div>
+    <label class="full"><span>Backup Type *</span>
+      <select name="backup_type">
+        <option value="full">Full Backup (Schema + Data)</option>
+        <option value="schema">Schema Only</option>
+        <option value="data">Data Only</option>
+      </select>
     </label>
-    <div class="form-text">Select what to include in the backup.</div>
   </div>
-  
-  <div class="d-grid">
+  <div class="form-actions">
     <button type="submit" class="btn btn-primary">Create Backup</button>
+    <a class="btn btn-secondary" href="{{ url_for('admin_backup.index') }}">Cancel</a>
   </div>
 </form>
 {% endblock %}

@@ -12,41 +12,25 @@
   </div>
 </div>
 
-<form method="post" action="{{ url_for('admin_system_config.create') }}">
+<form method="post" class="form-card" action="{{ url_for('admin_system_config.create') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-  
-  <div class="mb-3">
-    <label><span>Key</span>
-      <div class="input-wrapper">
-        <input type="text" name="key" required
-               placeholder="Enter the configuration key (e.g., rate_limit_api)">
-      </div>
+  <div class="form-grid">
+    <label class="full"><span>Key *</span>
+      <input type="text" name="key" required maxlength="100"
+             placeholder="e.g. rate_limit_api">
     </label>
-    <div class="form-text">The configuration key to override.</div>
-  </div>
-  
-  <div class="mb-3">
-    <label><span>Value</span>
-      <div class="input-wrapper">
-        <input type="text" name="value" required
-               placeholder="Enter the value for this override">
-      </div>
+    <label class="full"><span>Value *</span>
+      <input type="text" name="value" required maxlength="500"
+             placeholder="Value to set for this key">
     </label>
-    <div class="form-text">The value to set for this key.</div>
-  </div>
-  
-  <div class="mb-3">
-    <label><span>Description (Optional)</span>
-      <div class="input-wrapper">
-        <input type="text" name="description"
-               placeholder="Enter a description for this override">
-      </div>
+    <label class="full"><span>Description</span>
+      <input type="text" name="description" maxlength="255"
+             placeholder="What this override does (optional)">
     </label>
-    <div class="form-text">A brief description of what this override does.</div>
   </div>
-  
-  <div class="d-grid">
+  <div class="form-actions">
     <button type="submit" class="btn btn-primary">Save Override</button>
+    <a class="btn btn-secondary" href="{{ url_for('admin_system_config.index') }}">Cancel</a>
   </div>
 </form>
 {% endblock %}

@@ -12,54 +12,32 @@
   </div>
 </div>
 
-<form method="post" action="{{ url_for('admin_user_management.create') }}">
+<form method="post" class="form-card" action="{{ url_for('admin_user_management.create') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-
-  <div class="mb-3">
-    <label><span>Username</span>
-      <div class="input-wrapper">
-        <input type="text" name="username" required
-               placeholder="Enter username" autocomplete="off">
-      </div>
+  <div class="form-grid">
+    <label><span>Username *</span>
+      <input type="text" name="username" required maxlength="50"
+             placeholder="Unique login name" autocomplete="off">
     </label>
-    <div class="form-text">Unique username for login.</div>
-  </div>
-
-  <div class="mb-3">
-    <label><span>Email</span>
-      <div class="input-wrapper">
-        <input type="email" name="email" required
-               placeholder="Enter email address">
-      </div>
+    <label><span>Email *</span>
+      <input type="email" name="email" required maxlength="120"
+             placeholder="user@example.com">
     </label>
-    <div class="form-text">User's email address.</div>
-  </div>
-
-  <div class="mb-3">
-    <label><span>Password</span>
-      <div class="input-wrapper">
-        <input type="password" name="password" required minlength="6"
-               placeholder="Enter password">
-      </div>
+    <label><span>Password *</span>
+      <input type="password" name="password" required minlength="6"
+             placeholder="Minimum 6 characters" autocomplete="new-password">
     </label>
-    <div class="form-text">Minimum 6 characters.</div>
-  </div>
-
-  <div class="mb-3">
-    <label><span>Role</span>
-      <div class="input-wrapper">
-        <select name="role">
-          <option value="viewer">Viewer (read-only)</option>
-          <option value="manager">Manager (read-write)</option>
-          <option value="admin">Admin (full access)</option>
-        </select>
-      </div>
+    <label><span>Role *</span>
+      <select name="role">
+        <option value="viewer">Viewer (read-only)</option>
+        <option value="manager">Manager (read-write)</option>
+        <option value="admin">Admin (full access)</option>
+      </select>
     </label>
-    <div class="form-text">Controls what the user can access.</div>
   </div>
-
-  <div class="d-grid">
+  <div class="form-actions">
     <button type="submit" class="btn btn-primary">Create User</button>
+    <a class="btn btn-secondary" href="{{ url_for('admin_user_management.index') }}">Cancel</a>
   </div>
 </form>
 {% endblock %}

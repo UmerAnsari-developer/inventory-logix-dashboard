@@ -51,15 +51,17 @@
 
     <form method="post" action="{{ url_for('admin_data_import.upload', entity=active_tab) }}"
           enctype="multipart/form-data"
+          id="import_form_{{ active_tab }}"
           data-confirm="Upload will overwrite existing records. Continue?"
           style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <label class="btn btn-outline" style="cursor:pointer;margin:0;">
         Choose CSV File
-        <input type="file" name="csv_file" accept=".csv" required
+        <input type="file" name="csv_file" accept=".csv"
                style="display:none;" id="csv_file_{{ active_tab }}">
       </label>
       <span id="file_name_{{ active_tab }}"
+            role="status"
             style="font-size:0.82rem;color:var(--text-secondary);min-width:120px;"></span>
       <button type="submit" class="btn btn-primary">Import {{ stats[active_tab].label }}</button>
     </form>
@@ -91,18 +93,32 @@
 <script nonce="{{ csp_nonce }}">
   document.addEventListener('DOMContentLoaded', function() {
     var activeTab = '{{ active_tab }}';
+    var form = document.getElementById('import_form_' + activeTab);
     var input = document.getElementById('csv_file_' + activeTab);
     var span = document.getElementById('file_name_' + activeTab);
-    if (input && span) {
-      input.addEventListener('change', function() {
-        if (this.files && this.files[0]) {
-          span.textContent = this.files[0].name;
-          span.style.color = 'var(--green)';
-        } else {
-          span.textContent = '';
-        }
-      });
-    }
+    if (!form || !input || !span) return;
+
+    // 1.1 show selected file name
+    input.addEventListener('change', function() {
+      if (this.files && this.files[0]) {
+        span.textContent = this.files[0].name;
+        span.style.color = 'var(--green)';
+      } else {
+        span.textContent = '';
+      }
+    });
+
+    // 1.2 block submit with no file (native bubbles are invisible on display:none inputs).
+    // Runs before main.js data-confirm (inline script registers first); stopImmediatePropagation
+    // keeps the overwrite confirm from firing when there is no file yet.
+    form.addEventListener('submit', function(e) {
+      if (!input.files || !input.files.length) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        span.textContent = 'Please select a file';
+        span.style.color = 'var(--danger)';
+      }
+    });
   });
 </script>
 {% endblock %}
