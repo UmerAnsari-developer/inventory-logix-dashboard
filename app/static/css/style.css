@@ -3024,6 +3024,15 @@ textarea[aria-invalid="true"] {
 .panel-grid .panel{
   margin: 25px;
 }
+.notif-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.notif-grid .panel {
+  margin: 0;
+  height: 100%;
+}
 .modal-backdrop {
   position: fixed;
   z-index: 40;
@@ -3144,6 +3153,10 @@ textarea[aria-invalid="true"] {
 }
 
 @media (max-width: 800px) {
+  .notif-grid {
+    grid-template-columns: 1fr;
+  }
+
   .breadcrumb {
     overflow: hidden;
     text-overflow: ellipsis;
