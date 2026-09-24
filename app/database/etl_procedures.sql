@@ -552,3 +552,21 @@ BEGIN
     ORDER BY day;
 END;
 $$ LANGUAGE plpgsql;
+
+
+-- Revoke PostgreSQL's default PUBLIC EXECUTE on ETL/monitoring functions.
+-- The Flask app connects as the owner role and keeps EXECUTE; shared/anonymous
+-- roles must not be able to call etl_full_build() or monitor procs directly.
+DO $$
+DECLARE fn TEXT;
+BEGIN
+  FOR fn IN
+    SELECT p.oid::regprocedure::text
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND (p.proname LIKE 'etl\_%' OR p.proname LIKE 'sp\_monitor\_%')
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', fn);
+  END LOOP;
+END $$;

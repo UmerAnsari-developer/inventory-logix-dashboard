@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Create Scheduled Audit Report - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Create Scheduled Audit Report</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_audit_report.index') }}" class="btn btn-secondary">Back to Reports</a>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('admin_audit_report.create') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+  
+  <div class="mb-4">
+    <label><span>Report Name</span>
+      <div class="input-wrapper">
+        <input type="text" name="name" required
+               placeholder="Enter a name for this report">
+      </div>
+    </label>
+    <div class="form-text">A descriptive name for the report.</div>
+  </div>
+  
+  <div class="mb-4">
+    <label><span>Description (Optional)</span>
+      <div class="input-wrapper">
+        <input type="text" name="description"
+               placeholder="Enter a description for this report">
+      </div>
+    </label>
+    <div class="form-text">A brief description of what this report covers.</div>
+  </div>
+  
+  <div class="mb-4">
+    <div class="dashboard-grid">
+      <div>
+        <label><span>Format</span>
+          <div class="input-wrapper">
+            <select name="format" required>
+              <option value="CSV">CSV</option>
+              <option value="PDF">PDF</option>
+            </select>
+          </div>
+        </label>
+        <div class="form-text">The format of the generated report.</div>
+      </div>
+      <div>
+        <label><span>Frequency</span>
+          <div class="input-wrapper">
+            <select name="frequency" required>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+        </label>
+        <div class="form-text">How often the report should be generated.</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="mb-4">
+    <div class="dashboard-grid">
+      <div>
+        <label><span>Next Run Time</span>
+          <div class="input-wrapper">
+            <input type="datetime-local" name="next_run_time" required
+                   min="{{ min_date }}">
+          </div>
+        </label>
+      </div>
+      <div>
+        <label><span>Status</span>
+          <div class="input-wrapper">
+            <input type="checkbox" name="is_active" checked>
+          </div>
+        </label>
+      </div>
+    </div>
+  </div>
+  
+  <div class="mb-4">
+    <div class="panel">
+      <div class="panel-header">
+        <h5 class="panel-title">Report Parameters (Optional)</h5>
+      </div>
+      <div class="panel-content">
+        <div class="dashboard-grid" style="grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+          <div>
+            <label><span>Start Date (YYYY-MM-DD)</span>
+              <div class="input-wrapper">
+                <input type="date" name="start_date"
+                       placeholder="Start date for filtering">
+              </div>
+            </label>
+          </div>
+          <div>
+            <label><span>End Date (YYYY-MM-DD)</span>
+              <div class="input-wrapper">
+                <input type="date" name="end_date"
+                       placeholder="End date for filtering">
+              </div>
+            </label>
+          </div>
+          <div>
+            <label><span>User ID (Optional)</span>
+              <div class="input-wrapper">
+                <input type="number" name="user_id"
+                       placeholder="Filter by specific user ID">
+              </div>
+            </label>
+          </div>
+          <div>
+            <label><span>Action (Optional)</span>
+              <div class="input-wrapper">
+                <input type="text" name="action"
+                       placeholder="Filter by specific action (e.g., sp_user_create)">
+              </div>
+            </label>
+          </div>
+        </div>
+        <div class="form-text" style="margin-top: 1rem;">
+          Leave blank to include all data. You can specify date ranges, user ID, and action to filter the report.
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="d-grid">
+    <button type="submit" class="btn btn-primary">Create Scheduled Report</button>
+  </div>
+</form>
+{% endblock %}

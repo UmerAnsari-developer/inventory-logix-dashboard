@@ -345,6 +345,65 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user_read
     ON notifications(user_id, is_read, created_at DESC);
 
 -- ─────────────────────────────────────────────────────────────────
+-- Administration features + warehouses
+-- Mirrors migrations/versions/20260920* so bootstrap_database()
+-- (schema.sql path) matches the alembic path on fresh installs.
+-- ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS warehouses (
+    id              SERIAL PRIMARY KEY,
+    warehouse_name  VARCHAR(120) NOT NULL,
+    location        VARCHAR(200),
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS system_backups (
+    id              SERIAL PRIMARY KEY,
+    backup_name     VARCHAR(255) NOT NULL,
+    backup_type     VARCHAR(50) NOT NULL,
+    file_path       VARCHAR(500) NOT NULL,
+    size            BIGINT,
+    status          VARCHAR(50) NOT NULL DEFAULT 'success',
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by      INTEGER NOT NULL REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_system_backups_created_at ON system_backups(created_at);
+CREATE INDEX IF NOT EXISTS idx_system_backups_created_by ON system_backups(created_by);
+
+CREATE TABLE IF NOT EXISTS system_config_overrides (
+    id              SERIAL PRIMARY KEY,
+    key             VARCHAR(80) NOT NULL UNIQUE,
+    value           TEXT,
+    description     TEXT,
+    updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_by      INTEGER NOT NULL REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_system_config_overrides_key ON system_config_overrides(key);
+CREATE INDEX IF NOT EXISTS idx_system_config_overrides_updated_at ON system_config_overrides(updated_at);
+
+CREATE TABLE IF NOT EXISTS scheduled_audit_reports (
+    id              SERIAL PRIMARY KEY,
+    name            VARCHAR(255) NOT NULL,
+    description     TEXT,
+    format          VARCHAR(10) NOT NULL,
+    frequency       VARCHAR(20) NOT NULL,
+    parameters      JSON,
+    next_run_time   TIMESTAMP,
+    last_run_time   TIMESTAMP,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by      INTEGER NOT NULL REFERENCES users(id),
+    updated_by      INTEGER NOT NULL REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_audit_reports_next_run ON scheduled_audit_reports(next_run_time);
+CREATE INDEX IF NOT EXISTS idx_scheduled_audit_reports_active ON scheduled_audit_reports(is_active);
+
+-- Performance indexes (same set as migrations/versions/20260922_optimizations.py)
+CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_supplier_id ON purchase_orders(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_id ON purchase_orders(product_id);
+
+-- ─────────────────────────────────────────────────────────────────
 -- Row-Level Security: enable on every table with NO policies.
 -- Supabase exposes all tables via its auto-generated REST API
 -- (PostgREST); with RLS disabled, anyone holding the project URL

@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Admin Dashboard - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Admin Dashboard</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_dashboard.index') }}" class="btn btn-secondary">Refresh</a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Users</h5>
+        <p class="card-text">
+          <span class="h4">{{ data.total_users }}</span> total<br>
+          <span class="text-success">{{ data.active_users }}</span> active (last 30 days)
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Products</h5>
+        <p class="card-text">
+          <span class="h4">{{ data.total_products }}</span> total<br>
+          <span class="text-danger">{{ data.low_stock_products }}</span> low stock
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Suppliers</h5>
+        <p class="card-text">
+          <span class="h4">{{ data.total_suppliers }}</span> total
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">Movements Today</h5>
+        <p class="card-text">
+          <span class="h4">{{ data.movements_today }}</span> movements
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mt-4">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title">Recent Backups</h5>
+      </div>
+      <div class="card-body">
+        {% if data.recent_backups %}
+        <div class="table-responsive">
+          <table class="table table-sm table-borderless">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for backup in data.recent_backups %}
+              <tr>
+                <td>{{ backup.backup_name }}</td>
+                <td>{{ backup.backup_type }}</td>
+                <td>
+                  {% if backup.status == 'success' %}
+                    <span class="badge bg-success">Success</span>
+                  {% elif backup.status == 'failed' %}
+                    <span class="bg-danger">Failed</span>
+                  {% else %}
+                    <span class="badge bg-secondary">{{ backup.status }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ backup.created_at.strftime('%m/%d %H:%M') }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted">No backups found.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title">Recent Config Overrides</h5>
+      </div>
+      <div class="card-body">
+        {% if data.recent_config_overrides %}
+        <div class="table-responsive">
+          <table class="table table-sm table-borderless">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Value</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for override in data.recent_config_overrides %}
+              <tr>
+                <td>{{ override.key }}</td>
+                <td>{{ override.value }}</td>
+                <td>{{ override.updated_at.strftime('%m/%d %H:%M') }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted">No config overrides found.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mt-4">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title">Recent User Activities</h5>
+      </div>
+      <div class="card-body">
+        {% if data.recent_activities %}
+        <div class="table-responsive">
+          <table class="table table-sm table-borderless">
+            <thead>
+              <tr>
+                <th>User ID</th>
+                <th>Action</th>
+                <th>Target</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for activity in data.recent_activities %}
+              <tr>
+                <td>{{ activity.user_id }}</td>
+                <td>{{ activity.action }}</td>
+                <td>
+                  {{ activity.target_type or '' }}
+                  {% if activity.target_id %} (ID: {{ activity.target_id }}){% endif %}
+                </td>
+                <td>{{ activity.created_at.strftime('%m/%d %H:%M') }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted">No recent activities.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mt-4">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title">Recent System Logs</h5>
+      </div>
+      <div class="card-body">
+        {% if data.recent_logs %}
+        <div class="table-responsive">
+          <table class="table table-sm table-borderless">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Level</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in data.recent_logs %}
+              <tr>
+                <td>{{ log.timestamp.strftime('%m/%d %H:%M:%S') }}</td>
+                <td>
+                  {% if log.level == 'DEBUG' %}
+                    <span class="badge bg-secondary">{{ log.level }}</span>
+                  {% elif log.level == 'INFO' %}
+                    <span class="badge bg-info">{{ log.level }}</span>
+                  {% elif log.level == 'WARNING' %}
+                    <span class="bg-warning">{{ log.level }}</span>
+                  {% elif log.level == 'ERROR' %}
+                    <span class="badge bg-danger">{{ log.level }}</span>
+                  {% elif log.level == 'CRITICAL' %}
+                    <span class="badge bg-dark">{{ log.level }}</span>
+                  {% else %}
+                    <span class="badge bg-light text-dark">{{ log.level }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ log.message | truncate(100) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted">No recent logs.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title">Notifications</h5>
+      </div>
+      <div class="card-body">
+        {% if data.unread_notifications > 0 %}
+        <div class="alert alert-warning">
+          You have {{ data.unread_notifications }} unread notification(s).
+          <a href="{{ url_for('notification_center.index') }}" class="alert-link">View notifications</a>
+        </div>
+        {% else %}
+        <p class="text-muted">No unread notifications.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

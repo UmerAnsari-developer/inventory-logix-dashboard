@@ -16,8 +16,12 @@ if config.config_file_name is not None:
 
 # Override URL from environment if available
 db_url = os.environ.get("DATABASE_URL")
+print(f"os.environ.get('DATABASE_URL') = {db_url}")
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
+    print(f"Set sqlalchemy.url to: {db_url}")
+else:
+    print("DATABASE_URL not set, using fallback")
 
 
 def run_migrations_offline() -> None:

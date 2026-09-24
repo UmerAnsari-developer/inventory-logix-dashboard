@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}User Management - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>User Management</h1>
+  </div>
+<div class="page-actions">
+     {% if current_user.role == 'admin' %}
+     <a href="{{ url_for('admin_user_management.create') }}" class="btn btn-primary">Create User</a>
+     {% endif %}
+     <a href="{{ url_for('admin_user_management.index') }}" class="btn btn-outline">Refresh</a>
+   </div>
+</div>
+
+{% if users %}
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Username</th>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Status</th>
+        <th>Last Login</th>
+        <th>Created At</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td>{{ user.id }}</td>
+<td>
+  {% if user.username == current_user.username %}
+    <strong>{{ user.username }}</strong> <span class="status good">you</span>
+  {% else %}
+    {{ user.username }}
+  {% endif %}
+</td>
+<td>{{ user.email }}</td>
+<td>
+  {% if current_user.role == 'admin' and user.username != current_user.username %}
+  <form method="post" action="{{ url_for('admin_user_management.change_role', user_id=user.id) }}" class="d-inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <select name="role" onchange="if(confirm('Change this user\u2019s role to '+this.value+'?')){this.form.submit();}" style="padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface);font-size:0.75rem;color:var(--ink-2);">
+      <option value="viewer" {% if user.role == 'viewer' %}selected{% endif %}>Viewer</option>
+      <option value="manager" {% if user.role == 'manager' %}selected{% endif %}>Manager</option>
+      <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
+    </select>
+  </form>
+  {% else %}
+    <span class="status good">{{ user.role }}</span>
+  {% endif %}
+</td>
+        <td>
+          {% if user.is_active %}
+            <span class="status good">Active</span>
+          {% else %}
+            <span class="status critical">Disabled</span>
+          {% endif %}
+        </td>
+        <td>{{ user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never' }}</td>
+        <td>{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '—' }}</td>
+<td>
+  <div class="btn-group" role="group" style="display:flex; gap:10px;">
+    <a href="{{ url_for('admin_user_management.edit', user_id=user.id) }}" class="btn btn-sm btn-outline btn-primary">Edit</a>
+    {% if current_user.role == 'admin' and user.username != current_user.username %}
+    <form method="post" action="{{ url_for('admin_user_management.toggle_active', user_id=user.id) }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      {% if user.is_active %}
+      <button type="submit" class="btn btn-sm btn-outline btn-danger"
+              onclick="return confirm('Disable this user?')">Disable</button>
+      {% else %}
+      <button type="submit" class="btn btn-sm btn-outline">Enable</button>
+      {% endif %}
+    </form>
+    {% endif %}
+  </div>
+</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert-strip">
+     <div class="alert-mark">info</div>
+     <div>
+       <div class="alert-title">No users found.</div>
+       <div class="alert-subtitle">
+         {% if current_user.role == 'admin' %}
+         <a href="{{ url_for('admin_user_management.create') }}">Create your first user</a>.
+         {% endif %}
+       </div>
+     </div>
+   </div>
+{% endif %}
+{% endblock %}

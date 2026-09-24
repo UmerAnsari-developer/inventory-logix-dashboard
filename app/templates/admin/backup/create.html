@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Create Backup - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Create Backup</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_backup.index') }}" class="btn btn-secondary">Back to Backups</a>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('admin_backup.create') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+  
+  <div class="mb-3">
+    <label><span>Backup Name</span>
+      <div class="input-wrapper">
+        <input type="text" name="backup_name" required
+               placeholder="Enter a descriptive name for this backup">
+      </div>
+    </label>
+    <div class="form-text">This name will help you identify the backup later.</div>
+  </div>
+  
+  <div class="mb-3">
+    <label><span>Backup Type</span>
+      <div class="input-wrapper">
+        <select name="backup_type">
+          <option value="full">Full Backup (Schema + Data)</option>
+          <option value="schema">Schema Only</option>
+          <option value="data">Data Only</option>
+        </select>
+      </div>
+    </label>
+    <div class="form-text">Select what to include in the backup.</div>
+  </div>
+  
+  <div class="d-grid">
+    <button type="submit" class="btn btn-primary">Create Backup</button>
+  </div>
+</form>
+{% endblock %}

@@ -100,13 +100,17 @@ def notify_anomaly(sku: str, product_name: str, anomaly_type: str, details: str)
 
 
 def run_monitoring_checks() -> dict:
-    """Run checks at most once per 10 minutes (global_cache TTL)."""
-    last_run = global_cache.get("notif_monitor_last")
-    if last_run is not None:
-        return {"skipped": True}
-    global_cache.set("notif_monitor_last", True)
-    clear_stale_notifications()
-    return {
-        "reorder": check_reorder_alerts(),
-        "out_of_stock": check_out_of_stock(),
-    }
+    """Run checks at most once per 10 minutes (global_cache TTL).
+
+    F6: single-flight via get_or_set so concurrent cold callers cannot both
+    pass the old check-then-act guard and double-fire the checks.
+    """
+
+    def _run_checks() -> dict:
+        clear_stale_notifications()
+        return {
+            "reorder": check_reorder_alerts(),
+            "out_of_stock": check_out_of_stock(),
+        }
+
+    return global_cache.get_or_set("notif_monitor_last", _run_checks)

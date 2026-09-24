@@ -41,6 +41,16 @@ class UserRepository:
         return UserProxy(row) if row else None
 
     @staticmethod
+    def find_by_ids(user_ids: list[int]) -> list[dict]:
+        """Return list of dicts with id and username for the given user IDs."""
+        users = []
+        for uid in user_ids:
+            user = UserRepository.find_by_id(uid)
+            if user:
+                users.append({"id": user.id, "username": user.username})
+        return users
+
+    @staticmethod
     def verify_password(plain: str, stored_hash: str) -> bool:
         try:
             return check_password_hash(stored_hash, plain)
@@ -51,6 +61,25 @@ class UserRepository:
     def record_login(user_id: int) -> None:
         with get_cursor(commit=True) as cur:
             cur.execute("SELECT sp_user_record_login(%s)", (user_id,))
+
+    @staticmethod
+    def list_all() -> list[dict]:
+        """List all users (admin)."""
+        with get_cursor() as cur:
+            cur.execute("SELECT * FROM sp_user_list_all()")
+            return cur.fetchall()
+
+    @staticmethod
+    def set_active(user_id: int, active: bool) -> None:
+        """Enable or disable a user account."""
+        with get_cursor(commit=True) as cur:
+            cur.execute("SELECT sp_user_set_active(%s, %s)", (user_id, active))
+
+    @staticmethod
+    def change_role(user_id: int, role: str) -> None:
+        """Change a user's role."""
+        with get_cursor(commit=True) as cur:
+            cur.execute("SELECT sp_user_change_role(%s, %s)", (user_id, role))
 
     @staticmethod
     def set_password(user_id: int, password: str) -> None:

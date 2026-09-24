@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Data Export Hub - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Data Export Hub</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_export.index') }}" class="btn btn-outline">Refresh</a>
+  </div>
+</div>
+
+<div class="dashboard-grid">
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Products Export</h5>
+    </div>
+    <div class="panel-content">
+      <p>Export all products with their details, stock levels, pricing, and supplier information.</p>
+      <a href="{{ url_for('admin_export.export_products') }}" class="btn btn-primary">Export Products (CSV)</a>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Inventory Export</h5>
+    </div>
+    <div class="panel-content">
+      <p>Export current inventory status and stock levels.</p>
+      <a href="{{ url_for('admin_export.export_inventory') }}" class="btn btn-primary">Export Inventory (CSV)</a>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Movements Export</h5>
+    </div>
+    <div class="panel-content">
+      <p>Export inventory movements (in/out/adjustments) with details.</p>
+      <a href="{{ url_for('admin_export.export_movements') }}" class="btn btn-primary">Export Movements (CSV)</a>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Suppliers Export</h5>
+    </div>
+    <div class="panel-content">
+      <p>Export supplier information and performance metrics.</p>
+      <a href="{{ url_for('admin_export.export_suppliers') }}" class="btn btn-primary">Export Suppliers (CSV)</a>
+    </div>
+  </div>
+</div>
+
+<div class="dashboard-grid mt-4">
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Purchase Orders Export</h5>
+    </div>
+    <div class="panel-content">
+      <p>Export all purchase orders with status and details.</p>
+      <a href="{{ url_for('admin_export.export_purchase_orders') }}" class="btn btn-primary">Export Purchase Orders (CSV)</a>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <h5 class="panel-title">Custom Reports</h5>
+    </div>
+    <div class="panel-content">
+      <p>Export custom reports based on specific criteria (coming soon).</p>
+      <a href="#" class="btn btn-outline" disabled>Custom Reports</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

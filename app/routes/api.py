@@ -43,6 +43,7 @@ def get_settings():
 
 
 @api_bp.route("/settings", methods=["PUT"])
+@limiter.limit("30 per minute")
 @login_required
 @write_roles_required
 def update_settings():

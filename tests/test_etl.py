@@ -1,4 +1,4 @@
-﻿"""ETL pipeline tests: full rebuild, incremental runs, and high-water marks."""
+"""ETL pipeline tests: full rebuild, incremental runs, and high-water marks."""
 from __future__ import annotations
 
 import pytest
@@ -82,3 +82,5 @@ def test_etl_incremental_processes_new_movements(app):
             out_qty = cur.fetchone()
             assert out_qty is not None
             assert out_qty["out_qty"] >= 12
+
+

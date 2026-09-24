@@ -88,11 +88,22 @@ def test_make_key():
 
 def test_bust_helpers():
     from app.utils import cache as mod
+    # Test granular invalidation - only keys with specific prefixes are cleared
     mod.products_cache.set("foo", 1)
-    mod.dashboard_cache.set("bar", 2)
+    mod.products_cache.set("products:detail:1", 2)
+    mod.dashboard_cache.set("dashboard:main", 3)
+    mod.dashboard_cache.set("other", 4)
+    mod.reports_cache.set("reports:summary", 5)
+    
     n = cache_bust_products()
-    assert n >= 2 and mod.products_cache.get("foo") is None
-    print("PASS cache_bust helpers clear cross-caches")
+    # Should invalidate products_cache (both keys) and dashboard_cache (dashboard: prefix) and reports_cache (reports: prefix)
+    # But NOT dashboard_cache "other" key or landing_cache
+    assert mod.products_cache.get("foo") is None
+    assert mod.products_cache.get("products:detail:1") is None
+    assert mod.dashboard_cache.get("dashboard:main") is None
+    assert mod.dashboard_cache.get("other") == 4  # Not invalidated (no dashboard: prefix)
+    assert mod.reports_cache.get("reports:summary") is None
+    print("PASS cache_bust helpers clear cross-caches with granular prefixes")
 
 
 if __name__ == "__main__":

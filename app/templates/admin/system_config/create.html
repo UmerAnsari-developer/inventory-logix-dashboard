@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Add System Configuration Override - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Add System Configuration Override</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_system_config.index') }}" class="btn btn-secondary">Back to Overrides</a>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('admin_system_config.create') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+  
+  <div class="mb-3">
+    <label><span>Key</span>
+      <div class="input-wrapper">
+        <input type="text" name="key" required
+               placeholder="Enter the configuration key (e.g., rate_limit_api)">
+      </div>
+    </label>
+    <div class="form-text">The configuration key to override.</div>
+  </div>
+  
+  <div class="mb-3">
+    <label><span>Value</span>
+      <div class="input-wrapper">
+        <input type="text" name="value" required
+               placeholder="Enter the value for this override">
+      </div>
+    </label>
+    <div class="form-text">The value to set for this key.</div>
+  </div>
+  
+  <div class="mb-3">
+    <label><span>Description (Optional)</span>
+      <div class="input-wrapper">
+        <input type="text" name="description"
+               placeholder="Enter a description for this override">
+      </div>
+    </label>
+    <div class="form-text">A brief description of what this override does.</div>
+  </div>
+  
+  <div class="d-grid">
+    <button type="submit" class="btn btn-primary">Save Override</button>
+  </div>
+</form>
+{% endblock %}

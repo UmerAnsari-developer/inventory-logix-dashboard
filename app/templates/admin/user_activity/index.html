@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}User Activity Monitoring - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>User Activity Monitoring</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_user_activity.index') }}" class="btn btn-secondary">Reset Filters</a>
+  </div>
+</div>
+
+<form method="get" action="{{ url_for('admin_user_activity.index') }}" class="filter-bar">
+  <label class="inv-filter-label">
+    <span>User</span>
+    <select id="user_id" name="user_id">
+      <option value="">All Users</option>
+      {% for user in users %}
+      <option value="{{ user.id }}" {% if filter_params.user_id == user.id %}selected{% endif %}>
+        {{ user.username }}
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="inv-filter-label">
+    <span>Action</span>
+    <input type="text" id="action" name="action" value="{{ filter_params.action or '' }}"
+           placeholder="Filter by action (e.g., sp_user_create)">
+  </label>
+  <label class="inv-filter-label">
+    <span>Start Date</span>
+    <input type="date" id="start_date" name="start_date" value="{{ filter_params.start_date or '' }}">
+  </label>
+  <label class="inv-filter-label">
+    <span>End Date</span>
+    <input type="date" id="end_date" name="end_date" value="{{ filter_params.end_date or '' }}">
+  </label>
+  <button type="submit" class="btn btn-primary">Filter</button>
+</form>
+
+{% if activities %}
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>User</th>
+        <th>Action</th>
+        <th>Target Type</th>
+        <th>Target ID</th>
+        <th>Detail</th>
+        <th>IP Address</th>
+        <th>Created At</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for activity in activities %}
+      <tr>
+        <td>{{ activity.id }}</td>
+        <td>
+          {% if activity.user_id %}
+            {% set user_activities_url = url_for('admin_user_activity.user_activities', user_id=activity.user_id) %}
+            <a href="{{ user_activities_url }}">{{ activity.user_id }}</a>
+          {% else %}
+            System
+          {% endif %}
+        </td>
+        <td>{{ activity.action }}</td>
+        <td>{{ activity.target_type or '' }}</td>
+        <td>{{ activity.target_id or '' }}</td>
+        <td>
+          {% if activity.detail %}
+            {{ activity.detail | truncate(100) }}
+          {% else %}
+            -
+          {% endif %}
+        </td>
+        <td>{{ activity.ip_address or '' }}</td>
+        <td>{{ activity.created_at.strftime('%Y-%m-%d %H:%M:%S') if activity.created_at else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert-strip">
+  <div class="alert-mark">info</div>
+  <div>
+    <div class="alert-title">No activities found matching the filters.</div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

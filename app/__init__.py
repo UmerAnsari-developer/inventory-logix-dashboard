@@ -3,13 +3,17 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, g
+from flask_compress import Compress
 from flask_login import current_user
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import get_config
 from .database.connection import (
@@ -22,6 +26,17 @@ from .database.connection import (
 from .extensions import csrf, limiter, login_manager
 from .repositories import UserRepository
 from .routes import ai_bp, api_bp, auth_bp, ui_bp
+from .routes.admin.backup_routes import admin_backup_bp
+from .routes.admin.system_config_routes import admin_system_config_bp
+from .routes.admin.log_viewer_routes import admin_log_viewer_bp
+from .routes.admin.user_activity_routes import admin_user_activity_bp
+from .routes.admin.nnotification_center_routes import notification_center_bp
+from .routes.admin.user_activity_analytics_routes import admin_user_activity_analytics_bp
+from .routes.admin.export_routes import admin_export_bp
+from .routes.admin.audit_report_routes import admin_audit_report_bp
+from .routes.admin.dashboard_routes import admin_dashboard_bp
+from .routes.admin.user_management_routes import admin_user_management_bp
+from .routes.admin.data_import_routes import admin_data_import_bp
 from .security.headers import init_security_headers
 
 LOGGER = logging.getLogger(__name__)
@@ -39,10 +54,28 @@ def create_app(config_name: str | None = None) -> Flask:
     app.config.from_object(config_cls)
     _register_class_helpers(app, config_cls)
 
+    # Opt-in reverse-proxy trust: behind a trusted proxy the shared proxy
+    # IP would otherwise key every client into ONE rate-limit bucket.
+    # ProxyFix rewrites remote_addr from X-Forwarded-For before
+    # flask-limiter's get_remote_address runs. Default OFF keeps XFF
+    # spoof-proof when the app is directly exposed.
+    if app.config.get("TRUST_PROXY"):
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
+    # Enable gzip compression for all responses
+    Compress(app)
+
     logging.basicConfig(
         level=logging.INFO if not app.config.get("TESTING") else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # Add file handler for persistent logs
+    log_file = Path("inventorylogix.log")
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s"
+    ))
+    logging.getLogger().addHandler(file_handler)
 
     # Production: surface the resolved database target and fail fast (with a
     # clear message) instead of serving 500s against an unconfigured DB.
@@ -54,6 +87,19 @@ def create_app(config_name: str | None = None) -> Flask:
     _register_blueprints(app)
     _register_context(app)
     _register_error_handlers(app)
+
+    # Profiling middleware - logs slow requests
+    @app.before_request
+    def _start_timer():
+        g._start_time = time.time()
+
+    @app.after_request
+    def _log_slow(response):
+        if hasattr(g, '_start_time'):
+            duration = time.time() - g._start_time
+            if duration > 1.0:
+                LOGGER.warning("SLOW: %s %s - %.2fs", request.method, request.path, duration)
+        return response
 
     @app.cli.command("init-db")
     def init_db_cmd() -> None:  # pragma: no cover
@@ -148,6 +194,17 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(ui_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(ai_bp)
+    app.register_blueprint(admin_backup_bp)
+    app.register_blueprint(admin_system_config_bp)
+    app.register_blueprint(admin_user_activity_bp)
+    app.register_blueprint(notification_center_bp)
+    app.register_blueprint(admin_user_activity_analytics_bp)
+    app.register_blueprint(admin_log_viewer_bp)
+    app.register_blueprint(admin_export_bp)
+    app.register_blueprint(admin_audit_report_bp)
+    app.register_blueprint(admin_dashboard_bp)
+    app.register_blueprint(admin_user_management_bp)
+    app.register_blueprint(admin_data_import_bp)
 
 
 def _register_context(app: Flask) -> None:
@@ -161,7 +218,8 @@ def _register_context(app: Flask) -> None:
         except Exception:
             pass
         try:
-            reorder_count = _fetch_reorder_count()
+            from .utils.cache import global_cache
+            reorder_count = global_cache.get_or_set("reorder_count", _fetch_reorder_count)
         except Exception:
             reorder_count = 0
         return {"app_settings": settings, "reorder_count": reorder_count}
@@ -236,6 +294,12 @@ def _register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(429)
     def _too_many(err):
+        if request.path.startswith("/api"):
+            from .utils import api_error
+
+            return api_error(
+                "RATE_LIMITED", "Too many requests. Please try again later.", status=429
+            )
         return _render("errors/429.html", 429)
 
     @app.errorhandler(500)

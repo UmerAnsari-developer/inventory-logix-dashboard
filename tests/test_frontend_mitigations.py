@@ -126,26 +126,26 @@ def test_admin_nav_links_hidden_from_non_admin(app):
         _session_client(app, "manager").get("/").get_data(as_text=True)
     )
     assert "Administration" in manager_body  # manager keeps the section
-    assert "Settings" in manager_body  # sole live entry inside the section
+    assert "Settings" in manager_body
     assert "User Management" not in manager_body
     assert "Backup & Restore" not in manager_body
-    assert "System Configuration" not in manager_body
+    assert "System Config" not in manager_body
 
     # Viewer: no Administration section at all
     viewer_body = _session_client(app, "viewer").get("/").get_data(as_text=True)
     assert "Administration" not in viewer_body
     assert "User Management" not in viewer_body
 
-    # Admin: sees the role-gated section, but the admin_* anchors are
-    # temporarily stripped from base.html (their endpoints live in
-    # uncommitted backend WIP; re-apply from base-admin-nav-prior-wip.html
-    # when that lands — final-review HIGH fix).
+    # Admin: sees the role-gated section WITH the admin_* anchors — the
+    # backend WIP (blueprints + templates) has landed, so the temporary
+    # stripping this assertion used to pin is over (re-apply done;
+    # full menu spec lives in tests/test_admin_nav_menu.py).
     admin_body = _session_client(app, "admin").get("/").get_data(as_text=True)
     assert "Administration" in admin_body
     assert "Settings" in admin_body
-    assert "User Management" not in admin_body  # pending backend re-apply
-    assert "Backup & Restore" not in admin_body
-    assert "System Configuration" not in admin_body
+    assert "User Management" in admin_body
+    assert "Backup & Restore" in admin_body
+    assert "System Config" in admin_body
 
 
 # ── Test 4 / Task 3: activityChart null guard ──────────────────────────
@@ -250,7 +250,6 @@ def test_login_url_absent_on_login_page(app):
     # assertions below are unchanged.
     from app.extensions import limiter
 
-    limiter.reset()
     resp = app.test_client().get("/auth/login")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)

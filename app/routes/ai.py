@@ -56,16 +56,15 @@ def forecast_run():
 
 
 @ai_bp.route("/forecast/portfolio")
+@limiter.limit("6 per minute")
 @login_required
 def forecast_portfolio():
     horizon = int(request.args.get("horizon", 30))
     model = request.args.get("model") or SettingsService.forecast_model()
     cache_key = f"forecast_portfolio:{horizon}:{model}"
-    cached = _portfolio_cache.get(cache_key)
-    if cached:
-        return api_response(cached)
-    result = ForecastService.portfolio(horizon=horizon, model=model)
-    _portfolio_cache.set(cache_key, result)
+    result = _portfolio_cache.get_or_set(
+        cache_key, lambda: ForecastService.portfolio(horizon=horizon, model=model)
+    )
     return api_response(result)
 
 
@@ -108,6 +107,7 @@ def anomaly_run():
 
 
 @ai_bp.route("/anomaly/portfolio")
+@limiter.limit("6 per minute")
 @login_required
 def anomaly_portfolio():
     try:
@@ -115,11 +115,9 @@ def anomaly_portfolio():
     except ValueError:
         contamination = 0.05
     cache_key = f"anomaly_portfolio:{contamination}"
-    cached = _portfolio_cache.get(cache_key)
-    if cached:
-        return api_response(cached)
-    result = AnomalyService.portfolio(contamination=contamination)
-    _portfolio_cache.set(cache_key, result)
+    result = _portfolio_cache.get_or_set(
+        cache_key, lambda: AnomalyService.portfolio(contamination=contamination)
+    )
     return api_response(result)
 
 

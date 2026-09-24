@@ -51,6 +51,23 @@ def runner(app):
     return app.test_cli_runner()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter(app):
+    """Fresh flask-limiter buckets for every test (Issue 04 suite hygiene).
+
+    The app — and the limiter singleton bound to it — are session-scoped, so
+    buckets would otherwise leak between tests and make every limit
+    assertion order-dependent. Replaces the ad-hoc ``limiter.reset()`` calls
+    that used to live in test_auth_lockout.py and test_frontend_mitigations.py.
+    Depends on ``app`` so init_app has run before reset() is called.
+    """
+    from app.extensions import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
 @pytest.fixture()
 def auth_client(client):
     """Returns a logged-in test client."""

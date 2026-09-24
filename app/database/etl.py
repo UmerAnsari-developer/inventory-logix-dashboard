@@ -1,4 +1,4 @@
-"""ETL — build the star-schema data warehouse from the operational tables.
+﻿"""ETL â€” build the star-schema data warehouse from the operational tables.
 
 The warehouse dimensions (``dim_warehouse``) are read from the distinct
 ``products.warehouse`` values so the analytical layer always mirrors what the
@@ -7,14 +7,19 @@ application actually uses.
 Idempotent and incremental: a high-water mark (``etl_state['last_movement_id']``)
 is advanced after every run so subsequent runs only reprocess movements that are
 new (or were edited after the previous watermark). A full rebuild happens when
-``force=True`` or the fact tables are empty. The whole build runs in one
-transaction so a failure leaves the previous state intact.
+``force=True`` or the fact tables are empty. Stages commit individually
+(checkpointed stage-wise commits); the watermark only advances to ``max_id``
+when the final stage commits, so a mid-run failure replays safely from the
+previous mark.
 """
+
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, timedelta
 
+import psycopg2
 import psycopg2.extras
 from psycopg2.extras import execute_values
 
@@ -50,7 +55,11 @@ def _parse_warehouse(name: str) -> tuple[str, str, str]:
     else:
         city = body or "Unknown"
     digits = "".join(ch for ch in name if ch.isdigit()) or "00"
-    code = f"WH-{city[:3].upper()}" if name.startswith("WH-") else f"WH{digits[:2].zfill(2)}"
+    code = (
+        f"WH-{city[:3].upper()}"
+        if name.startswith("WH-")
+        else f"WH{digits[:2].zfill(2)}"
+    )
     region = _REGION_HINT.get(city, "General")
     return code, city, region
 
@@ -82,7 +91,9 @@ def _write_state(cur, key: str, value) -> None:
 def _build_dim_dates(cur, start: date, end: date) -> int:
     """Insert any missing date rows in ``[start, end]``. Returns count added."""
     added = 0
-    cur.execute("SELECT date_key FROM dim_date WHERE date_key BETWEEN %s AND %s", (start, end))
+    cur.execute(
+        "SELECT date_key FROM dim_date WHERE date_key BETWEEN %s AND %s", (start, end)
+    )
     existing = {r["date_key"] for r in cur.fetchall()}
     rows = []
     for d in _iter_dates(start, end):
@@ -90,9 +101,15 @@ def _build_dim_dates(cur, start: date, end: date) -> int:
             continue
         rows.append(
             (
-                d, d.year, (d.month - 1) // 3 + 1, d.month,
-                d.strftime("%b"), d.day, d.isoweekday(),
-                int(d.strftime("%U")), d.weekday() >= 5,
+                d,
+                d.year,
+                (d.month - 1) // 3 + 1,
+                d.month,
+                d.strftime("%b"),
+                d.day,
+                d.isoweekday(),
+                int(d.strftime("%U")),
+                d.weekday() >= 5,
             )
         )
         added += 1
@@ -177,9 +194,7 @@ def _build_dims(cur, summary: dict, product_range: tuple[date, date]) -> None:
             product_keys[sku] = key
             summary["dim_products"] += 1
 
-    cur.execute(
-        "SELECT id, name, location, reliability, lead_days FROM suppliers"
-    )
+    cur.execute("SELECT id, name, location, reliability, lead_days FROM suppliers")
     suppliers = [dict(r) for r in cur.fetchall()]
     cur.execute("SELECT supplier_id FROM dim_supplier WHERE supplier_id IS NOT NULL")
     existing_sup = {r["supplier_id"] for r in cur.fetchall()}
@@ -187,7 +202,9 @@ def _build_dims(cur, summary: dict, product_range: tuple[date, date]) -> None:
     for s in suppliers:
         if s["id"] in existing_sup:
             continue
-        new_sup.append((s["id"], s["name"], s["location"], s["reliability"], s["lead_days"]))
+        new_sup.append(
+            (s["id"], s["name"], s["location"], s["reliability"], s["lead_days"])
+        )
         existing_sup.add(s["id"])
     if new_sup:
         execute_values(
@@ -221,14 +238,14 @@ def _build_movement_facts(cur, start: date, end: date) -> int:
             (date_key, warehouse_key, product_key, in_qty, out_qty,
              net_qty, in_value, out_value)
         SELECT m.created_at::date AS day,
-               dw.warehouse_key,
-               dp.product_key,
-               COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0) AS in_qty,
-               COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS out_qty,
-               COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
-                                 WHEN m.type = 'OUT' THEN -m.quantity ELSE 0 END), 0) AS net_qty,
-               COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS in_value,
-               COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS out_value
+                dw.warehouse_key,
+                dp.product_key,
+                COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0) AS in_qty,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS out_qty,
+                COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
+                                  WHEN m.type = 'OUT' THEN -m.quantity ELSE 0 END), 0) AS net_qty,
+                COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS in_value,
+                COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS out_value
         FROM movements m
         JOIN dim_product dp ON dp.sku = m.sku
         JOIN products p ON p.sku = m.sku
@@ -246,7 +263,7 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
     """Reconstruct stock history for days in ``[start_day, end_day]``.
 
     Uses a SQL window function to do the backward stock walk in one query
-    instead of a Python loop over products × days.
+    instead of a Python loop over products Ã— days.
     """
     if start_day is None:
         start_day = end_day - timedelta(days=INVENTORY_HISTORY_DAYS - 1)
@@ -267,27 +284,27 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
         """
         WITH daily_net AS (
             SELECT m.sku, m.created_at::date AS day,
-                   SUM(CASE WHEN m.type='IN' THEN m.quantity
-                            WHEN m.type='OUT' THEN -m.quantity ELSE 0 END) AS net
+                    SUM(CASE WHEN m.type='IN' THEN m.quantity
+                             WHEN m.type='OUT' THEN -m.quantity ELSE 0 END) AS net
             FROM movements m
             WHERE m.created_at::date BETWEEN %s AND %s
             GROUP BY m.sku, m.created_at::date
         ),
         product_days AS (
             SELECT p.sku, p.warehouse, p.current_stock, p.reorder_point, p.unit_price,
-                   gs::date AS day
+                    gs::date AS day
             FROM products p
             CROSS JOIN generate_series(%s::date, %s::date, '1 day'::interval) gs
             WHERE p.sku = ANY(%s)
         )
         SELECT pd.day, pd.warehouse, pd.sku,
-               pd.current_stock - COALESCE(
-                   SUM(dn.net) OVER (
-                       PARTITION BY pd.sku ORDER BY pd.day DESC
-                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                   ), 0
-               ) AS stock_on_hand,
-               pd.reorder_point, pd.unit_price
+                pd.current_stock - COALESCE(
+                    SUM(dn.net) OVER (
+                        PARTITION BY pd.sku ORDER BY pd.day DESC
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                    ), 0
+                ) AS stock_on_hand,
+                pd.reorder_point, pd.unit_price
         FROM product_days pd
         LEFT JOIN daily_net dn ON dn.sku = pd.sku AND dn.day = pd.day
         ORDER BY pd.sku, pd.day
@@ -302,7 +319,16 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
             continue
         stock = max(float(r["stock_on_hand"] or 0), 0.0)
         price = float(r["unit_price"] or 0)
-        rows.append((r["day"], wh_key, prod_key, stock, float(r["reorder_point"] or 0), stock * price))
+        rows.append(
+            (
+                r["day"],
+                wh_key,
+                prod_key,
+                stock,
+                float(r["reorder_point"] or 0),
+                stock * price,
+            )
+        )
     if rows:
         execute_values(
             cur,
@@ -316,9 +342,129 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
     return len(rows)
 
 
+def _safe_error(e: BaseException) -> str:
+    """Log-safe error text (F7): class name for DB connection-class errors
+    (libpq messages embed host/port/user), str(e) otherwise."""
+    if isinstance(e, (psycopg2.OperationalError, psycopg2.InterfaceError)):
+        return type(e).__name__
+    return str(e)
+
+
+def _retry_operation(func, max_retries=3, base_delay=1, max_delay=10):
+    """Retry an operation with exponential backoff for transient errors."""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+            if attempt == max_retries - 1:  # Last attempt
+                LOGGER.error(
+                    f"Operation failed after {max_retries} attempts: "
+                    f"{_safe_error(e)}"
+                )
+                raise
+            delay = min(base_delay * (2**attempt), max_delay)
+            LOGGER.warning(
+                f"Transient error on attempt {attempt + 1}: {_safe_error(e)}. "
+                f"Retrying in {delay}s..."
+            )
+            time.sleep(delay)
+        except Exception as e:
+            # Non-transient error, don't retry (sanitized per F7)
+            LOGGER.error(f"Non-transient error: {_safe_error(e)}")
+            raise
+
+
+def _build_dim_dates_with_retry(cur, start: date, end: date) -> int:
+    """Build dimension dates with retry logic."""
+
+    def operation():
+        return _build_dim_dates(cur, start, end)
+
+    return _retry_operation(operation)
+
+
+def _build_dims_with_retry(
+    cur, summary: dict, product_range: tuple[date, date]
+) -> None:
+    """Build dimensions with retry logic."""
+
+    def operation():
+        _build_dims(cur, summary, product_range)
+
+    return _retry_operation(operation)
+
+
+def _build_movement_facts_with_retry(cur, start: date, end: date) -> int:
+    """Build movement facts with retry logic."""
+
+    def operation():
+        return _build_movement_facts(cur, start, end)
+
+    return _retry_operation(operation)
+
+
+def _build_inventory_facts_with_retry(
+    cur, end_day: date, start_day: date | None = None
+) -> int:
+    """Build inventory facts with retry logic."""
+
+    def operation():
+        return _build_inventory_facts(cur, end_day, start_day)
+
+    return _retry_operation(operation)
+
+
+def _validate_warehouse_consistency(cur) -> bool:
+    """Validate warehouse consistency after ETL load."""
+    try:
+        # Check that all products have valid warehouse mappings
+        cur.execute("""
+            SELECT COUNT(*) 
+            FROM products p 
+            LEFT JOIN dim_warehouse dw ON dw.warehouse_name = p.warehouse
+            WHERE p.warehouse IS NOT NULL AND TRIM(p.warehouse) <> '' 
+            AND dw.warehouse_key IS NULL
+            """)
+        orphaned_products = cur.fetchone()["count"]
+
+        if orphaned_products > 0:
+            LOGGER.warning(
+                f"Found {orphaned_products} products with invalid warehouse mappings"
+            )
+            return False
+
+        return True
+    except Exception as e:
+        LOGGER.error(f"Error during warehouse consistency validation: {_safe_error(e)}")
+        return False
+
+
+def _validate_product_consistency(cur) -> bool:
+    """Validate product consistency after ETL load."""
+    try:
+        # Check that all movements have valid product mappings
+        cur.execute("""
+            SELECT COUNT(*) 
+            FROM movements m 
+            LEFT JOIN dim_product dp ON dp.sku = m.sku
+            WHERE dp.product_key IS NULL
+            """)
+        orphaned_movements = cur.fetchone()["count"]
+
+        if orphaned_movements > 0:
+            LOGGER.warning(
+                f"Found {orphaned_movements} movements with invalid product mappings"
+            )
+            return False
+
+        return True
+    except Exception as e:
+        LOGGER.error(f"Error during product consistency validation: {_safe_error(e)}")
+        return False
+
+
 def run_etl(force: bool = False) -> dict:
     """Populate the star-schema tables. Returns a summary dict."""
-    conn = _open_conn()
     summary = {
         "skipped": False,
         "incremental": False,
@@ -328,20 +474,25 @@ def run_etl(force: bool = False) -> dict:
         "dim_suppliers": 0,
         "fact_movements": 0,
         "fact_inventory": 0,
+        "warehouse_etl_ok": True,  # F6: flipped to False if warehouse ETL fails
     }
+    conn = None
     try:
+        conn = _retry_operation(_open_conn)
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS c FROM fact_movement_daily")
-            fact_count = (cur.fetchone() or {}).get("c", 0)
+            cur.execute("SELECT 1 FROM fact_movement_daily LIMIT 1")
+            facts_exist = cur.fetchone() is not None
 
-            if fact_count and not force:
+            if facts_exist and not force:
                 # ---- incremental run ----------------------------------------
                 last_id = int(_read_state(cur, "last_movement_id", 0) or 0)
                 cur.execute("SELECT MAX(id) AS max_id FROM movements")
                 max_id = (cur.fetchone() or {}).get("max_id") or 0
                 if max_id <= last_id:
                     summary["skipped"] = True
-                    LOGGER.info("ETL skipped: no new movements since watermark %s.", last_id)
+                    LOGGER.info(
+                        "ETL skipped: no new movements since watermark %s.", last_id
+                    )
                     return summary
 
                 today = date.today()
@@ -357,55 +508,198 @@ def run_etl(force: bool = False) -> dict:
                 last_day = max(bounds["last"] or today, today)
                 summary["incremental"] = True
 
-                added_dates = _build_dim_dates(cur, first_day, last_day)
-                summary["dim_dates"] = added_dates
-                _build_dims(cur, summary, (first_day, last_day))
-                summary["fact_movements"] = _build_movement_facts(cur, first_day, last_day)
-                summary["fact_inventory"] = _build_inventory_facts(cur, today, first_day)
-                _write_state(cur, "last_movement_id", max_id)
-                _write_state(cur, "last_run_at", today.isoformat())
+                # Stage 1: Build dimension dates
+                try:
+                    added_dates = _build_dim_dates_with_retry(cur, first_day, last_day)
+                    summary["dim_dates"] = added_dates
+                    _write_state(
+                        cur, "last_movement_id", last_id
+                    )  # Checkpoint after dimension dates
+                    conn.commit()
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass  # F4: never mask the original stage error
+                    raise
+
+                # Stage 2: Build dimensions
+                try:
+                    _build_dims_with_retry(cur, summary, (first_day, last_day))
+                    _write_state(
+                        cur, "last_movement_id", last_id
+                    )  # F1: hold watermark at incoming last_id until final stage
+                    conn.commit()
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass  # F4: never mask the original stage error
+                    raise
+
+                # Stage 3: Build movement facts
+                try:
+                    movements_count = _build_movement_facts_with_retry(
+                        cur, first_day, last_day
+                    )
+                    summary["fact_movements"] = movements_count
+                    _write_state(
+                        cur, "last_movement_id", last_id
+                    )  # F1: hold watermark at incoming last_id until final stage
+                    conn.commit()
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass  # F4: never mask the original stage error
+                    raise
+
+                # Stage 4: Build inventory facts
+                try:
+                    inventory_count = _build_inventory_facts_with_retry(
+                        cur, today, first_day
+                    )
+                    summary["fact_inventory"] = inventory_count
+                    _write_state(
+                        cur, "last_movement_id", max_id
+                    )  # Checkpoint after inventory facts
+                    conn.commit()
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass  # F4: never mask the original stage error
+                    raise
+
             else:
-                # ---- full rebuild -------------------------------------------
+                # ---- full rebuild -------------------------------------------  # TEST
+                # For full rebuild, we'll do it in one transaction for simplicity
+                # but we could break it down further if needed
+                cur.execute("""
+                TRUNCATE dim_date, dim_warehouse, dim_product, dim_supplier,
+                         fact_movement_daily, fact_inventory_daily
+                RESTART IDENTITY CASCADE
+                """)
+                # F2 (strategy B): CASCADE wipes fact_audit_daily (FK ->
+                # dim_date); dropping the loader watermark in the SAME
+                # transaction makes etl_load_audit_daily rebuild full history.
                 cur.execute(
-                    """
-                    TRUNCATE dim_date, dim_warehouse, dim_product, dim_supplier,
-                             fact_movement_daily, fact_inventory_daily
-                    RESTART IDENTITY CASCADE
-                    """
+                    "DELETE FROM etl_warehouse_state "
+                    "WHERE state_key = 'last_audit_daily_at'"
                 )
                 cur.execute("SELECT MIN(created_at)::date AS first FROM movements")
                 first = (cur.fetchone() or {}).get("first")
                 start = first or (date.today() - timedelta(days=90))
                 end = date.today()
-                summary["dim_dates"] = _build_dim_dates(cur, start, end)
-                _build_dims(cur, summary, (start, end))
-                summary["fact_movements"] = _build_movement_facts(cur, start, end)
-                summary["fact_inventory"] = _build_inventory_facts(cur, end)
 
+                # Get max movement ID for watermark updates
                 cur.execute("SELECT MAX(id) AS max_id FROM movements")
                 max_id = (cur.fetchone() or {}).get("max_id") or 0
-                _write_state(cur, "last_movement_id", max_id)
-                _write_state(cur, "last_run_at", end.isoformat())
 
-        # Run warehouse layer ETL (SCD merges + event fact loads) — same connection
+                # Stage 1: Build dimension dates
+                try:
+                    summary["dim_dates"] = _build_dim_dates_with_retry(cur, start, end)
+                    _write_state(
+                        cur, "last_movement_id", 0
+                    )  # Reset watermark for full rebuild
+                    conn.commit()
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass  # F4: never mask the original stage error
+                    raise
+
+                # Stage 2: Build dimensions
+                try:
+                    _build_dims_with_retry(cur, summary, (start, end))
+                    _write_state(
+                        cur, "last_movement_id", 0
+                    )  # Keep at 0 until we have data
+                    conn.commit()
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass  # F4: never mask the original stage error
+                    raise
+
+                # Stage 3: Build movement facts
+                try:
+                    summary["fact_movements"] = _build_movement_facts_with_retry(
+                        cur, start, end
+                    )
+                    _write_state(
+                        cur, "last_movement_id", 0
+                    )  # Keep at 0 until we have data
+                    conn.commit()
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass  # F4: never mask the original stage error
+                    raise
+
+                # Stage 4: Build inventory facts
+                try:
+                    summary["fact_inventory"] = _build_inventory_facts_with_retry(
+                        cur, end
+                    )
+                    _write_state(
+                        cur, "last_movement_id", max_id
+                    )  # Checkpoint after inventory facts
+                    conn.commit()
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass  # F4: never mask the original stage error
+                    raise
+
+            # Validation step: check consistency after load
+            try:
+                warehouse_valid = _validate_warehouse_consistency(cur)
+                product_valid = _validate_product_consistency(cur)
+
+                if not warehouse_valid or not product_valid:
+                    LOGGER.warning(
+                        "ETL completed but consistency validation failed"
+                    )
+                    # Don't fail the ETL, but log the issue
+                else:
+                    LOGGER.info(
+                        "ETL completed successfully with consistency validation passed"
+                    )
+            except Exception as e:
+                LOGGER.error(f"Error during validation step: {e}")
+                # Don't fail the ETL for validation errors
+
+            _write_state(cur, "last_run_at", date.today().isoformat())
+
+        # F5: commit bookkeeping before warehouse ETL so its rollback cannot
+        # discard last_run_at.
+        conn.commit()
+
+        # Run warehouse layer ETL (SCD merges + event fact loads) - same connection
         try:
             _run_warehouse_etl(conn)
-        except Exception:
-            LOGGER.warning("Warehouse ETL failed (non-fatal):", exc_info=True)
+        except Exception as e:
+            summary["warehouse_etl_ok"] = False  # F6
+            LOGGER.error(
+                "Warehouse ETL failed (non-fatal): %s", _safe_error(e)
+            )
 
-        conn.commit()
-        LOGGER.info("ETL complete%s: %s", " (incremental)" if summary["incremental"] else "", summary)
-    except Exception:
-        conn.rollback()
+        return summary
+    except Exception as e:
+        LOGGER.error(f"ETL failed: {_safe_error(e)}")
         raise
     finally:
-        conn.close()
-
-    return summary
+        if conn:
+            conn.close()
 
 
 def _run_warehouse_etl(conn=None):
-    """Call warehouse stored procedures for SCD merges and event fact loads."""
+    """Call warehouse stored procedures for SCD merges + event fact loads."""
     own_conn = conn is None
     if own_conn:
         conn = _open_conn()
@@ -414,10 +708,17 @@ def _run_warehouse_etl(conn=None):
             cur.execute("SELECT * FROM etl_full_build()")
             results = cur.fetchall()
             for row in results:
-                LOGGER.info("Warehouse ETL: %s = %s rows", row["step_name"], row["rows_affected"])
+                LOGGER.info(
+                    "Warehouse ETL: %s = %s rows",
+                    row["step_name"],
+                    row["rows_affected"],
+                )
         conn.commit()
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass  # F4: never mask the original error
         raise
     finally:
         if own_conn:

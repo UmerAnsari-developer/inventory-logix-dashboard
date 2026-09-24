@@ -10,6 +10,10 @@ from .settings_repo import SettingsRepository
 from .warehouse_repo import WarehouseRepository
 from .monitoring_repo import MonitoringRepository
 from .notification_repo import NotificationRepository
+from .system_backup_repo import SystemBackupRepository
+from .system_config_repo import SystemConfigRepository
+from .user_activity_repo import UserActivityRepository
+from .scheduled_audit_report_repo import ScheduledAuditReportRepository
 
 __all__ = [
     "UserRepository",
@@ -24,4 +28,8 @@ __all__ = [
     "WarehouseRepository",
     "MonitoringRepository",
     "NotificationRepository",
+    "SystemBackupRepository",
+    "SystemConfigRepository",
+    "UserActivityRepository",
+    "ScheduledAuditReportRepository",
 ]

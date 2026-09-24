@@ -8,10 +8,13 @@ keyed by the active database configuration. Reusing connections avoids paying
 a fresh TCP + TLS handshake on every request — important when the database is
 remote (e.g. Render) rather than localhost.
 """
+
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -28,11 +31,23 @@ WAREHOUSE_PATH = Path(__file__).with_name("warehouse.sql")
 ETL_PROCEDURES_PATH = Path(__file__).with_name("etl_procedures.sql")
 TRIGGERS_PATH = Path(__file__).with_name("triggers.sql")
 
+# Connection pool configuration from environment variables with sensible defaults
+_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "20"))
+_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "1800"))  # 30 minutes
+_POOL_TIMEOUT = int(os.environ.get("DB_POOL_TIMEOUT", "30"))  # 30 seconds
+
+# Track connection checkout times for leak detection
+_CHECKOUT_TIMES: dict[int, float] = {}
+_CHECKOUT_LOCK = threading.Lock()
+
 # A small per-config pool so requests reuse connections instead of redoing
-# the (potentially SSL) handshake for every page load.
+# the (potentially SSL) handshake on every page load.
 _POOLS: dict[str, psycopg2.pool.ThreadedConnectionPool] = {}
 _POOL_LOCK = threading.Lock()
-_POOL_SIZE = 20
+
+# Bootstrap guard to ensure schema/seed/ETL runs exactly once per process
+_BOOTSTRAPPED = False
+_BOOTSTRAP_LOCK = threading.Lock()
 
 
 def _pool_key(params: dict) -> str:
@@ -41,7 +56,7 @@ def _pool_key(params: dict) -> str:
 
 def _make_conn(params: dict):
     if "dsn" in params:
-        return psycopg2.connect(
+        conn = psycopg2.connect(
             params["dsn"],
             cursor_factory=psycopg2.extras.RealDictCursor,
             connect_timeout=15,
@@ -49,27 +64,31 @@ def _make_conn(params: dict):
             keepalives_idle=300,
             keepalives_interval=30,
         )
-    return psycopg2.connect(
-        cursor_factory=psycopg2.extras.RealDictCursor,
-        connect_timeout=15,
-        keepalives=1,
-        keepalives_idle=300,
-        keepalives_interval=30,
-        **params,
-    )
+    else:
+        conn = psycopg2.connect(
+            cursor_factory=psycopg2.extras.RealDictCursor,
+            connect_timeout=15,
+            keepalives=1,
+            keepalives_idle=300,
+            keepalives_interval=30,
+            **params,
+        )
+    
+    # Add creation timestamp for pool_recycle functionality
+    conn._creation_time = time.time()
+    return conn
 
 
 def _open_conn():
     """Open a raw psycopg2 connection using app config (for ETL/seed scripts)."""
     from flask import current_app
+
     params = current_app.config["psycopg2_params"]()
     if "dsn" in params:
         return psycopg2.connect(
             params["dsn"], cursor_factory=psycopg2.extras.RealDictCursor
         )
-    return psycopg2.connect(
-        cursor_factory=psycopg2.extras.RealDictCursor, **params
-    )
+    return psycopg2.connect(cursor_factory=psycopg2.extras.RealDictCursor, **params)
 
 
 def _get_pool(params: dict):
@@ -77,7 +96,9 @@ def _get_pool(params: dict):
     with _POOL_LOCK:
         pool = _POOLS.get(key)
         if pool is None:
-            pool = psycopg2.pool.ThreadedConnectionPool(1, _POOL_SIZE, **_make_conn_kwargs(params))
+            pool = psycopg2.pool.ThreadedConnectionPool(
+                1, _POOL_SIZE, **_make_conn_kwargs(params)
+            )
             _POOLS[key] = pool
         return pool
 
@@ -102,19 +123,93 @@ def _make_conn_kwargs(params: dict) -> dict:
     return kwargs
 
 
+def _record_connection_checkout(conn):
+    """Record the time a connection was checked out for leak detection."""
+    conn_id = id(conn)
+    with _CHECKOUT_LOCK:
+        _CHECKOUT_TIMES[conn_id] = time.time()
+
+
+def _record_connection_checkin(conn):
+    """Record that a connection was checked back in and remove from leak tracking."""
+    conn_id = id(conn)
+    with _CHECKOUT_LOCK:
+        if conn_id in _CHECKOUT_TIMES:
+            checkout_time = _CHECKOUT_TIMES.pop(conn_id)
+            # Log if connection was checked out for too long (possible leak)
+            duration = time.time() - checkout_time
+            if duration > 300:  # 5 minutes
+                LOGGER.warning(
+                    "Connection was checked out for %.2f seconds (possible leak)",
+                    duration,
+                )
+
+
 def get_connection():
     """Return a pooled, request-scoped psycopg2 connection.
 
-    Connections are lazily health-checked: the first real query on a stale
-    connection will fail, triggering a single reconnect instead of paying
-    a ``SELECT 1`` round-trip on every request.
+    Connections are validated on checkout to avoid stale connections.
     """
     if "db" not in g:
         params = current_app.config["psycopg2_params"]()
         pool = _get_pool(params)
-        g.db = pool.getconn()
+        conn = pool.getconn()
+        
+        # Record connection checkout for leak detection
+        _record_connection_checkout(conn)
+        
+        # Validate and potentially recycle connection
+        conn = _validate_and_recycle_connection(conn, pool)
+        
+        g.db = conn
         g.db_pool = pool
     return g.db
+
+
+def _validate_connection(conn):
+    """Validate a connection with SELECT 1. Returns True if valid, False otherwise."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+
+def _validate_and_recycle_connection(conn, pool):
+    """Validate a connection and recycle if too old, returning a valid connection."""
+    # Check if connection is too old and needs to be recycled (pool_recycle functionality)
+    try:
+        conn_age = time.time() - getattr(conn, '_creation_time', time.time())
+        if conn_age > _POOL_RECYCLE:
+            LOGGER.debug(
+                "Recycling connection due to pool_recycle (age: %.2f s > %d s)",
+                conn_age, _POOL_RECYCLE
+            )
+            pool.putconn(conn, close=True)
+            conn = pool.getconn()
+            # Record checkout for the new connection
+            _record_connection_checkout(conn)
+    except Exception:
+        # If we can't check the age, continue with the connection
+        pass
+    
+    # Validate connection to avoid stale connections
+    if not _validate_connection(conn):
+        LOGGER.debug("Connection validation failed, getting replacement connection")
+        pool.putconn(conn, close=True)
+        conn = pool.getconn()
+        # Record checkout for the new connection
+        _record_connection_checkout(conn)
+        # Validate the replacement connection too
+        if not _validate_connection(conn):
+            # If replacement also fails validation, we'll let the exception propagate
+            # after recording checkin for the bad connection
+            pool.putconn(conn, close=True)
+            _record_connection_checkin(conn)
+            raise psycopg2.OperationalError("Failed to validate replacement connection")
+    
+    return conn
 
 
 @contextmanager
@@ -130,17 +225,22 @@ def get_cursor(commit: bool = False):
         yield cur
         if commit:
             conn.commit()
-    except (psycopg2.InterfaceError, psycopg2.OperationalError):
+    except (psycopg2.InterfaceError, psycopg2.OperationalError) as e:
+        # Handle stale/broken connections by reconnecting and retrying once
         conn.rollback()
         cur.close()
         pool = g.get("db_pool")
         if pool:
             try:
+                # Record checkin for the old connection
+                _record_connection_checkin(g.get("db"))
                 pool.putconn(g.get("db"), close=True)
             except Exception:
                 pass
         new_conn = pool.getconn() if pool else get_connection()
         g.db = new_conn
+        # Record checkout for the new connection
+        _record_connection_checkout(new_conn)
         cur = new_conn.cursor()
         try:
             yield cur
@@ -152,11 +252,15 @@ def get_cursor(commit: bool = False):
         finally:
             cur.close()
         return
-    except Exception:
+    except Exception as e:
+        # Log unexpected exceptions for debugging
+        LOGGER.exception("Unexpected exception in get_cursor: %s", e)
         conn.rollback()
         raise
     finally:
         cur.close()
+        # Record checkin for the connection
+        _record_connection_checkin(conn)
 
 
 def close_connection(_exc=None):
@@ -166,6 +270,8 @@ def close_connection(_exc=None):
         try:
             if _exc is not None:
                 db.rollback()
+            # Record checkin for the connection
+            _record_connection_checkin(db)
             pool.putconn(db)
         except Exception:
             LOGGER.debug("Could not return connection to pool.", exc_info=True)
@@ -216,8 +322,20 @@ def etl_database(force: bool = False) -> dict:
     return run_etl(force=force)
 
 
-_BOOTSTRAPPED = False
-_BOOTSTRAP_LOCK = threading.Lock()
+def get_pool_stats() -> dict:
+    """Get statistics about the connection pools for monitoring.
+
+    Pool keys embed full connection params (incl. password) via
+    _pool_key() — expose only an ordinal so stats can never leak DSN.
+    """
+    stats = {}
+    with _POOL_LOCK:
+        for ordinal, _key in enumerate(_POOLS):
+            stats[f"pool_{ordinal}"] = {
+                "pool_size": _POOL_SIZE,
+                "max_connections": _POOL_SIZE,
+            }
+    return stats
 
 
 def _schema_exists() -> bool:

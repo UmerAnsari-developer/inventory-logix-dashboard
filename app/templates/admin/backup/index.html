@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Backup & Restore - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Backup & Restore</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_backup.create') }}" class="btn btn-primary">Create Backup</a>
+  </div>
+</div>
+
+{% if backups %}
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Backup Name</th>
+        <th>Type</th>
+        <th>Size</th>
+        <th>Status</th>
+        <th>Created At</th>
+        <th>Created By</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for backup in backups %}
+      <tr>
+        <td>{{ backup.backup_name }}</td>
+        <td>{{ backup.backup_type }}</td>
+        <td>
+          {% if backup.size >= 1024*1024 %}
+            {{ (backup.size / (1024*1024)) | round(2) }} MB
+          {% elif backup.size >= 1024 %}
+            {{ (backup.size / 1024) | round(2) }} KB
+          {% else %}
+            {{ backup.size }} bytes
+          {% endif %}
+        </td>
+        <td>
+          {% if backup.status == 'success' %}
+            <span class="status status.good">Success</span>
+          {% elif backup.status == 'failed' %}
+            <span class="status status.danger">Failed</span>
+          {% elif backup.status == 'in_progress' %}
+            <span class="status status.warning">In Progress</span>
+          {% else %}
+            <span class="status">{{ backup.status }}</span>
+          {% endif %}
+        </td>
+        <td>{{ backup.created_at.strftime('%Y-%m-%d %H:%M:%S') if backup.created_at else '' }}</td>
+        <td>
+          {% set user = backup.created_by %}
+          {% if user %}
+            {{ user }}
+          {% else %}
+            Unknown
+          {% endif %}
+        </td>
+        <td>
+          <div class="btn-group" role="group">
+            <form action="{{ url_for('admin_backup.restore', backup_id=backup.id) }}" method="post" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn btn-outline" 
+                      onclick="return confirm('Are you sure you want to restore this backup? This will overwrite the current database.')">
+                Restore
+              </button>
+            </form>
+            <form action="{{ url_for('admin_backup.delete', backup_id=backup.id) }}" method="post" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn btn-outline btn-danger"
+                      onclick="return confirm('Are you sure you want to delete this backup record and its associated file?')">
+                Delete
+              </button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert-strip">
+  <div class="alert-mark">info</div>
+  <div>
+    <div class="alert-title">No backups found</div>
+    <div class="alert-subtitle">
+      <a href="{{ url_for('admin_backup.create') }}">Create your first backup</a>.
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

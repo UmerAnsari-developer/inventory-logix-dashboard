@@ -17,7 +17,7 @@
     </div>
     <h1>Create your account</h1>
     <p class="auth-tagline">Get instant access to live inventory, EOQ, and AI features</p>
-    <form method="post" action="{{ url_for('auth.register') }}" class="auth-form" novalidate>
+    <form method="post" action="{{ url_for('auth.register') }}" class="auth-form" novalidate data-match="#register-password => #reg-confirm">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <label><span>Username</span>
         <div class="input-wrapper">

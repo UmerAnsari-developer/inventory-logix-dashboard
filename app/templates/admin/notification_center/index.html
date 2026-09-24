@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Notification Center - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Notification Center</h1>
+  </div>
+  <div class="page-actions">
+    {% if unread_count > 0 %}
+    <form method="post" action="{{ url_for('notification_center.mark_all_read') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="btn btn-outline btn-secondary">
+        Mark All as Read ({{ unread_count }})
+      </button>
+    </form>
+    {% endif %}
+    <a href="{{ url_for('notification_center.index') }}" class="btn btn-outline">Refresh</a>
+  </div>
+</div>
+
+{% if notifications %}
+  {% for notification in notifications %}
+  <div class="panel" style="{% if not notification.is_read %} background-color:var(--accent-soft); {% endif %}">
+    <div class="panel-header">
+      <div class="flex w-100 justify-content-between">
+        <h5 class="panel-title mb-1">{{ notification.title }}</h5>
+        <small>{{ notification.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+      </div>
+    </div>
+<div class="panel-content">
+  <p class="mb-0">{{ notification.message }}</p>
+  <div class="flex flex-nowrap gap-2" style="margin-top:10px; display:flex; gap:20px;">
+    {% if not notification.is_read %}
+    <form method="post" action="{{ url_for('notification_center.mark_read', notification_id=notification.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="btn btn-outline btn-primary">Mark as Read</button>
+    </form>
+    {% endif %}
+    <form method="post" action="{{ url_for('notification_center.delete_notification', notification_id=notification.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="btn btn-outline btn-danger"
+              onclick="return confirm('Are you sure you want to delete this notification?')">
+        Delete
+      </button>
+    </form>
+  </div>
+</div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="alert-strip">
+  <div class="alert-mark">info</div>
+  <div>
+    <div class="alert-title">You have no notifications.</div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

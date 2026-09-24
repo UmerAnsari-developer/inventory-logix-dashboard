@@ -13,8 +13,9 @@ login_manager.session_protection = "strong"
 
 csrf = CSRFProtect()
 
+# storage backend comes from Config.RATELIMIT_STORAGE_URI via app.config —
+# no storage_uri kwarg here (it would shadow flask-limiter's config lookup).
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["200 per minute"],
-    storage_uri="memory://",
 )

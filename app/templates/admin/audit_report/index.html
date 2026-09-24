@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}Audit Report Generator - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>Audit Report Generator</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_audit_report.create') }}" class="btn btn-primary">Create Scheduled Report</a>
+    <form method="post" action="{{ url_for('admin_audit_report.run_due_reports') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="btn btn-outline">Run Due Reports</button>
+    </form>
+  </div>
+</div>
+
+{% if reports %}
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Format</th>
+        <th>Frequency</th>
+        <th>Next Run Time</th>
+        <th>Last Run Time</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for report in reports %}
+      <tr>
+        <td>{{ report.name }}</td>
+        <td>{{ report.format }}</td>
+        <td>{{ report.frequency }}</td>
+        <td>
+          {{ report.next_run_time.strftime('%Y-%m-%d %H:%M:%S') if report.next_run_time else 'Not scheduled' }}
+        </td>
+        <td>
+          {{ report.last_run_time.strftime('%Y-%m-%d %H:%M:%S') if report.last_run_time else 'Never' }}
+        </td>
+        <td>
+          {% if report.is_active %}
+            <span class="status good">Active</span>
+          {% else %}
+            <span class="status" style="color: var(--muted);">Inactive</span>
+          {% endif %}
+        </td>
+        <td>
+          <div class="btn-group" role="group">
+            <a href="{{ url_for('admin_audit_report.edit', report_id=report.id) }}" class="btn btn-outline btn-primary">Edit</a>
+            <form method="post" action="{{ url_for('admin_audit_report.delete', report_id=report.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn btn-outline btn-danger"
+                      onclick="return confirm('Are you sure you want to delete this scheduled report?')">
+                Delete
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('admin_audit_report.run_report', report_id=report.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn btn-outline btn-secondary">Run Now</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert-strip">
+  <div class="alert-mark">info</div>
+  <div>
+    <div class="alert-title">No scheduled audit reports found.</div>
+    <div class="alert-subtitle">
+      <a href="{{ url_for('admin_audit_report.create') }}">Create your first scheduled report</a>.
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

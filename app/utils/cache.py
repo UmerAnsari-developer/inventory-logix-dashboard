@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 import time
+import weakref
 from collections import OrderedDict
 from typing import Any, Callable
 
@@ -25,7 +26,10 @@ class TTLCache:
         self.max_entries = max_entries
         self._store: OrderedDict[str, tuple[float, Any]] = OrderedDict()
         self._lock = threading.Lock()
-        self._rebuild_locks: dict[str, threading.Lock] = {}
+        # F5: weak-valued so per-key locks vanish once no get_or_set is using them
+        self._rebuild_locks: weakref.WeakValueDictionary[str, threading.Lock] = (
+            weakref.WeakValueDictionary()
+        )
 
     def get(self, key: str, default=None):
         with self._lock:
@@ -52,19 +56,20 @@ class TTLCache:
         value = self.get(key, _SENTINEL)
         if value is not _SENTINEL:
             return value
-        # Per-key lock: only one thread rebuilds, others wait and read
+        # Per-key lock: only one thread rebuilds, others wait and read.
+        # Strong local ref keeps the weak entry alive for the duration.
         with self._lock:
-            if key not in self._rebuild_locks:
-                self._rebuild_locks[key] = threading.Lock()
-            key_lock = self._rebuild_locks[key]
+            key_lock = self._rebuild_locks.get(key)
+            if key_lock is None:
+                key_lock = threading.Lock()
+                self._rebuild_locks[key] = key_lock
         with key_lock:
             # Double-check after acquiring lock
             value = self.get(key, _SENTINEL)
             if value is not _SENTINEL:
                 return value
             value = producer()
-            if value is not None:
-                self.set(key, value)
+            self.set(key, value)
             return value
 
     def invalidate(self, prefix: str) -> int:
@@ -87,51 +92,50 @@ class TTLCache:
 # ── Named caches, one per concern ─────────────────────────────────
 # Writes call cache_bust_* so stale data never outlives a mutation.
 
-products_cache = TTLCache(ttl=120, max_entries=50)   # lists + details
-suppliers_cache = TTLCache(ttl=120, max_entries=50)  # lists + details
-dashboard_cache = TTLCache(ttl=300, max_entries=10)   # dashboard context
-reports_cache = TTLCache(ttl=3600, max_entries=20)    # heavy report queries (~30 DB queries cold)
-global_cache = TTLCache(ttl=600, max_entries=20)       # reorder count, settings, cross-request
-api_cache = TTLCache(ttl=60, max_entries=50)          # REST GET responses
-landing_cache = TTLCache(ttl=300, max_entries=5)      # public landing stats
-monitoring_cache = TTLCache(ttl=30, max_entries=5)     # monitoring DB stats
+products_cache = TTLCache(ttl=300, max_entries=100)      # lists + details (5 min)
+suppliers_cache = TTLCache(ttl=300, max_entries=100)     # lists + details (5 min)
+dashboard_cache = TTLCache(ttl=600, max_entries=20)      # dashboard context (10 min)
+reports_cache = TTLCache(ttl=7200, max_entries=50)       # heavy report queries (2 hours)
+global_cache = TTLCache(ttl=600, max_entries=20)         # reorder count, settings, cross-request (10 min)
+api_cache = TTLCache(ttl=120, max_entries=100)           # REST GET responses (2 min)
+landing_cache = TTLCache(ttl=600, max_entries=10)        # public landing stats (10 min)
+monitoring_cache = TTLCache(ttl=60, max_entries=10)      # monitoring DB stats (1 min)
 
 
 def cache_bust_products() -> int:
     """Invalidate everything derived from product data."""
     n = products_cache.invalidate("")
-    n += dashboard_cache.invalidate("")
-    n += reports_cache.invalidate("")
+    n += dashboard_cache.invalidate("dashboard:")
+    n += reports_cache.invalidate("")         # F2: reports keys may lack a prefix
     n += global_cache.invalidate("")          # reorder_count changes with stock
-    n += api_cache.invalidate("products")
-    n += landing_cache.invalidate("")          # landing shows stock/product stats
+    n += api_cache.invalidate("product")      # matches "products:..." and "product:<id>"
+    n += landing_cache.invalidate("")
     return n
 
 
 def cache_bust_suppliers() -> int:
     n = suppliers_cache.invalidate("")
-    n += reports_cache.invalidate("")
+    n += reports_cache.invalidate("reports:")
     n += api_cache.invalidate("suppliers")
     n += landing_cache.invalidate("")
     return n
 
 
 def cache_bust_movements() -> int:
-    """Movements change stock → everything product/dashboard-ish is stale."""
+    """Movements change stock → only bust product/dashboard/reports caches."""
     n = products_cache.invalidate("")
-    n += dashboard_cache.invalidate("")
-    n += reports_cache.invalidate("")
-    n += global_cache.invalidate("")
-    n += api_cache.invalidate("")
-    n += landing_cache.invalidate("")
+    n += dashboard_cache.invalidate("dashboard:")
+    n += reports_cache.invalidate("reports:")
+    n += api_cache.invalidate("movements")
+    # DON'T bust: global_cache, landing_cache, suppliers_cache
     return n
 
 
 def cache_bust_purchase_orders() -> int:
     n = products_cache.invalidate("")          # PO delivery updates stock
-    n += dashboard_cache.invalidate("")
-    n += reports_cache.invalidate("")
-    n += api_cache.invalidate("")
+    n += dashboard_cache.invalidate("dashboard:")
+    n += reports_cache.invalidate("reports:")
+    n += api_cache.invalidate("purchase_orders")
     return n
 
 
@@ -148,5 +152,15 @@ def cache_bust_all() -> int:
 
 
 def make_key(**kwargs) -> str:
-    """Deterministic cache key from filter params (falsy values skipped)."""
-    return "|".join(f"{k}={v}" for k, v in sorted(kwargs.items()) if v)
+    """Deterministic cache key from filter params (falsy values skipped).
+
+    A `prefix` kwarg is emitted first as `prefix:...` so invalidate(prefix)
+    can match the key; without it the body is unchanged.
+    """
+    prefix = kwargs.pop("prefix", "") or ""
+    body = "|".join(f"{k}={v}" for k, v in sorted(kwargs.items()) if v)
+    if prefix:
+        # N1: always emit the colon so empty-body keys ("reports:") still
+        # match invalidate("prefix:") busts used by movement/PO/supplier writes.
+        return f"{prefix}:{body}"
+    return body

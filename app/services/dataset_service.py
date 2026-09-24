@@ -182,7 +182,7 @@ def get_products(limit=None):
         )
         unit_price = float(product.get('product_price', 0) or 0)
         order_cost = 50.0  # Default ordering cost estimate
-        # Use 20% of unit price as holding cost, minimum $2
+        # Use 20% of unit price as holding cost, minimum ₹2
         holding_cost = max(2.0, unit_price * 0.20) if unit_price > 0 else 2.0
 
         # EOQ = sqrt(2DS/H); D=demand, S=order cost, H=holding cost

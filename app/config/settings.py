@@ -43,10 +43,6 @@ class Config:
     DB_SSLMODE = os.environ.get("DB_SSLMODE", "")
     DATABASE_URL = os.environ.get("DATABASE_URL")
 
-    # Rate limiting
-    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
-    RATELIMIT_DEFAULT = "200 per minute"
-
     # SMTP — used to deliver password-reset emails. When no SMTP host is set
     # the reset link is surfaced in the UI instead (development fallback).
     SMTP_HOST = os.environ.get("SMTP_HOST", "")
@@ -64,6 +60,15 @@ class Config:
     AI_FORECAST_ENABLED = _bool(os.environ.get("AI_FORECAST_ENABLED"), True)
     ANOMALY_DETECTION_ENABLED = _bool(os.environ.get("ANOMALY_DETECTION_ENABLED"), True)
     DARK_MODE_ENABLED = _bool(os.environ.get("DARK_MODE_ENABLED"), True)
+
+    # Rate limiting (flask-limiter) storage backend — memory:// default;
+    # Redis deferred until workers>1 or instances>1 (orchestrator decision).
+    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+    # Opt-in reverse-proxy trust (Render etc.). When truthy the factory
+    # installs ProxyFix so the limiter keys on the X-Forwarded-For client
+    # hop instead of the shared proxy IP. Default OFF keeps XFF
+    # spoof-proof when the app is directly exposed.
+    TRUST_PROXY = _bool(os.environ.get("TRUST_PROXY"))
 
     # Anomaly detection thresholds
     ANOMALY_ZWARNING = float(os.environ.get("ANOMALY_ZWARNING", "2.0"))

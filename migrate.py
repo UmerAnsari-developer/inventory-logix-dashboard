@@ -60,6 +60,8 @@ def downgrade() -> None:
 def apply_upgrade():
     """Apply all pending migrations."""
     import subprocess
+    import os
+    print(f"DATABASE_URL in migrate.py: {os.environ.get('DATABASE_URL')}")
     result = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         capture_output=True, text=True

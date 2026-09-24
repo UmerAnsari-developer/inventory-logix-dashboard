@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}User Activity: {{ username }} - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>User Activity: {{ username }}</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_user_activity.index') }}" class="btn btn-secondary">Back to All Activities</a>
+  </div>
+</div>
+
+{% if activities %}
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Action</th>
+        <th>Target Type</th>
+        <th>Target ID</th>
+        <th>Detail</th>
+        <th>IP Address</th>
+        <th>Created At</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for activity in activities %}
+      <tr>
+        <td>{{ activity.id }}</td>
+        <td>{{ activity.action }}</td>
+        <td>{{ activity.target_type or '' }}</td>
+        <td>{{ activity.target_id or '' }}</td>
+        <td>
+          {% if activity.detail %}
+            {{ activity.detail | truncate(100) }}
+          {% else %}
+            -
+          {% endif %}
+        </td>
+        <td>{{ activity.ip_address or '' }}</td>
+        <td>{{ activity.created_at.strftime('%Y-%m-%d %H:%M:%S') if activity.created_at else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert-strip">
+  <div class="alert-mark">info</div>
+  <div>
+    <div class="alert-title">No activities found for this user.</div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

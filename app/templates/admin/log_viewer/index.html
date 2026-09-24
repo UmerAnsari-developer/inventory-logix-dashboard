@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}System Logs Viewer - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Administration</div>
+    <h1>System Logs Viewer</h1>
+  </div>
+  <div class="page-actions">
+    <a href="{{ url_for('admin_log_viewer.index') }}" class="btn btn-secondary">Refresh</a>
+    <a href="{{ url_for('admin_log_viewer.index') }}?limit=1000" class="btn btn-outline">Show More (1000)</a>
+  </div>
+</div>
+
+<form method="get" action="{{ url_for('admin_log_viewer.index') }}" class="filter-bar">
+  <label class="inv-filter-label">
+    <span>Level</span>
+    <select id="level" name="level">
+      <option value="">All Levels</option>
+      <option value="DEBUG" {% if filter_params.level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+      <option value="INFO" {% if filter_params.level == 'INFO' %}selected{% endif %}>INFO</option>
+      <option value="WARNING" {% if filter_params.level == 'WARNING' %}selected{% endif %}>WARNING</option>
+      <option value="ERROR" {% if filter_params.level == 'ERROR' %}selected{% endif %}>ERROR</option>
+      <option value="CRITICAL" {% if filter_params.level == 'CRITICAL' %}selected{% endif %}>CRITICAL</option>
+    </select>
+  </label>
+  <label class="inv-filter-label">
+    <span>Start Date</span>
+    <input type="date" id="start_date" name="start_date" value="{{ filter_params.start_date or '' }}">
+  </label>
+  <label class="inv-filter-label">
+    <span>End Date</span>
+    <input type="date" id="end_date" name="end_date" value="{{ filter_params.end_date or '' }}">
+  </label>
+  <label class="inv-filter-label">
+    <span>Search</span>
+    <input type="text" id="search" name="search" value="{{ filter_params.search or '' }}"
+           placeholder="Search in log messages">
+  </label>
+  <button type="submit" class="btn btn-primary">Filter</button>
+</form>
+
+{% if log_entries %}
+<div class="table-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Level</th>
+        <th>Name</th>
+        <th>Message</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in log_entries %}
+      <tr>
+        <td>{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S,%f')[:-3] }}</td>
+        <td>
+          {% if entry.level == 'DEBUG' %}
+            <span class="status" style="color: var(--muted);">DEBUG</span>
+          {% elif entry.level == 'INFO' %}
+            <span class="status" style="color: var(--info);">INFO</span>
+          {% elif entry.level == 'WARNING' %}
+            <span class="status warning">WARNING</span>
+          {% elif entry.level == 'ERROR' %}
+            <span class="status critical">ERROR</span>
+          {% elif entry.level == 'CRITICAL' %}
+            <span class="status critical">CRITICAL</span>
+          {% else %}
+            <span class="status">{{ entry.level }}</span>
+          {% endif %}
+        </td>
+        <td>{{ entry.name }}</td>
+        <td>{{ entry.message }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert-strip">
+  <div class="alert-mark">info</div>
+  <div>
+    <div class="alert-title">No log entries found matching the filters.</div>
+  </div>
+</div>
+{% endif %}
+
+{% if total_count > 0 %}
+<div class="mt-3">
+  <small>Total log lines: {{ total_count }}</small>
+</div>
+{% endif %}
+{% endblock %}

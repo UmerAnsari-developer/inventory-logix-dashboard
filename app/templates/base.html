@@ -15,7 +15,7 @@
   </script>
   <!-- Theme init from localStorage (syncs with landing page) -->
   <script nonce="{{ csp_nonce }}">
-    (function() {
+    (function () {
       var theme = localStorage.getItem('stockflow-theme') || localStorage.getItem('theme') || 'dark';
       document.documentElement.setAttribute('data-theme', theme);
       localStorage.setItem('theme', theme);
@@ -24,11 +24,11 @@
   </script>
   {% if current_user.is_authenticated %}
   <script nonce="{{ csp_nonce }}">
-    window.LOGIN_URL = {{ url_for('auth.login')|tojson }};
+    window.LOGIN_URL = {{ url_for('auth.login') | tojson }};
   </script>
   <script nonce="{{ csp_nonce }}">
     window.appSettings = {{ app_settings | tojson | safe }};
-    (function() {
+    (function () {
       var t = window.appSettings && window.appSettings.dark_mode;
       if (t === 'on' || t === 'off') {
         var theme = t === 'on' ? 'dark' : 'light';
@@ -43,16 +43,17 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=17d23f14" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=f4d430c1" />
   <script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}?v=ddb8b099" defer></script>
-  <script src="{{ url_for('static', filename='js/vendor/chartjs-plugin-datalabels.min.js') }}?v=f3adb031" defer></script>
+  <script src="{{ url_for('static', filename='js/vendor/chartjs-plugin-datalabels.min.js') }}?v=f3adb031"
+    defer></script>
   <script src="{{ url_for('static', filename='js/vendor/gsap.min.js') }}?v=bf3fd8ec" defer></script>
   <script src="{{ url_for('static', filename='js/vendor/ScrollTrigger.min.js') }}?v=5445d0e9" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
 
 <body class="{{ 'app' if current_user.is_authenticated else 'auth' }} {% block body_class %}{% endblock %}">
-<canvas id="scene" aria-hidden="true"></canvas>
-<div id="dim" aria-hidden="true"></div>
-<div class="noise" aria-hidden="true"></div>
+  <canvas id="scene" aria-hidden="true"></canvas>
+  <div id="dim" aria-hidden="true"></div>
+  <div class="noise" aria-hidden="true"></div>
   {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
   <div class="flash-stack" role="status">
@@ -70,52 +71,65 @@
     <div class="main-area">
       <header class="topbar">
         <a class="brand-link" href="{{ url_for('ui.dashboard') }}">
-          <img class="brand-logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="InventoryLogix logo" width="30" height="30" />
+          <img class="brand-logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="InventoryLogix logo"
+            width="30" height="30" />
           <span class="brand-name">InventoryLogix</span>
         </a>
-        <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-haspopup="true" aria-expanded="false">&#9776;</button>
+        <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-haspopup="true"
+          aria-expanded="false">&#9776;</button>
         <div class="topbar-spacer"></div>
         <nav class="top-nav" aria-label="Primary navigation">
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Operations</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
+              <span class="nav-drop-label">Operations</span><span class="nav-drop-caret"
+                aria-hidden="true">&#9662;</span>
             </button>
             <div class="nav-drop-menu">
-              <a href="{{ url_for('ui.dashboard') }}" class="menu-item {{ 'active' if active_page == 'dashboard' else '' }}">
+              <a href="{{ url_for('ui.dashboard') }}"
+                class="menu-item {{ 'active' if active_page == 'dashboard' else '' }}">
                 <span class="nav-text">Dashboard Overview</span>
               </a>
-              <a href="{{ url_for('ui.inventory') }}" class="menu-item {{ 'active' if active_page == 'inventory' else '' }}">
+              <a href="{{ url_for('ui.inventory') }}"
+                class="menu-item {{ 'active' if active_page == 'inventory' else '' }}">
                 <span class="nav-text">Inventory Ledger</span>
               </a>
-              <a href="{{ url_for('ui.reorder_alerts') }}" class="menu-item {{ 'active' if active_page == 'reorder' else '' }}">
+              <a href="{{ url_for('ui.reorder_alerts') }}"
+                class="menu-item {{ 'active' if active_page == 'reorder' else '' }}">
                 <span class="nav-text">Procurement Queue</span>
                 <span class="nav-count">{{ '%02d'|format(reorder_count) }}</span>
               </a>
-              <a href="{{ url_for('ui.suppliers') }}" class="menu-item {{ 'active' if active_page == 'suppliers' else '' }}">
+              <a href="{{ url_for('ui.suppliers') }}"
+                class="menu-item {{ 'active' if active_page == 'suppliers' else '' }}">
                 <span class="nav-text">Supplier Directory</span>
               </a>
-              <a href="{{ url_for('ui.purchase_orders') }}" class="menu-item {{ 'active' if active_page == 'orders' else '' }}">
+              <a href="{{ url_for('ui.purchase_orders') }}"
+                class="menu-item {{ 'active' if active_page == 'orders' else '' }}">
                 <span class="nav-text">Purchase Orders</span>
               </a>
-              <a href="{{ url_for('ui.warehouses') }}" class="menu-item {{ 'active' if active_page == 'warehouses' else '' }}">
+              <a href="{{ url_for('ui.warehouses') }}"
+                class="menu-item {{ 'active' if active_page == 'warehouses' else '' }}">
                 <span class="nav-text">Warehouse Operations</span>
               </a>
-              <a href="{{ url_for('ui.reports') }}" class="menu-item {{ 'active' if active_page == 'reports' else '' }}">
+              <a href="{{ url_for('ui.reports') }}"
+                class="menu-item {{ 'active' if active_page == 'reports' else '' }}">
                 <span class="nav-text">Analytics & Reports</span>
               </a>
             </div>
           </div>
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Intelligence</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
+              <span class="nav-drop-label">Intelligence</span><span class="nav-drop-caret"
+                aria-hidden="true">&#9662;</span>
             </button>
             <div class="nav-drop-menu">
-              <a href="{{ url_for('ai.forecast_page') }}" class="menu-item {{ 'active' if active_page == 'forecast' else '' }}">
+              <a href="{{ url_for('ai.forecast_page') }}"
+                class="menu-item {{ 'active' if active_page == 'forecast' else '' }}">
                 <span class="nav-icon">AI</span><span class="nav-text">Demand Forecasting</span>
                 <span class="badge new">NEW</span>
               </a>
               {% if app_settings.get('anomaly_detection') != 'off' %}
-              <a href="{{ url_for('ai.anomaly_page') }}" class="menu-item {{ 'active' if active_page == 'anomaly' else '' }}">
+              <a href="{{ url_for('ai.anomaly_page') }}"
+                class="menu-item {{ 'active' if active_page == 'anomaly' else '' }}">
                 <span class="nav-icon">AI</span><span class="nav-text">Anomaly Detection</span>
               </a>
               {% endif %}
@@ -123,26 +137,68 @@
           </div>
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Optimization</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
+              <span class="nav-drop-label">Optimization</span><span class="nav-drop-caret"
+                aria-hidden="true">&#9662;</span>
             </button>
             <div class="nav-drop-menu">
-              <a href="{{ url_for('ui.eoq_calculator') }}" class="menu-item {{ 'active' if active_page == 'eoq' else '' }}">
+              <a href="{{ url_for('ui.eoq_calculator') }}"
+                class="menu-item {{ 'active' if active_page == 'eoq' else '' }}">
                 <span class="nav-text">EOQ Calculator</span>
               </a>
             </div>
           </div>
-{% if current_user.role in ['admin', 'manager'] %}
-            <div class="nav-drop">
-              <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-                <span class="nav-drop-label">Administration</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
-              </button>
-              <div class="nav-drop-menu">
-                <a href="{{ url_for('ui.settings') }}" class="menu-item {{ 'active' if active_page == 'settings' else '' }}">
-                  <span class="nav-text">Settings</span>
-                </a>
-              </div>
+          {% if current_user.role in ['admin', 'manager'] %}
+          <div class="nav-drop">
+            <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
+              <span class="nav-drop-label">Administration</span><span class="nav-drop-caret"
+                aria-hidden="true">&#9662;</span>
+            </button>
+            <div class="nav-drop-menu">
+              <a href="{{ url_for('ui.settings') }}"
+                class="menu-item {{ 'active' if active_page == 'settings' else '' }}">
+                <span class="nav-text">Settings</span>
+              </a>
+              {% if current_user.role == 'admin' %}
+              <a href="{{ url_for('admin_backup.index') }}"
+                class="menu-item {{ 'active' if active_page == 'backup' else '' }}">
+                <span class="nav-text">Backup & Restore</span>
+              </a>
+              {% endif %}
+              <a href="{{ url_for('admin_data_import.index') }}"
+                class="menu-item {{ 'active' if active_page == 'data_import' else '' }}">
+                <span class="nav-text">Data Import Hub</span>
+              </a>
+              {% if current_user.role == 'admin' %}
+              <a href="{{ url_for('admin_system_config.index') }}"
+                class="menu-item {{ 'active' if active_page == 'system_config' else '' }}">
+                <span class="nav-text">System Config</span>
+              </a>
+              {% endif %}
+              <a href="{{ url_for('admin_user_activity_analytics.index') }}"
+                class="menu-item {{ 'active' if active_page == 'user_activity_analytics' else '' }}">
+                <span class="nav-text">User Activity Analytics</span>
+              </a>
+              {% if current_user.role == 'admin' %}
+              <a href="{{ url_for('admin_user_management.index') }}"
+                class="menu-item {{ 'active' if active_page == 'user_management' else '' }}">
+                <span class="nav-text">User Management</span>
+              </a>
+              {% endif %}
+              <a href="{{ url_for('admin_log_viewer.index') }}"
+                class="menu-item {{ 'active' if active_page == 'logs' else '' }}">
+                <span class="nav-text">Log Viewer</span>
+              </a>
+              <a href="{{ url_for('notification_center.index') }}"
+                class="menu-item {{ 'active' if active_page == 'notifications' else '' }}">
+                <span class="nav-text">Notification Center</span>
+              </a>
+              <a href="{{ url_for('admin_export.index') }}"
+                class="menu-item {{ 'active' if active_page == 'export' else '' }}">
+                <span class="nav-text">Data Export</span>
+              </a>
             </div>
-            {% endif %}
+          </div>
+          {% endif %}
           <div class="nav-drop">
             <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
               <span class="nav-drop-label">Support</span><span class="nav-drop-caret" aria-hidden="true">&#9662;</span>
@@ -151,7 +207,8 @@
               <a href="{{ url_for('ui.help') }}" class="menu-item {{ 'active' if active_page == 'help' else '' }}">
                 <span class="nav-icon">?</span><span class="nav-text">Help Center</span>
               </a>
-              <a href="{{ url_for('ui.contact') }}" class="menu-item {{ 'active' if active_page == 'contact' else '' }}">
+              <a href="{{ url_for('ui.contact') }}"
+                class="menu-item {{ 'active' if active_page == 'contact' else '' }}">
                 <span class="nav-icon">@</span><span class="nav-text">Contact Support</span>
               </a>
             </div>
@@ -160,7 +217,8 @@
         <button class="top-action" id="notificationButton" data-count="{{ reorder_count }}"
           aria-label="View notifications">&#9675;<span class="notification-dot"></span></button>
         <div class="user-menu-wrap">
-          <button type="button" class="user-chip" id="userMenuButton" aria-haspopup="true" aria-expanded="false" aria-controls="userDropdown">
+          <button type="button" class="user-chip" id="userMenuButton" aria-haspopup="true" aria-expanded="false"
+            aria-controls="userDropdown">
             <div class="avatar">{{ (current_user.username[:2] if current_user.username else 'GU')|upper }}</div>
             <div>
               <div class="user-name">{{ current_user.username }}</div>
@@ -179,8 +237,10 @@
             <div class="user-dropdown-meta">
               <div class="user-meta-row"><span>Email</span><strong>{{ current_user.email or '—' }}</strong></div>
               <div class="user-meta-row"><span>Role</span><strong>{{ current_user.role|title }}</strong></div>
-              <div class="user-meta-row"><span>Last login</span><strong>{{ current_user.last_login.strftime('%d %b %Y, %I:%M %p') if current_user.last_login else 'First visit' }}</strong></div>
-              <div class="user-meta-row"><span>Member since</span><strong>{{ current_user.created_at.strftime('%d %b %Y') if current_user.created_at else '—' }}</strong></div>
+              <div class="user-meta-row"><span>Last login</span><strong>{{ current_user.last_login.strftime('%d %b %Y,
+                  %I:%M %p') if current_user.last_login else 'First visit' }}</strong></div>
+              <div class="user-meta-row"><span>Member since</span><strong>{{ current_user.created_at.strftime('%d %b
+                  %Y') if current_user.created_at else '—' }}</strong></div>
             </div>
             <div class="user-dropdown-actions">
               <form action="{{ url_for('auth.logout') }}" method="POST" style="display:inline">
@@ -198,16 +258,16 @@
       </main>
 
     </div>
-      <footer class="app-footer">
-        <span>&copy; 2026 Umer Ansari &middot; InventoryLogix</span>
-      </footer>
+    <footer class="app-footer">
+      <span>&copy; 2026 Umer Ansari &middot; InventoryLogix</span>
+    </footer>
   </div>
   {% else %}
   {% block auth_content %}
   {% endblock %}
   {% endif %}
 
-<div class="toast-region" id="toastRegion" aria-live="polite"></div>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
   <script defer src="{{ url_for('static', filename='js/main.js') }}?v=53c0c019"></script>
   <script defer src="{{ url_for('static', filename='js/ai-features.js') }}?v=37e5c03a"></script>
@@ -218,11 +278,11 @@
   {% if not current_user.is_authenticated %}
   <!-- Theme toggle for auth pages + localStorage sync -->
   <script nonce="{{ csp_nonce }}">
-    (function() {
+    (function () {
       var saved = localStorage.getItem('stockflow-theme') || localStorage.getItem('theme') || 'dark';
       document.body.classList.toggle('ink-dark', saved === 'dark');
 
-      document.addEventListener('click', function(e) {
+      document.addEventListener('click', function (e) {
         var btn = e.target.closest('.auth-theme-toggle');
         if (!btn) return;
         var current = document.documentElement.getAttribute('data-theme');
@@ -239,58 +299,59 @@
   {% endblock %}
   {% if current_user.is_authenticated %}
   <script nonce="{{ csp_nonce }}">
-  (function(){
-    var btn = document.getElementById('notificationButton');
-    if(!btn) return;
-    var dd = document.createElement('div');
-    dd.className = 'notif-dropdown';
-    dd.id = 'notifDropdown';
-    dd.style.display = 'none';
-    btn.parentNode.insertBefore(dd, btn.nextSibling);
-    var loaded = false;
+    (function () {
+      var btn = document.getElementById('notificationButton');
+      if (!btn) return;
+      var dd = document.createElement('div');
+      dd.className = 'notif-dropdown';
+      dd.id = 'notifDropdown';
+      dd.style.display = 'none';
+      btn.parentNode.insertBefore(dd, btn.nextSibling);
+      var loaded = false;
 
-    btn.addEventListener('click', function(e){
-      e.stopPropagation();
-      if(dd.style.display === 'block'){ dd.style.display='none'; return; }
-      if(!loaded) fetchNotifs();
-      dd.style.display = 'block';
-    });
-
-    document.addEventListener('click', function(e){
-      if(!e.target.closest('#notificationButton') && !e.target.closest('#notifDropdown')){
-        dd.style.display='none';
-      }
-    });
-
-    function fetchNotifs(){
-      var token = document.querySelector('meta[name="csrf-token"]').content;
-      fetch('/api/notifications', {headers:{'X-CSRFToken': token}})
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        var items = (d.data && d.data.notifications) || [];
-        if(!items.length){
-          dd.innerHTML = '<div class="notif-empty">No notifications</div>';
-          loaded = true;
-          return;
-        }
-        var html = '<div class="notif-header">Notifications</div>';
-        for(var i=0;i<items.length;i++){
-          var n = items[i];
-          html += '<a href="'+ (n.link ? n.link : '/inventory') +'" class="notif-item'+(n.is_read?'':' notif-unread')+'">'
-            + '<div class="notif-icon">'+ (n.icon || '&#9675;') +'</div>'
-            + '<div class="notif-body">'
-            + '<div class="notif-title">'+ (n.title||'') +'</div>'
-            + '<div class="notif-msg">'+ (n.message||'') +'</div>'
-            + '<div class="notif-time">'+ (n.created_at||'') +'</div>'
-            + '</div></a>';
-        }
-        html += '<a href="/inventory" class="notif-view-all">View all notifications</a>';
-        dd.innerHTML = html;
-        loaded = true;
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
+        if (!loaded) fetchNotifs();
+        dd.style.display = 'block';
       });
-    }
-  })();
+
+      document.addEventListener('click', function (e) {
+        if (!e.target.closest('#notificationButton') && !e.target.closest('#notifDropdown')) {
+          dd.style.display = 'none';
+        }
+      });
+
+      function fetchNotifs() {
+        var token = document.querySelector('meta[name="csrf-token"]').content;
+        fetch('/api/notifications', { headers: { 'X-CSRFToken': token } })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            var items = (d.data && d.data.notifications) || [];
+            if (!items.length) {
+              dd.innerHTML = '<div class="notif-empty">No notifications</div>';
+              loaded = true;
+              return;
+            }
+            var html = '<div class="notif-header">Notifications</div>';
+            for (var i = 0; i < items.length; i++) {
+              var n = items[i];
+              html += '<a href="' + (n.link ? n.link : '/inventory') + '" class="notif-item' + (n.is_read ? '' : ' notif-unread') + '">'
+                + '<div class="notif-icon">' + (n.icon || '&#9675;') + '</div>'
+                + '<div class="notif-body">'
+                + '<div class="notif-title">' + (n.title || '') + '</div>'
+                + '<div class="notif-msg">' + (n.message || '') + '</div>'
+                + '<div class="notif-time">' + (n.created_at || '') + '</div>'
+                + '</div></a>';
+            }
+            html += '<a href="/inventory" class="notif-view-all">View all notifications</a>';
+            dd.innerHTML = html;
+            loaded = true;
+          });
+      }
+    })();
   </script>
   {% endif %}
 </body>
+
 </html>
