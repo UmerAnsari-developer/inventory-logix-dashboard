@@ -60,49 +60,82 @@ def downgrade() -> None:
 def apply_upgrade():
     """Apply all pending migrations."""
     import subprocess
-    import os
-    print(f"DATABASE_URL in migrate.py: {os.environ.get('DATABASE_URL')}")
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        capture_output=True, text=True
-    )
-    print(result.stdout)
-    if result.returncode != 0:
-        print(f"ERROR: {result.stderr}")
-    return result.returncode
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            capture_output=True, text=True, timeout=300
+        )
+        print(result.stdout)
+        if result.returncode != 0:
+            print(f"ERROR: {result.stderr}")
+        return result.returncode
+    except subprocess.TimeoutExpired:
+        print("ERROR: Migration timed out after 300 seconds")
+        return 1
 
 
 def apply_downgrade():
     """Rollback one migration."""
     import subprocess
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "downgrade", "-1"],
-        capture_output=True, text=True
-    )
-    print(result.stdout)
-    if result.returncode != 0:
-        print(f"ERROR: {result.stderr}")
-    return result.returncode
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "downgrade", "-1"],
+            capture_output=True, text=True, timeout=300
+        )
+        print(result.stdout)
+        if result.returncode != 0:
+            print(f"ERROR: {result.stderr}")
+        return result.returncode
+    except subprocess.TimeoutExpired:
+        print("ERROR: Migration timed out after 300 seconds")
+        return 1
 
 
 def show_current():
     """Show current migration state."""
     import subprocess
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "current"],
-        capture_output=True, text=True
-    )
-    print(result.stdout)
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "current"],
+            capture_output=True, text=True, timeout=30
+        )
+        print(result.stdout)
+    except subprocess.TimeoutExpired:
+        print("ERROR: Command timed out after 30 seconds")
 
 
 def show_history():
     """Show migration history."""
     import subprocess
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "history", "--verbose"],
-        capture_output=True, text=True
-    )
-    print(result.stdout)
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "history", "--verbose"],
+            capture_output=True, text=True, timeout=30
+        )
+        print(result.stdout)
+    except subprocess.TimeoutExpired:
+        print("ERROR: Command timed out after 30 seconds")
+
+
+def run_etl():
+    """Run the ETL pipeline to build the star-schema data warehouse."""
+    import os
+    os.environ.setdefault("FLASK_ENV", "production")
+    from app import create_app
+    from app.database import etl_database
+    
+    app = create_app("production")
+    with app.app_context():
+        print("Running ETL pipeline...")
+        result = etl_database()
+        if result.get("warehouse_etl_ok"):
+            print("ETL completed successfully.")
+            print(f"  Stages: {result.get('stages_completed', 0)}")
+            print(f"  Rows processed: {result.get('rows_processed', 0)}")
+        else:
+            print("ETL completed with errors.")
+            print(f"  Error: {result.get('error', 'Unknown error')}")
+        return 0 if result.get("warehouse_etl_ok") else 1
 
 
 if __name__ == "__main__":
@@ -124,6 +157,8 @@ if __name__ == "__main__":
         show_current()
     elif cmd == "history":
         show_history()
+    elif cmd == "etl":
+        sys.exit(run_etl())
     else:
         print(f"Unknown command: {cmd}")
         print(__doc__)

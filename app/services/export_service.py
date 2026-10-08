@@ -1,51 +1,111 @@
-"""Data export service."""
+"""Data export service with streaming support for large datasets."""
 from __future__ import annotations
 
 import csv
 import io
 from datetime import date
+from typing import Generator, Iterator
 
 from flask import Response
 
-from ..repositories import (
-    ProductRepository,
-    MovementRepository,
-    SupplierRepository,
-    PurchaseOrderRepository,
-)
-from ..services import ProductService, MovementService
+from ..database import get_cursor
 
 
 class ExportService:
-    """Service for exporting data to CSV."""
+    """Service for exporting data to CSV with streaming support."""
+
+    @staticmethod
+    def _stream_csv(rows_generator: Generator, header: list[str],
+                    filename: str | None = None) -> Response:
+        """Create a streaming CSV response."""
+        # ADM-030: dated, entity-specific filename so downloads don't overwrite
+        # each other and are distinguishable.
+        download_name = filename or f"export_{date.today().isoformat()}.csv"
+        def generate() -> Iterator[str]:
+            # Write header
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(header)
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+            
+            # Write data rows in chunks
+            chunk_size = 100
+            chunk = []
+            has_data = False
+            for row in rows_generator:
+                has_data = True
+                chunk.append(row)
+                if len(chunk) >= chunk_size:
+                    for r in chunk:
+                        writer.writerow(r)
+                    yield output.getvalue()
+                    output.seek(0)
+                    output.truncate(0)
+                    chunk = []
+            
+            # Write remaining rows
+            if has_data:
+                for r in chunk:
+                    writer.writerow(r)
+                yield output.getvalue()
+        
+        return Response(
+            generate(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={download_name}"}
+        )
+
+    @staticmethod
+    def _product_rows_generator(search: str = "", category: str = "", limit: int = 10000):
+        """Generator for product rows."""
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.sku, p.name, p.category, p.warehouse, p.current_stock, 
+                       p.reorder_point, p.unit_price, s.name AS supplier_name
+                FROM products p
+                LEFT JOIN suppliers s ON s.id = p.supplier_id
+                WHERE p.deleted_at IS NULL
+                  AND (%s = '' OR p.sku ILIKE %s OR p.name ILIKE %s OR p.category ILIKE %s)
+                  AND (%s = '' OR p.category = %s)
+                ORDER BY p.sku
+                LIMIT %s
+                """,
+                (search, f"%{search}%", f"%{search}%", f"%{search}%", category, category, limit),
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                yield [
+                    row["sku"],
+                    row["name"],
+                    row["category"] or "",
+                    row["warehouse"] or "",
+                    row["current_stock"],
+                    row["reorder_point"],
+                    float(row["unit_price"] or 0),
+                    row["supplier_name"] or ""
+                ]
 
     @staticmethod
     def export_products() -> Response:
-        """Export all products to CSV."""
-        rows, _ = ProductRepository.list(search="", category="", limit=10000)
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow(["SKU", "Product", "Category", "Warehouse", "Stock", "Reorder", "Price", "Supplier"])
-        for r in rows:
-            writer.writerow([r["sku"], r["name"], r["category"] or "", r.get("warehouse") or "",
-                             r["current_stock"], r["reorder_point"], float(r.get("unit_price") or 0),
-                             r.get("supplier_name") or ""])
-        buf.seek(0)
-        return Response(
-            buf.getvalue(),
-            mimetype="text/csv",
-            headers={"Content-Disposition": "attachment; filename=products.csv"}
+        """Export all products to CSV with streaming."""
+        header = ["SKU", "Product", "Category", "Warehouse", "Stock", "Reorder", "Price", "Supplier"]
+        return ExportService._stream_csv(
+            ExportService._product_rows_generator(),
+            header,
+            filename=f"products_{date.today().isoformat()}.csv",
         )
 
     @staticmethod
     def export_inventory() -> Response:
-        """Export inventory status to CSV."""
-        # We can reuse the products export but maybe add more fields
+        """Export inventory status to CSV with streaming."""
         return ExportService.export_products()
 
     @staticmethod
-    def export_movements(limit: int = 10000) -> Response:
-        """Export movements to CSV."""
+    def _movement_rows_generator(limit: int = 10000):
+        """Generator for movement rows."""
         with get_cursor() as cur:
             cur.execute(
                 """
@@ -60,42 +120,61 @@ class ExportService:
                 (limit,),
             )
             rows = cur.fetchall()
-            buf = io.StringIO()
-            writer = csv.writer(buf)
-            writer.writerow(["ID", "SKU", "Product", "Type", "Quantity", "Reference", "Notes", "User", "Date"])
-            for r in rows:
-                writer.writerow([r["id"], r["sku"] or "", r["name"] or "", r["type"], r["quantity"],
-                                 r["reference"] or "", r["notes"] or "", r["user_name"] or "",
-                                 r["created_at"]])
-            buf.seek(0)
-            return Response(
-                buf.getvalue(),
-                mimetype="text/csv",
-                headers={"Content-Disposition": "attachment; filename=movements.csv"}
+            for row in rows:
+                yield [
+                    row["id"],
+                    row["sku"] or "",
+                    row["name"] or "",
+                    row["type"],
+                    row["quantity"],
+                    row["reference"] or "",
+                    row["notes"] or "",
+                    row["user_name"] or "",
+                    row["created_at"]
+                ]
+
+    @staticmethod
+    def export_movements(limit: int = 10000) -> Response:
+        """Export movements to CSV with streaming."""
+        header = ["ID", "SKU", "Product", "Type", "Quantity", "Reference", "Notes", "User", "Date"]
+        return ExportService._stream_csv(
+            ExportService._movement_rows_generator(limit),
+            header,
+            filename=f"movements_{date.today().isoformat()}.csv",
+        )
+
+    @staticmethod
+    def _supplier_rows_generator():
+        """Generator for supplier rows."""
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT id, name, location, lead_days, spend_amount, reliability, tone FROM suppliers WHERE deleted_at IS NULL ORDER BY name"
             )
+            rows = cur.fetchall()
+            for row in rows:
+                yield [
+                    row["id"],
+                    row["name"],
+                    row["location"] or "",
+                    row["lead_days"],
+                    row["spend_amount"],
+                    row["reliability"],
+                    row["tone"]
+                ]
 
     @staticmethod
     def export_suppliers() -> Response:
-        """Export suppliers to CSV."""
-        with get_cursor() as cur:
-            cur.execute("SELECT id, name, location, lead_days, spend_amount, reliability, tone FROM suppliers ORDER BY name")
-            rows = cur.fetchall()
-            buf = io.StringIO()
-            writer = csv.writer(buf)
-            writer.writerow(["ID", "Name", "Location", "Lead Days", "Spend Amount", "Reliability", "Tone"])
-            for r in rows:
-                writer.writerow([r["id"], r["name"], r["location"] or "", r["lead_days"], r["spend_amount"],
-                                 r["reliability"], r["tone"]])
-            buf.seek(0)
-            return Response(
-                buf.getvalue(),
-                mimetype="text/csv",
-                headers={"Content-Disposition": "attachment; filename=suppliers.csv"}
-            )
+        """Export suppliers to CSV with streaming."""
+        header = ["ID", "Name", "Location", "Lead Days", "Spend Amount", "Reliability", "Tone"]
+        return ExportService._stream_csv(
+            ExportService._supplier_rows_generator(),
+            header,
+            filename=f"suppliers_{date.today().isoformat()}.csv",
+        )
 
     @staticmethod
-    def export_purchase_orders() -> Response:
-        """Export purchase orders to CSV."""
+    def _po_rows_generator():
+        """Generator for purchase order rows."""
         with get_cursor() as cur:
             cur.execute(
                 """
@@ -108,15 +187,25 @@ class ExportService:
                 """
             )
             rows = cur.fetchall()
-            buf = io.StringIO()
-            writer = csv.writer(buf)
-            writer.writerow(["ID", "PO Number", "Supplier", "Product", "Quantity", "Unit Cost", "Status", "ETA Date", "Date"])
-            for r in rows:
-                writer.writerow([r["id"], r["po_number"], r["supplier_name"] or "", r["product_name"] or "",
-                                 r["quantity"], r["unit_cost"], r["status"], r["eta_date"], r["created_at"]])
-            buf.seek(0)
-            return Response(
-                buf.getvalue(),
-                mimetype="text/csv",
-                headers={"Content-Disposition": "attachment; filename=purchase_orders.csv"}
-            )
+            for row in rows:
+                yield [
+                    row["id"],
+                    row["po_number"],
+                    row["supplier_name"] or "",
+                    row["product_name"] or "",
+                    row["quantity"],
+                    row["unit_cost"],
+                    row["status"],
+                    row["eta_date"],
+                    row["created_at"]
+                ]
+
+    @staticmethod
+    def export_purchase_orders() -> Response:
+        """Export purchase orders to CSV with streaming."""
+        header = ["ID", "PO Number", "Supplier", "Product", "Quantity", "Unit Cost", "Status", "ETA Date", "Date"]
+        return ExportService._stream_csv(
+            ExportService._po_rows_generator(),
+            header,
+            filename=f"purchase_orders_{date.today().isoformat()}.csv",
+        )

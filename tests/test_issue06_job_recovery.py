@@ -89,20 +89,20 @@ def _set_wh_state(cur, key: str, value: str) -> None:
 
 
 def _insert_movement(cur, reference: str, qty: int = 10) -> int:
-    """Insert one movement and return its id (T06f2 watermark proof)."""
-    cur.execute("SELECT id, sku FROM products ORDER BY id LIMIT 1")
-    row = cur.fetchone()
-    assert row is not None, "no seeded products in test DB"
-    cur.execute(
-        """
-        INSERT INTO movements (product_id, sku, type, quantity, reference,
-                               notes, created_at)
-        VALUES (%s, %s, 'IN', %s, %s, 'issue06 regression', NOW())
-        RETURNING id
-        """,
-        (row["id"], row["sku"], qty, reference),
-    )
-    return int(cur.fetchone()["id"])
+      """Insert one movement and return its id (T06f2 watermark proof)."""
+      cur.execute("SELECT id FROM products ORDER BY id LIMIT 1")
+      row = cur.fetchone()
+      assert row is not None, "no seeded products in test DB"
+      cur.execute(
+          """
+          INSERT INTO movements (product_id, type, quantity, reference,
+                                 notes, created_at)
+          VALUES (%s, 'IN', %s, %s, 'issue06 regression', NOW())
+          RETURNING id
+          """,
+          (row["id"], qty, reference),
+      )
+      return int(cur.fetchone()["id"])
 
 
 def _healthy_etl(force: bool = False) -> dict:

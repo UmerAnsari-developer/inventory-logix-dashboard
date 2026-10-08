@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Report Detail{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Reporting</div>
+      <h1>Report #{{ report.id }}</h1>
+      <p class="heading-note">{{ report.title }}</p>
+    </div>
+    <a href="{{ url_for('reports_workflow.my_team') if is_manager else url_for('reports_workflow.submit_report') }}" class="btn btn-ghost">&larr; Back</a>
+  </div>
+
+  <article class="panel" style="max-width:760px">
+    <div class="panel-header"><div class="panel-title">Report details</div>
+      <span class="status {{ 'good' if report.status in ('approved', 'completed') else 'warning' if report.status in ('submitted', 'under_review') else 'critical' }}">{{ report.status | replace('_', ' ') }}</span>
+    </div>
+    <div class="panel-content" style="font-size:0.92rem;line-height:1.7">
+      <table style="width:100%;border-collapse:collapse">
+        <tr><td style="padding:6px 8px;color:#888;width:30%">Submitted by</td><td><strong>{{ report.submitter_name or report.submitter_username }}</strong> ({{ (report.submitter_job_role or '') | replace('_', ' ') | title }})</td></tr>
+        <tr><td style="padding:6px 8px;color:#888">Reporting Manager</td><td>{{ report.manager_name or report.manager_username }}</td></tr>
+        <tr><td style="padding:6px 8px;color:#888">Type</td><td>{{ (report.report_type or 'general') | title }}</td></tr>
+        <tr><td style="padding:6px 8px;color:#888">Priority</td><td><span class="status {{ 'critical' if report.priority == 'critical' else 'warning' if report.priority == 'high' else 'good' if report.priority == 'low' else '' }}">{{ report.priority }}</span></td></tr>
+        <tr><td style="padding:6px 8px;color:#888">Related Module</td><td>{{ report.related_module or '—' }}</td></tr>
+        <tr><td style="padding:6px 8px;color:#888">Submitted</td><td>{{ (report.submitted_at | string)[:19] }}</td></tr>
+        <tr><td style="padding:6px 8px;color:#888">Due Date</td><td>{{ report.due_date or '—' }}</td></tr>
+        <tr><td style="padding:6px 8px;color:#888;vertical-align:top">Description</td><td>{{ report.description or '—' }}</td></tr>
+        {% if report.review_comment %}
+        <tr><td style="padding:6px 8px;color:#888;vertical-align:top">Manager Comment</td><td>{{ report.review_comment }}</td></tr>
+        {% endif %}
+        {% if report.reviewed_at %}
+        <tr><td style="padding:6px 8px;color:#888">Reviewed At</td><td>{{ (report.reviewed_at | string)[:19] }}</td></tr>
+        {% endif %}
+      </table>
+
+      {% if is_manager %}
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--panel-border, rgba(127,127,127,.2))">
+        <div class="setting-label" style="margin-bottom:8px">Manager Review</div>
+        <form method="POST" action="{{ url_for('reports_workflow.update_report_status', report_id=report.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+            <select name="status" class="settings-select">
+              <option value="under_review" {{ 'selected' if report.status == 'under_review' }}>Under Review</option>
+              <option value="approved" {{ 'selected' if report.status == 'approved' }}>Approved</option>
+              <option value="rejected" {{ 'selected' if report.status == 'rejected' }}>Rejected</option>
+              <option value="completed" {{ 'selected' if report.status == 'completed' }}>Completed</option>
+            </select>
+          </div>
+          <div style="margin-bottom:12px">
+            <textarea name="comment" rows="3" class="settings-input" style="width:100%" placeholder="Review comment (optional)...">{{ report.review_comment or '' }}</textarea>
+          </div>
+          <button type="submit" class="btn btn-primary">Update Status</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </article>
+</section>
+{% endblock %}

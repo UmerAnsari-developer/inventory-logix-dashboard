@@ -29,7 +29,7 @@
       {% for override in overrides %}
       <tr>
         <td>{{ override.key }}</td>
-        <td>{{ override.value }}</td>
+        <td>{{ override.display_value }}</td>
         <td>{{ override.description or '' }}</td>
         <td>
           {{ override.updated_at.strftime('%Y-%m-%d %H:%M:%S') if override.updated_at else '' }}

@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% set active_page = "submit_report" %}
+{% block title %}Submit Report{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Reporting</div>
+      <h1>Submit Report</h1>
+      <p class="heading-note">Send a report or task to your reporting manager</p>
+    </div>
+  </div>
+
+  {% if not manager %}
+  <div class="alert-strip">
+    <div class="alert-mark"></div>
+    <div class="alert-copy">
+      <div class="alert-title">No reporting manager assigned</div>
+      <div class="alert-subtitle">Ask an administrator to set your reporting manager before submitting reports</div>
+    </div>
+  </div>
+  {% else %}
+  <article class="panel" style="max-width:720px">
+    <div class="panel-header"><div class="panel-title">Report details</div></div>
+    <div class="panel-content">
+      <form method="POST" action="{{ url_for('reports_workflow.submit_report') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="setting-row" style="margin-bottom:12px">
+          <div style="flex:1">
+            <div class="setting-label">Reporting Manager</div>
+            <div class="setting-desc">{{ manager.full_name or manager.username }} — {{ (manager.job_role or manager.role) | replace('_', ' ') | title }}</div>
+          </div>
+        </div>
+        <div class="setting-row" style="margin-bottom:12px">
+          <div style="flex:1">
+            <div class="setting-label">Report Title <span style="color:#dc2626">*</span></div>
+            <input type="text" name="title" required maxlength="200" class="settings-input" style="width:100%" placeholder="e.g. Weekly stock reconciliation">
+          </div>
+        </div>
+        <div class="setting-row" style="margin-bottom:12px;gap:12px">
+          <div style="flex:1">
+            <div class="setting-label">Report Type</div>
+            <select name="report_type" class="settings-select" style="width:100%">
+              <option value="general">General</option>
+              <option value="procurement">Procurement</option>
+              <option value="warehouse">Warehouse</option>
+              <option value="analytics">Analytics</option>
+              <option value="forecast">Forecast</option>
+              <option value="incident">Incident</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <div class="setting-label">Priority</div>
+            <select name="priority" class="settings-select" style="width:100%">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-row" style="margin-bottom:12px;gap:12px">
+          <div style="flex:1">
+            <div class="setting-label">Related Module</div>
+            <select name="related_module" class="settings-select" style="width:100%">
+              <option value="">—</option>
+              <option value="inventory">Inventory</option>
+              <option value="purchase-orders">Purchase Orders</option>
+              <option value="suppliers">Suppliers</option>
+              <option value="forecast">Forecast</option>
+              <option value="anomaly">Anomaly</option>
+              <option value="reports">Reports</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <div class="setting-label">Due Date</div>
+            <input type="date" name="due_date" class="settings-input" style="width:100%">
+          </div>
+        </div>
+        <div class="setting-row" style="margin-bottom:16px">
+          <div style="flex:1">
+            <div class="setting-label">Description</div>
+            <textarea name="description" rows="5" class="settings-input" style="width:100%" placeholder="Describe the report or task..."></textarea>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Submit Report</button>
+      </form>
+    </div>
+  </article>
+  {% endif %}
+
+  {# ── MY SUBMISSIONS ──────────────────────────────────────────── #}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">My Submissions</div></div>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Title</th><th>Type</th><th>Priority</th><th>Submitted</th><th>Status</th><th>Manager</th></tr></thead>
+        <tbody>
+          {% for r in my_reports %}
+          <tr>
+            <td><a href="{{ url_for('reports_workflow.report_detail', report_id=r.id) }}">{{ r.title }}</a></td>
+            <td>{{ (r.report_type or 'general') | title }}</td>
+            <td>{{ r.priority }}</td>
+            <td>{{ (r.submitted_at | string)[:16] }}</td>
+            <td><span class="status {{ 'good' if r.status in ('approved', 'completed') else 'warning' if r.status in ('submitted', 'under_review') else 'critical' }}">{{ r.status | replace('_', ' ') }}</span></td>
+            <td>{{ r.manager_name or r.manager_username }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6"><div class="empty-state">No submissions yet</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}

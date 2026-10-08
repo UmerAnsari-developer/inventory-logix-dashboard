@@ -20,7 +20,7 @@
 
   {# ── KPI CARDS ─────────────────────────────────────────────────── #}
   <section class="metric-grid" id="summaryCards">
-    <div class="metric-card"><div class="metric-label">Models Monitored <span class="metric-index">M1</span></div><div class="metric-value" id="kpiModels">-</div><div class="metric-foot">ARIMA + Prophet</div></div>
+    <div class="metric-card"><div class="metric-label">Models Monitored <span class="metric-index">M1</span></div><div class="metric-value" id="kpiModels">-</div><div class="metric-foot">Prophet + XGBoost</div></div>
     <div class="metric-card"><div class="metric-label">Forecasts Evaluated <span class="metric-index">M2</span></div><div class="metric-value" id="kpiEvaluated">-</div><div class="metric-foot">actual vs predicted</div></div>
     <div class="metric-card"><div class="metric-label">Current MAE <span class="metric-index">M3</span></div><div class="metric-value" id="kpiMae">-</div><div class="metric-foot">mean absolute error</div></div>
     <div class="metric-card"><div class="metric-label">Current MAPE <span class="metric-index">M4</span></div><div class="metric-value" id="kpiMape">-</div><div class="metric-foot">mean abs % error</div></div>
@@ -44,7 +44,7 @@
       <select id="monModel" class="filter-select">
         <option value="">All models</option>
         <option value="prophet">Prophet</option>
-        <option value="arima">ARIMA</option>
+        <option value="xgboost">XGBoost</option>
         <option value="ensemble">Ensemble</option>
         <option value="moving_average">Moving Average</option>
       </select>

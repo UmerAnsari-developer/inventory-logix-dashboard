@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "5378e023-630c-4a12-a717-4405f04dc825",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "D:\\MCA\\3rd Sem\\Mini Project\\Inventory Logistics Optimization Dashboard\\.archify\\architecture-runtime-20260930-130000\\candidate.json",
+  "output": "D:\\MCA\\3rd Sem\\Mini Project\\Inventory Logistics Optimization Dashboard\\.archify\\architecture-runtime-20260930-130000\\runtime-architecture.html",
+  "specification": {
+    "sha256": "9830a63726efbd793ec7b1aeb3508d8be49edd459664086e2afe2a3670dd8b26",
+    "bytes": 6239
+  },
+  "artifact": {
+    "sha256": "2ad51603d013666c4ca3b0cf02eb72e068a88de895645cc99d22a13e0b2ac22a",
+    "bytes": 783498
+  }
+}

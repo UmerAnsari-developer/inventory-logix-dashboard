@@ -58,10 +58,10 @@ def test_etl_stage_wise_transactions_allow_partial_rollback(app):
             row = cur.fetchone()
             cur.execute(
                 """
-                INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-                    VALUES (%s, %s, 'IN', 10, 'TEST-ROLLBACK', 'rollback test', NOW())
+                INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+                    VALUES (%s, 'IN', 10, 'TEST-ROLLBACK', 'rollback test', NOW())
                     """,
-                    (row['id'], row['sku']),
+                    (row['id'],),
             )
 
         # Now simulate a failure during fact loading
@@ -161,10 +161,10 @@ def test_etl_checkpointing_persists_watermark_after_each_stage(app):
             pid, sku = row['id'], row['sku']
             cur.execute(
                 """
-                INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-                VALUES (%s, %s, 'IN', 10, 'TEST-WATERMARK', 'checkpoint test', NOW())
+                INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+                VALUES (%s, 'IN', 10, 'TEST-WATERMARK', 'checkpoint test', NOW())
                 """,
-                (pid, sku),
+                (pid,),
             )
         
         # Get the new movement ID
@@ -241,10 +241,10 @@ def test_etl_validation_step_checks_consistency_after_load(app):
             row = cur.fetchone()
             cur.execute(
                 """
-                INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-                VALUES (%s, %s, 'IN', 5, 'TEST-VALIDATION', 'validation test', NOW())
+                INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+                VALUES (%s, 'IN', 5, 'TEST-VALIDATION', 'validation test', NOW())
                 """,
-                (row['id'], row['sku']),
+                (row['id'],),
             )
 
         # Run ETL again - the validation step should detect and handle the inconsistency
@@ -295,10 +295,10 @@ def test_etl_retry_with_exponential_backoff_for_transient_errors(app):
             row = cur.fetchone()
             cur.execute(
                 """
-                INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-                VALUES (%s, %s, 'IN', 7, 'TEST-RETRY', 'retry test', NOW())
+                INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+                VALUES (%s, 'IN', 7, 'TEST-RETRY', 'retry test', NOW())
                 """,
-                (row['id'], row['sku']),
+                (row['id'],),
             )
 
         # run_etl binds `_open_conn` into the etl module at import time, so
@@ -360,10 +360,10 @@ def test_etl_error_handling_and_logging(app):
                 row = cur.fetchone()
                 cur.execute(
                     """
-                    INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-                    VALUES (%s, %s, 'IN', 3, 'TEST-ERRORLOG', 'error logging test', NOW())
+                    INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+                    VALUES (%s, 'IN', 3, 'TEST-ERRORLOG', 'error logging test', NOW())
                     """,
-                    (row['id'], row['sku']),
+                    (row['id'],),
                 )
 
             # Monkey patch to simulate an error during ETL

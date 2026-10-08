@@ -157,25 +157,6 @@ CREATE TABLE IF NOT EXISTS fact_audit_daily (
 
 CREATE INDEX IF NOT EXISTS idx_audit_daily_date ON fact_audit_daily(date_key);
 
--- ── FACT: PRODUCT ACTIVITY DAILY ─────────────────────────────────────────────
--- Daily aggregated product movement stats per warehouse
-
-CREATE TABLE IF NOT EXISTS fact_product_daily (
-    date_key        DATE NOT NULL REFERENCES dim_date(date_key),
-    product_key     INTEGER REFERENCES dim_product(product_key),
-    warehouse_key   INTEGER REFERENCES dim_warehouse(warehouse_key),
-    in_qty          INTEGER NOT NULL DEFAULT 0,
-    out_qty         INTEGER NOT NULL DEFAULT 0,
-    net_qty         INTEGER NOT NULL DEFAULT 0,
-    in_value        NUMERIC(14,2) NOT NULL DEFAULT 0,
-    out_value       NUMERIC(14,2) NOT NULL DEFAULT 0,
-    stock_on_hand   NUMERIC(12,2) NOT NULL DEFAULT 0,
-    reorder_point   NUMERIC(12,2) NOT NULL DEFAULT 0,
-    PRIMARY KEY (date_key, product_key, warehouse_key)
-);
-
-CREATE INDEX IF NOT EXISTS idx_product_daily_date ON fact_product_daily(date_key);
-
 -- ── ETL STATE (Extended) ────────────────────────────────────────────────────
 -- Track ETL state for warehouse operations
 

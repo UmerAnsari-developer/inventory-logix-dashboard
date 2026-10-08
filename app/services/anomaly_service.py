@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from ..ml.anomaly import detect_anomalies_enriched, detect_anomalies_isoforest, spc_zscore_analysis
+from ..ml.anomaly_benchmark import run_catalogue_benchmark, SyntheticAnomalyInjector
 from ..repositories import AnomalyRepository
 from ..repositories.product_repo import ProductRepository
 from ..repositories.movement_repo import MovementRepository
@@ -156,8 +157,7 @@ class AnomalyService:
         from ..database import get_cursor
         out = []
         with get_cursor() as cur:
-            # ponytail: per-product model fit scales with catalogue size; move to a batch job past a few hundred SKUs
-            cur.execute("SELECT id, sku, name, current_stock, reorder_point FROM products ORDER BY id")
+            cur.execute("SELECT id, sku, name, current_stock, reorder_point FROM products WHERE deleted_at IS NULL ORDER BY id")
             products = list(cur.fetchall())
             if not products:
                 return out
@@ -166,8 +166,8 @@ class AnomalyService:
                 """
                 SELECT m.product_id, m.created_at::date AS day, m.type,
                        COALESCE(SUM(CASE WHEN m.type='IN' THEN m.quantity
-                                         WHEN m.type='OUT' THEN -m.quantity
-                                         ELSE 0 END), 0) AS total
+                                          WHEN m.type='OUT' THEN -m.quantity
+                                          ELSE 0 END), 0) AS total
                 FROM movements m
                 WHERE m.product_id = ANY(%s) AND m.created_at >= NOW() - INTERVAL '120 days'
                 GROUP BY m.product_id, m.created_at::date, m.type
@@ -204,13 +204,13 @@ class AnomalyService:
                     "id": p["id"],
                     "sku": p["sku"],
                     "name": p["name"],
-                    "model": ({"isolation_forest": "Isolation Forest", "zscore": "SPC (z-score)"}.get(
+                    "model_used": ({"isolation_forest": "Isolation Forest", "zscore": "SPC (z-score)"}.get(
                         anomalies[0].get("detection_method"), "SPC (z-score)") if anomalies else None),
                     "anomaly_count": len(anomalies),
                     "max_z": max((abs(a.get("z_score") or 0) for a in anomalies), default=0),
                     "top_anomaly": anomalies[0] if anomalies else None,
                 })
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:
                 LOGGER.warning("Anomaly detection failed for %s: %s", p["sku"], exc)
         out.sort(key=lambda r: r.get("max_z") or 0, reverse=True)
         return out
@@ -253,6 +253,196 @@ class AnomalyService:
         if status not in ("new", "reviewed", "acknowledged", "resolved"):
             raise ValueError("Invalid status")
         AnomalyRepository.update_status(alert_id, status, reviewed_by=reviewed_by)
+
+    @staticmethod
+    def label_alert(alert_id: int, label: str, labeled_by: int) -> dict:
+        """Confirm or reject an anomaly alert (human labeling for precision/recall)."""
+        if label not in ("true_positive", "false_positive"):
+            raise ValueError("label must be 'true_positive' or 'false_positive'")
+        
+        alert = AnomalyRepository.find_by_id(alert_id)
+        if not alert:
+            raise ValueError("Alert not found")
+        
+        # Update label and status
+        new_status = "reviewed" if label == "true_positive" else "resolved"
+        AnomalyRepository.update_label(alert_id, label, labeled_by, new_status)
+        
+        return {
+            "alert_id": alert_id,
+            "label": label,
+            "status": new_status,
+            "labeled_by": labeled_by,
+        }
+
+    @staticmethod
+    def get_precision_recall() -> dict:
+        """Compute empirical precision/recall from labeled data."""
+        labeled = AnomalyRepository.get_labeled_alerts()
+        
+        # Group by risk_level and detection_method
+        from collections import defaultdict
+        by_risk = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+        by_method = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+        
+        for alert in labeled:
+            label = alert.get("label")
+            risk = alert.get("risk_level", "low")
+            method = alert.get("detection_method", "unknown")
+            
+            if label == "true_positive":
+                by_risk[risk]["tp"] += 1
+                by_method[method]["tp"] += 1
+            elif label == "false_positive":
+                by_risk[risk]["fp"] += 1
+                by_method[method]["fp"] += 1
+            # Note: We don't have explicit false negatives from labeling alone
+            # Those would come from benchmark
+        
+        def compute_pr(stats):
+            tp = stats["tp"]
+            fp = stats["fp"]
+            fn = stats["fn"]
+            precision = tp / (tp + fp) if (tp + fp) > 0 else None
+            recall = tp / (tp + fn) if (tp + fn) > 0 else None
+            f1 = 2 * precision * recall / (precision + recall) if precision and recall and (precision + recall) > 0 else None
+            return {"precision": precision, "recall": recall, "f1": f1, "tp": tp, "fp": fp, "fn": fn}
+        
+        return {
+            "by_risk_level": {k: compute_pr(v) for k, v in by_risk.items()},
+            "by_detection_method": {k: compute_pr(v) for k, v in by_method.items()},
+            "total_labeled": len(labeled),
+        }
+
+    @staticmethod
+    def benchmark(contamination: float = 0.05) -> dict:
+        """Run synthetic anomaly benchmark across the product catalogue."""
+        # Get all products with sufficient history
+        from ..database import get_cursor
+        products_series = {}
+        with get_cursor() as cur:
+            cur.execute("""
+                SELECT p.id, p.sku, p.name
+                FROM products p
+                WHERE p.deleted_at IS NULL
+                AND EXISTS (
+                    SELECT 1 FROM movements m 
+                    WHERE m.product_id = p.id 
+                    AND m.created_at >= NOW() - INTERVAL '120 days'
+                )
+                ORDER BY p.id
+            """)
+            products = cur.fetchall()
+        
+        if not products:
+            return {"products_tested": 0, "message": "No products with sufficient history"}
+        
+        product_ids = [p["id"] for p in products]
+        
+        # Fetch movement data for all products in one query
+        with get_cursor() as cur:
+            cur.execute("""
+                SELECT m.product_id, m.created_at::date AS day,
+                       COALESCE(SUM(CASE WHEN m.type='OUT' THEN m.quantity ELSE 0 END), 0) AS total
+                FROM movements m
+                WHERE m.product_id = ANY(%s) AND m.created_at >= NOW() - INTERVAL '120 days'
+                GROUP BY m.product_id, m.created_at::date
+                ORDER BY m.product_id, day
+            """, (product_ids,))
+            movement_rows = cur.fetchall()
+        
+        from collections import defaultdict
+        movements_by_product: dict[int, list] = defaultdict(list)
+        for row in movement_rows:
+            movements_by_product[row["product_id"]].append(row)
+        
+        for p in products:
+            rows = movements_by_product.get(p["id"], [])
+            if len(rows) >= 60:  # Minimum history for benchmark
+                series = [{"day": r["day"].isoformat(), "value": int(r["total"])} for r in rows]
+                products_series[p["id"]] = series
+        
+        if not products_series:
+            return {"products_tested": 0, "message": "No products with sufficient history (need 60+ days)"}
+        
+        # Run benchmark
+        def detector_func(series, contamination=contamination):
+            return detect_anomalies_enriched(
+                series,
+                contamination=contamination,
+                z_threshold=3.0,
+            )
+        
+        result = run_catalogue_benchmark(products_series, detector_func, contamination)
+        return result
+
+    @staticmethod
+    def compute_fatigue_metrics(days: int = 30) -> dict:
+        """Compute alert fatigue metrics for the last N days."""
+        from ..database import get_cursor
+        with get_cursor() as cur:
+            # Alerts per day by risk level
+            cur.execute("""
+                SELECT detected_at::date as metric_date,
+                       risk_level,
+                       COUNT(*) as alert_count,
+                       COUNT(*) FILTER (WHERE status IN ('reviewed', 'acknowledged', 'resolved')) as reviewed_count,
+                       COUNT(*) FILTER (WHERE status = 'resolved') as resolved_count,
+                       AVG(EXTRACT(EPOCH FROM (reviewed_at - detected_at))/3600) FILTER (WHERE reviewed_at IS NOT NULL) as avg_resolve_hours
+                FROM anomaly_log
+                WHERE detected_at >= NOW() - INTERVAL '%s days'
+                GROUP BY detected_at::date, risk_level
+                ORDER BY metric_date
+            """, (days,))
+            daily = cur.fetchall()
+            
+            # Aggregate totals
+            cur.execute("""
+                SELECT 
+                    COUNT(*) as total_alerts,
+                    COUNT(*) FILTER (WHERE risk_level = 'critical') as critical_count,
+                    COUNT(*) FILTER (WHERE risk_level = 'high') as high_count,
+                    COUNT(*) FILTER (WHERE risk_level = 'medium') as medium_count,
+                    COUNT(*) FILTER (WHERE risk_level = 'low') as low_count,
+                    COUNT(*) FILTER (WHERE status IN ('reviewed', 'acknowledged', 'resolved')) as reviewed_count,
+                    COUNT(*) FILTER (WHERE status = 'resolved') as resolved_count,
+                    AVG(EXTRACT(EPOCH FROM (reviewed_at - detected_at))/3600) FILTER (WHERE reviewed_at IS NOT NULL) as avg_resolve_hours
+                FROM anomaly_log
+                WHERE detected_at >= NOW() - INTERVAL '%s days'
+            """, (days,))
+            totals = cur.fetchone()
+        
+        total = totals["total_alerts"] if totals else 0
+        reviewed = totals["reviewed_count"] if totals else 0
+        review_rate = round((reviewed / total * 100), 1) if total > 0 else 0
+        
+        # Build daily series
+        daily_series = []
+        for row in daily:
+            daily_series.append({
+                "date": row["metric_date"].isoformat() if hasattr(row["metric_date"], "isoformat") else str(row["metric_date"]),
+                "risk_level": row["risk_level"],
+                "alerts": row["alert_count"],
+                "reviewed": row["reviewed_count"],
+                "resolved": row["resolved_count"],
+                "avg_resolve_hours": round(row["avg_resolve_hours"], 1) if row["avg_resolve_hours"] else None,
+            })
+        
+        return {
+            "period_days": days,
+            "total_alerts": total,
+            "by_risk": {
+                "critical": totals["critical_count"] if totals else 0,
+                "high": totals["high_count"] if totals else 0,
+                "medium": totals["medium_count"] if totals else 0,
+                "low": totals["low_count"] if totals else 0,
+            },
+            "reviewed_count": reviewed,
+            "resolved_count": totals["resolved_count"] if totals else 0,
+            "review_rate": review_rate,
+            "avg_resolve_hours": round(totals["avg_resolve_hours"], 1) if totals and totals["avg_resolve_hours"] else None,
+            "daily_series": daily_series,
+        }
 
 
 def _detect_rule_based_peaks(series: list[dict], *, multiplier: float = 3.0) -> list[dict]:

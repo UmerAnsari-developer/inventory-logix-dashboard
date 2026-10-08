@@ -98,7 +98,11 @@ def test_record_connection_checkout_and_checkin():
 
 
 def test_get_pool_creates_pool_with_correct_size():
-    """Test that _get_pool creates a pool with the correct size."""
+    """Test that _get_pool creates a pool with the correct size.
+
+    minconn is now _POOL_SIZE (not 1) to prevent pool churn (DB-039).
+    With minconn=1, psycopg2 closes surplus connections on check-in.
+    """
     params = {
         "host": "localhost",
         "port": "5432",
@@ -120,7 +124,7 @@ def test_get_pool_creates_pool_with_correct_size():
         # Check that pool was created with correct parameters
         mock_pool_class.assert_called_once()
         args, kwargs = mock_pool_class.call_args
-        assert args[0] == 1  # min connections
+        assert args[0] == _POOL_SIZE  # min connections (DB-039: prevent churn)
         assert args[1] == _POOL_SIZE  # max connections
         assert pool == mock_pool
 

@@ -1,7 +1,22 @@
-"""Movement service."""
+"""Movement service.
+
+Stock correctness is enforced inside ``sp_movement_record`` (row lock + stock
+floor + delta update + insert, all in one transaction — fix DB-002). The
+pre-check below exists only for friendly, early error messages; on a real race
+the database guard fires and is translated back into ``MovementError``.
+"""
 from __future__ import annotations
 
 from ..repositories import ProductRepository, MovementRepository, AuditRepository
+from ..security.dberrors import db_error_message, is_guard_error
+
+# Guard messages raised by sp_movement_record / trg_validate_movement.
+_STOCK_GUARDS = (
+    "Insufficient stock",
+    "Invalid product_id",
+    "Invalid movement type",
+    "Adjustment would create negative stock",
+)
 
 
 class MovementError(ValueError):
@@ -22,10 +37,13 @@ class MovementService:
         if quantity is None or int(quantity) <= 0:
             raise MovementError("Quantity must be a positive integer.")
 
-        product = ProductRepository.find_for_update(product_id)
+        product = ProductRepository.find(product_id)
         if not product:
             raise MovementError("Product not found.")
 
+        # Early (non-authoritative) balance check so the common case fails fast
+        # with the historical message. The authoritative check happens under the
+        # product row lock inside sp_movement_record.
         new_stock = int(product["current_stock"] or 0)
         if mtype == "OUT":
             if new_stock - int(quantity) < 0:
@@ -38,16 +56,23 @@ class MovementService:
         else:
             new_stock += int(quantity)
 
-        movement_id = MovementRepository.record(
-            product_id=product_id,
-            sku=product["sku"],
-            mtype=mtype,
-            quantity=int(quantity),
-            reference=(reference or "").strip() or None,
-            notes=(notes or "").strip() or None,
-            user_id=user_id,
-        )
-        ProductRepository.set_stock(product_id, new_stock)
+        try:
+            movement_id = MovementRepository.record(
+                product_id=product_id,
+                mtype=mtype,
+                quantity=int(quantity),
+                reference=(reference or "").strip() or None,
+                notes=(notes or "").strip() or None,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            if is_guard_error(exc, *_STOCK_GUARDS):
+                raise MovementError(db_error_message(exc)) from exc
+            raise
+
+        # DB-072: audit + notification are best-effort AFTER the movement commit —
+        # a crash between them loses the audit row but never the stock/ledger state.
+        # Full outbox pattern deferred (single-worker deployment; ceiling documented).
         AuditRepository.record(
             user_id,
             "movement.record",
@@ -58,6 +83,8 @@ class MovementService:
                 "sku": product["sku"],
                 "type": mtype,
                 "quantity": int(quantity),
+                # Value from the pre-check read; under a concurrent write the
+                # database balance is authoritative (audit is informational).
                 "new_stock": new_stock,
             },
         )

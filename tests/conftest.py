@@ -26,11 +26,14 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("DB_HOST", "localhost")
 os.environ.setdefault("DB_PORT", "5432")
 os.environ.setdefault("DB_NAME", "inventory_db")
+os.environ.setdefault("TEST_DB_NAME", "inventory_db")
 os.environ.setdefault("DB_USER", "postgres")
 os.environ.setdefault("DB_PASSWORD", _env.get("DB_PASSWORD", ""))
 os.environ.setdefault("DB_SSLMODE", "")
 # .env may carry a Render DATABASE_URL; tests must use the local DB_* fields.
 os.environ.setdefault("DATABASE_URL", "")
+# Use in-memory rate limiting for tests (no Redis required)
+os.environ.setdefault("RATELIMIT_STORAGE_URI", "memory://")
 
 
 @pytest.fixture(scope="session")
@@ -63,9 +66,20 @@ def _reset_rate_limiter(app):
     """
     from app.extensions import limiter
 
-    limiter.reset()
+    def _safe_reset():
+        try:
+            limiter.reset()
+        except AssertionError:
+            # flask-limiter's reset() asserts self._storage; a bare test-app
+            # fixture (e.g. test_audit_decorator.py) never init_app's the
+            # limiter, so there is nothing to reset. Tests relying on real
+            # rate-limit buckets are unaffected — reset() works normally
+            # whenever the limiter is bound.
+            pass
+
+    _safe_reset()
     yield
-    limiter.reset()
+    _safe_reset()
 
 
 @pytest.fixture()

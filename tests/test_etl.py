@@ -35,6 +35,28 @@ def test_etl_skips_when_no_new_movements(app):
         assert result["skipped"] is True
 
 
+def test_etl_skips_when_another_run_holds_the_lock(app):
+    """DB-003: a second ETL run must skip, not race the in-flight one."""
+    from app.database.connection import _open_conn, etl_database
+    from app.database.etl import _ETL_LOCK_KEY
+
+    with app.app_context():
+        blocker = _open_conn()
+        try:
+            with blocker.cursor() as cur:
+                cur.execute("SELECT pg_advisory_lock(%s)", (_ETL_LOCK_KEY,))
+            summary = etl_database(force=True)
+            assert summary["skipped"] is True, (
+                "DB-003: run proceeded while another held the ETL advisory lock"
+            )
+        finally:
+            blocker.close()
+
+        # Lock dies with its session — a fresh run must proceed again.
+        summary = etl_database(force=True)
+        assert summary["skipped"] is False
+
+
 def test_etl_incremental_processes_new_movements(app):
     from app.database.connection import etl_database
     from app.database import get_cursor
@@ -52,10 +74,10 @@ def test_etl_incremental_processes_new_movements(app):
             pid, sku, wh = row["id"], row["sku"], row["warehouse"]
             cur.execute(
                 """
-                INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-                VALUES (%s, %s, 'OUT', 12, 'TEST-ETL', 'incremental test', NOW())
+                INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+                VALUES (%s, 'OUT', 12, 'TEST-ETL', 'incremental test', NOW())
                 """,
-                (pid, sku),
+                (pid,),
             )
 
         result = etl_database()

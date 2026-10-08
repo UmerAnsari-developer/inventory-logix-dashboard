@@ -136,47 +136,7 @@ $$ LANGUAGE plpgsql;
 
 -- ── 6. MATERIALIZED VIEWS FOR HEAVY QUERIES ─────────────────────────────────
 
--- Create materialized view for dashboard metrics
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_dashboard_metrics AS
-WITH daily_stats AS (
-    SELECT 
-        CURRENT_DATE AS day,
-        COUNT(*) AS total_skus,
-        COALESCE(SUM(current_stock * unit_price), 0) AS inventory_value,
-        COUNT(*) FILTER (WHERE current_stock <= reorder_point AND on_order <= 0) AS reorder_count,
-        COUNT(*) FILTER (WHERE current_stock <= reorder_point AND on_order <= 0
-            AND (current_stock <= reorder_point * 0.5 OR current_stock <= 0)) AS critical,
-        COUNT(*) FILTER (WHERE current_stock <= reorder_point AND on_order <= 0
-            AND current_stock > reorder_point * 0.5) AS warning
-    FROM products
-),
-movement_stats AS (
-    SELECT 
-        COALESCE(SUM(quantity), 0) AS units_today
-    FROM movements 
-    WHERE created_at::date = CURRENT_DATE
-)
-SELECT 
-    d.day,
-    d.total_skus,
-    d.inventory_value,
-    d.reorder_count,
-    d.critical,
-    d.warning,
-    m.units_today
-FROM daily_stats d
-CROSS JOIN movement_stats m;
-
--- Create index on materialized view
-CREATE INDEX IF NOT EXISTS idx_mv_dashboard_metrics_day ON mv_dashboard_metrics(day);
-
--- Function to refresh materialized view
-CREATE OR REPLACE FUNCTION refresh_dashboard_metrics()
-RETURNS VOID AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY mv_dashboard_metrics;
-END;
-$$ LANGUAGE plpgsql;
+-- (Removed mv_dashboard_metrics - dead object, never refreshed or queried)
 
 -- ── 7. OPTIMIZED ETL FUNCTIONS ──────────────────────────────────────────────
 

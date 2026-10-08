@@ -25,14 +25,14 @@ def test_etl_stage_wise_transactions_allow_partial_rollback(app):
         
         # New movement so the follow-up incremental run is not skipped
         with get_cursor(commit=True) as cur:
-            cur.execute('SELECT id, sku FROM products ORDER BY id LIMIT 1')
+            cur.execute('SELECT id FROM products ORDER BY id LIMIT 1')
             row = cur.fetchone()
             cur.execute(
                 """
-                INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-                    VALUES (%s, %s, 'IN', 10, 'TEST-ROLLBACK', 'rollback test', NOW())
+                INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+                    VALUES (%s, 'IN', 10, 'TEST-ROLLBACK', 'rollback test', NOW())
                     """,
-                    (row['id'], row['sku']),
+                (row['id'],),
             )
 
         # Now simulate a failure during fact loading
@@ -125,17 +125,17 @@ def test_etl_checkpointing_persists_watermark_after_each_stage(app):
             cur.execute("SELECT value FROM etl_state WHERE state_key='last_movement_id'")
             initial_watermark = int(cur.fetchone()['value'])
         
-        # Add a new movement
+# Add a new movement
         with get_cursor(commit=True) as cur:
-            cur.execute('SELECT id, sku FROM products ORDER BY id LIMIT 1')
+            cur.execute('SELECT id FROM products ORDER BY id LIMIT 1')
             row = cur.fetchone()
-            pid, sku = row['id'], row['sku']
+            pid = row['id']
             cur.execute(
                 """
-                INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-                VALUES (%s, %s, 'IN', 10, 'TEST-WATERMARK', 'checkpoint test', NOW())
-                """
-                , (pid, sku),
+                INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+                VALUES (%s, 'IN', 10, 'TEST-WATERMARK', 'checkpoint test', NOW())
+                """,
+                (pid,),
             )
         
         # Get the new movement ID
@@ -200,16 +200,16 @@ def test_etl_retry_with_exponential_backoff_for_transient_errors(app):
         # Run initial ETL
         etl_database(force=True)
 
-        # New movement so the follow-up incremental run is not skipped
+# New movement so the follow-up incremental run is not skipped
         with get_cursor(commit=True) as cur:
-            cur.execute('SELECT id, sku FROM products ORDER BY id LIMIT 1')
+            cur.execute('SELECT id FROM products ORDER BY id LIMIT 1')
             row = cur.fetchone()
             cur.execute(
                 """
-                INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-                VALUES (%s, %s, 'IN', 7, 'TEST-RETRY', 'retry test', NOW())
+                INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+                VALUES (%s, 'IN', 7, 'TEST-RETRY', 'retry test', NOW())
                 """,
-                (row['id'], row['sku']),
+                (row['id'],),
             )
 
         # run_etl binds `_open_conn` into the etl module at import time, so

@@ -23,6 +23,8 @@
     <div class="metric-card"><div class="metric-label">Low <span class="metric-index">A5</span></div><div class="metric-value" id="kpiLow">-</div><div class="metric-foot">informational only</div></div>
     <div class="metric-card"><div class="metric-label">New <span class="metric-index">A6</span></div><div class="metric-value" id="kpiNew">-</div><div class="metric-foot">awaiting review</div></div>
     <div class="metric-card"><div class="metric-label">Reviewed <span class="metric-index">A7</span></div><div class="metric-value" id="kpiReviewed">-</div><div class="metric-foot">acknowledged by team</div></div>
+    <div class="metric-card"><div class="metric-label">Alerts/Day <span class="metric-index">A8</span></div><div class="metric-value" id="kpiAlertsPerDay">-</div><div class="metric-foot">30-day average</div></div>
+    <div class="metric-card"><div class="metric-label">Review Rate <span class="metric-index">A9</span></div><div class="metric-value" id="kpiReviewRate">-</div><div class="metric-foot">% reviewed/resolved</div></div>
   </section>
 
   {% if not anomaly_enabled %}
@@ -30,7 +32,7 @@
     <div class="alert-mark"></div>
     <div class="alert-copy">
       <div class="alert-title">Anomaly detection is disabled</div>
-      <div class="alert-subtitle">Enable it from Settings &middot; AI &amp; Prediction Settings</div>
+      <div class="alert-subtitle">Enable it from Settings &middot; AI & Prediction Settings</div>
     </div>
     <a href="{{ url_for('ui.settings') }}" class="btn btn-secondary">Open settings</a>
   </div>
@@ -54,9 +56,45 @@
     </label>
     <div class="report-actions">
       <button class="btn btn-primary" id="runAnomaly" type="button">Detect anomalies</button>
+      <button class="btn btn-secondary" id="runBenchmark" type="button">Run benchmark</button>
     </div>
   </div>
   {% endif %}
+
+  {# ── BENCHMARK RESULTS ────────────────────────────────────────────── #}
+  <article class="panel" id="benchmarkSection" style="display:none">
+    <div class="panel-header"><div class="panel-title">Synthetic Benchmark Results</div></div>
+    <div class="metric-grid" id="benchmarkSummary"></div>
+    <div class="table-scroll">
+      <table class="data-table" id="benchmarkMethodTable">
+        <thead><tr><th>Method</th><th>Precision</th><th>Recall</th><th>F1</th><th>PR-AUC</th><th>Products</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table" id="benchmarkTypeTable">
+        <thead><tr><th>Anomaly Type</th><th>Injected</th><th>Detected</th><th>Recall</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </article>
+
+  {# ── PRECISION/RECALL FROM LABELS ─────────────────────────────────── #}
+  <article class="panel" id="precisionRecallSection" style="display:none">
+    <div class="panel-header"><div class="panel-title">Empirical Precision/Recall (from Labels)</div></div>
+    <div class="table-scroll">
+      <table class="data-table" id="prRiskTable">
+        <thead><tr><th>Risk Level</th><th>Precision</th><th>Recall</th><th>F1</th><th>TP</th><th>FP</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table" id="prMethodTable">
+        <thead><tr><th>Detection Method</th><th>Precision</th><th>Recall</th><th>F1</th><th>TP</th><th>FP</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </article>
 
   {# ── ALERT FILTERS ──────────────────────────────────────────────── #}
   <article class="panel">
@@ -149,7 +187,7 @@
     <div class="panel-header"><div class="panel-title">Anomaly portfolio</div></div>
     <div class="table-scroll">
       <table class="data-table" id="anomalyPortfolioTable">
-        <thead><tr><th>SKU</th><th>Product</th><th>Model</th><th>Anomalies</th><th>Max z-score</th></tr></thead>
+        <thead><tr><th>SKU</th><th>Product</th><th>Model Used</th><th>Anomalies</th><th>Max z-score</th></tr></thead>
         <tbody><tr><td colspan="5"><div class="empty-state">Run a detection to load the portfolio summary</div></td></tr></tbody>
       </table>
     </div>
@@ -166,7 +204,9 @@
       <p><strong>Risk</strong> &mdash; Low / Medium / High / Critical, based on how far outside the normal zone the day is and its business impact.</p>
       <p><strong>Confidence</strong> &mdash; how sure the detector is that this is a genuine anomaly and not random noise.</p>
       <p><strong>Method</strong> &mdash; which detector caught it: Isolation Forest (pattern-based) or SPC z-score (distance-based).</p>
-      <p><strong>Portfolio table</strong> &mdash; one row per product: <strong>Anomalies</strong> is how many days were flagged, <strong>Max z-score</strong> is the most extreme day found (the bigger, the more attention that SKU needs), and <strong>Model</strong> shows which detector produced the flag.</p>
+      <p><strong>Precision/Recall</strong> &mdash; Precision = of flagged days, how many are real anomalies. Recall = of real anomalies, how many were flagged. F1 = harmonic mean.</p>
+      <p><strong>Benchmark</strong> &mdash; synthetic anomalies with known ground truth injected to measure detection quality per method.</p>
+      <p><strong>Portfolio table</strong> &mdash; one row per product: <strong>Anomalies</strong> is how many days were flagged, <strong>Max z-score</strong> is the most extreme day found (the bigger, the more attention that SKU needs), and <strong>Model Used</strong> shows which detector produced the flag.</p>
     </div>
   </article>
 </section>
@@ -178,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
     product: document.getElementById('anomalyProduct'),
     contamination: document.getElementById('anomalyContamination'),
     runButton: document.getElementById('runAnomaly'),
+    benchmarkButton: document.getElementById('runBenchmark'),
     table: document.getElementById('anomalyTable'),
     spcId: 'spcChart',
     portfolioTable: document.getElementById('anomalyPortfolioTable'),
@@ -187,6 +228,10 @@ document.addEventListener('DOMContentLoaded', () => {
     alertsUrl: "{{ url_for('ai.anomaly_alerts') }}",
     alertDetailUrl: "{{ url_for('ai.anomaly_alert_detail', alert_id=0) }}".replace('/0', '/'),
     alertStatusUrl: "{{ url_for('ai.anomaly_alert_status', alert_id=0) }}".replace('/0', '/'),
+    alertLabelUrl: "{{ url_for('ai.anomaly_alert_label', alert_id=0) }}".replace('/0', '/'),
+    benchmarkUrl: "{{ url_for('ai.anomaly_benchmark') }}",
+    precisionRecallUrl: "{{ url_for('ai.anomaly_precision_recall') }}",
+    fatigueUrl: "{{ url_for('ai.anomaly_fatigue') }}",
     filterRisk: document.getElementById('filterRisk'),
     filterStatus: document.getElementById('filterStatus'),
     filterType: document.getElementById('filterType'),
@@ -199,6 +244,13 @@ document.addEventListener('DOMContentLoaded', () => {
     modalBody: document.getElementById('modalBody'),
     modalActions: document.getElementById('modalActions'),
     closeModal: document.getElementById('closeModal'),
+    benchmarkSection: document.getElementById('benchmarkSection'),
+    benchmarkSummary: document.getElementById('benchmarkSummary'),
+    benchmarkMethodTable: document.getElementById('benchmarkMethodTable'),
+    benchmarkTypeTable: document.getElementById('benchmarkTypeTable'),
+    precisionRecallSection: document.getElementById('precisionRecallSection'),
+    prRiskTable: document.getElementById('prRiskTable'),
+    prMethodTable: document.getElementById('prMethodTable'),
     kpiTotal: document.getElementById('kpiTotal'),
     kpiCritical: document.getElementById('kpiCritical'),
     kpiHigh: document.getElementById('kpiHigh'),
@@ -206,6 +258,8 @@ document.addEventListener('DOMContentLoaded', () => {
     kpiLow: document.getElementById('kpiLow'),
     kpiNew: document.getElementById('kpiNew'),
     kpiReviewed: document.getElementById('kpiReviewed'),
+    kpiAlertsPerDay: document.getElementById('kpiAlertsPerDay'),
+    kpiReviewRate: document.getElementById('kpiReviewRate'),
   });
 });
 </script>

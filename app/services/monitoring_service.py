@@ -43,6 +43,10 @@ class MonitoringService:
         actuals = [float(r["actual_value"]) for r in avp]
         predicted = [float(r["predicted_value"]) for r in avp]
         metrics = evaluate_all(actuals, predicted)
+        # Only keys with columns in forecast_monitoring_metrics may pass
+        # through **metrics — extras would raise TypeError (500 on /compute).
+        for extra in ("mape_valid_count", "mase", "interval_coverage"):
+            metrics.pop(extra, None)
 
         baseline = MonitoringRepository.baseline_metrics(sku, model_name)
         baseline_mae = float(baseline["mae"]) if baseline and baseline.get("mae") else None

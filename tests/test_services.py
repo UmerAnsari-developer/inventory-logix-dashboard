@@ -214,7 +214,12 @@ def _patch_movement(monkeypatch, current_stock=10, sku="SKU-MV-001"):
     class FakeAuditRepo:
         @staticmethod
         def record(*args, **kwargs):
-            pass
+            # The service no longer writes stock itself (DB-002: the stored
+            # procedure is authoritative); tests observe the audit detail's
+            # computed post-movement balance instead of a set_stock() call.
+            detail = kwargs.get("detail") or {}
+            if "new_stock" in detail:
+                FakeProductRepo.last_stock = detail["new_stock"]
 
     monkeypatch.setattr("app.services.movement_service.ProductRepository", FakeProductRepo)
     monkeypatch.setattr("app.services.movement_service.MovementRepository", FakeMovementRepo)

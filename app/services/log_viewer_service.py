@@ -11,10 +11,25 @@ from flask import current_app
 class LogViewerService:
     """Service for viewing system logs."""
 
-    LOG_FILE = Path("inventorylogix.log")
+    # Fixed log file path - not user controllable
+    LOG_FILE = Path("inventorylogix.log").resolve()
     LOG_PATTERN = re.compile(
         r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) (\w+) ([^ ]+) (.*)$"
     )
+
+    @staticmethod
+    def _validate_log_path() -> Path:
+        """Validate that the log file is within the allowed directory."""
+        log_file = LogViewerService.LOG_FILE.resolve()
+        # ADM-011: realpath both sides — defeats symlinks and '..' components.
+        cwd = Path.cwd().resolve()
+        try:
+            log_file.relative_to(cwd)
+        except ValueError:
+            # Log file is outside the working directory - security issue
+            current_app.logger.error(f"Log file path traversal attempt detected: {log_file}")
+            raise ValueError("Invalid log file path")
+        return log_file
 
     @staticmethod
     def get_log_entries(limit: int = 100, offset: int = 0, level: str | None = None,
@@ -22,12 +37,21 @@ class LogViewerService:
                         end_date: datetime | None = None,
                         search: str | None = None) -> list[dict]:
         """Get log entries with optional filtering."""
-        if not LogViewerService.LOG_FILE.exists():
+        # Validate log file path to prevent path traversal
+        log_file = LogViewerService._validate_log_path()
+        
+        if not log_file.exists():
             return []
         
         entries = []
-        with LogViewerService.LOG_FILE.open("r", encoding="utf-8") as f:
-            lines = f.readlines()
+        # ADM-028: bounded read — keep only the last `limit + offset` lines
+        # instead of loading the whole file into memory (OOM on large logs).
+        # errors="replace": log lines may contain non-UTF-8 bytes (e.g. em-dashes
+        # written by a non-UTF-8 console handler) — a strict decode would crash
+        # the admin dashboard with UnicodeDecodeError.
+        from collections import deque
+        with log_file.open("r", encoding="utf-8", errors="replace") as f:
+            lines = deque(f, maxlen=limit + offset)
         
         # Process lines in reverse order to get the most recent first
         for line in reversed(lines):
@@ -76,7 +100,11 @@ class LogViewerService:
     @staticmethod
     def get_log_count() -> int:
         """Get the total number of log lines."""
-        if not LogViewerService.LOG_FILE.exists():
+        log_file = LogViewerService._validate_log_path()
+        if not log_file.exists():
             return 0
-        with LogViewerService.LOG_FILE.open("r", encoding="utf-8") as f:
+        # errors="replace": log lines may contain non-UTF-8 bytes (e.g. em-dashes
+        # written by a non-UTF-8 console handler) — a strict decode would crash
+        # the admin dashboard with UnicodeDecodeError.
+        with log_file.open("r", encoding="utf-8", errors="replace") as f:
             return sum(1 for _ in f)

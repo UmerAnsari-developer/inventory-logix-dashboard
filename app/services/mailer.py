@@ -173,3 +173,101 @@ class Mailer:
         </body>
         </html>
         """
+
+    # ── Report submission notification (reuses the same transport/config) ──
+
+    @staticmethod
+    def send_report_notification(*, to_email: str, manager_name: str,
+                                 employee_name: str, employee_role: str,
+                                 report_title: str, priority: str,
+                                 report_id: int,
+                                 description: str | None = None) -> bool:
+        """Notify a reporting manager that a subordinate submitted a report.
+
+        Contains only: employee name/role, title, priority, submission time,
+        short description, and a link to the authenticated app. No sensitive
+        data (no full descriptions of confidential content, no tokens).
+        """
+        from datetime import datetime as _dt
+        submitted = _dt.now().strftime("%d %b %Y, %H:%M")
+        app_url = current_app.config.get("APP_BASE_URL", "") or "/"
+        report_url = f"{app_url}/reports/{report_id}" if app_url != "/" else f"/reports/{report_id}"
+
+        subject = f"[{priority.upper()}] Report submitted: {report_title}"
+        plain = (
+            f"Hi {manager_name},\n\n"
+            f"{employee_name} ({employee_role}) submitted a report to you.\n\n"
+            f"Title: {report_title}\n"
+            f"Priority: {priority}\n"
+            f"Submitted: {submitted}\n"
+            + (f"Description: {(description or '')[:200]}\n" if description else "")
+            + f"\nView it in InventoryLogix: {report_url}\n\n"
+            "— InventoryLogix"
+        )
+        html = f"""\
+        <html>
+        <body style="font-family: system-ui, sans-serif; margin: 0; padding: 1rem;">
+          <div style="max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #3d997c; margin: 1rem 0;">New report from your team</h2>
+            <p style="color: #555; line-height: 1.5;">
+              <strong>{employee_name}</strong> ({employee_role}) submitted a report.
+            </p>
+            <table style="width:100%;border-collapse:collapse;font-size:0.92rem">
+              <tr><td style="padding:4px 8px;color:#888;width:30%">Title</td>
+                  <td style="padding:4px 8px;color:#333"><strong>{report_title}</strong></td></tr>
+              <tr><td style="padding:4px 8px;color:#888">Priority</td>
+                  <td style="padding:4px 8px;color:#333">{priority}</td></tr>
+              <tr><td style="padding:4px 8px;color:#888">Submitted</td>
+                  <td style="padding:4px 8px;color:#333">{submitted}</td></tr>
+            </table>
+            <p style="margin: 1rem 0; text-align: center;">
+              <a href="{report_url}"
+                 style="background: #3d997c; color: #fff; padding: 0.75rem 1.5rem;
+                        text-decoration: none; border-radius: 4px; font-size: 1rem;">
+                Open InventoryLogix
+              </a>
+            </p>
+            <p style="color: #888; font-size: 0.85rem; margin-top: 2rem;">— InventoryLogix</p>
+          </div>
+        </body>
+        </html>
+        """
+
+        cfg = current_app.config
+        if cfg.get("SENDGRID_API_KEY"):
+            try:
+                sg = sendgrid.SendGridAPIClient(api_key=cfg["SENDGRID_API_KEY"])
+                mail = Mail(
+                    Email(cfg["MAIL_FROM"], "InventoryLogix"), To(to_email),
+                    subject, Content("text/plain", plain), Content("text/html", html),
+                )
+                response = sg.client.mail.send.post(request_body=mail.get())
+                return 200 <= response.status_code < 300
+            except Exception as exc:
+                LOGGER.exception("SendGrid report notification failed to %s: %s", to_email, exc)
+                return False
+
+        if not cfg.get("SMTP_HOST"):
+            LOGGER.info(
+                "SMTP not configured — report notification (report #%s for %s) not sent",
+                report_id, to_email,
+            )
+            return False
+
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = formataddr(("InventoryLogix", cfg["MAIL_FROM"]))
+            msg["To"] = to_email
+            msg.attach(MIMEText(plain, "plain"))
+            msg.attach(MIMEText(html, "html"))
+            with smtplib.SMTP(cfg["SMTP_HOST"], cfg["SMTP_PORT"], timeout=10) as server:
+                if cfg.get("MAIL_USE_TLS"):
+                    server.starttls()
+                if cfg.get("SMTP_USERNAME"):
+                    server.login(cfg["SMTP_USERNAME"], cfg["SMTP_PASSWORD"])
+                server.sendmail(cfg["MAIL_FROM"], [to_email], msg.as_string())
+            return True
+        except (OSError, smtplib.SMTPException) as exc:
+            LOGGER.exception("Failed to send report notification to %s: %s", to_email, exc)
+            return False

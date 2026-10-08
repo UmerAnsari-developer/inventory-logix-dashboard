@@ -1,6 +1,9 @@
 """Admin dashboard service."""
 from __future__ import annotations
 
+import os
+import psutil
+import shutil
 from datetime import date, timedelta
 from typing import Any
 
@@ -81,13 +84,20 @@ class AdminDashboardService:
             # Recent system config overrides (last 5)
             cur.execute(
                 """
-                SELECT id, key, value, updated_at
+                SELECT id, key, value, is_sensitive, updated_at
                 FROM system_config_overrides
                 ORDER BY updated_at DESC
                 LIMIT 5
                 """
             )
-            recent_config_overrides = [dict(row) for row in cur.fetchall()]
+            recent_config_overrides = []
+            for row in cur.fetchall():
+                override = dict(row)
+                if override.get("is_sensitive"):
+                    override["display_value"] = "********"
+                else:
+                    override["display_value"] = override["value"]
+                recent_config_overrides.append(override)
 
             # Recent user activities (last 10)
             cur.execute(
@@ -119,3 +129,80 @@ class AdminDashboardService:
             "recent_logs": recent_logs,
             "unread_notifications": unread_notifications,
         }
+
+    @staticmethod
+    def get_health_status() -> dict[str, Any]:
+        """Get system health status for admin monitoring."""
+        health = {
+            "status": "healthy",
+            "checks": {}
+        }
+        
+        # Database check
+        try:
+            with get_cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            health["checks"]["database"] = {"status": "healthy", "message": "Database connection OK"}
+        except Exception as e:
+            health["checks"]["database"] = {"status": "unhealthy", "message": str(e)}
+            health["status"] = "degraded"
+        
+        # Cache/Redis check
+        try:
+            from app.utils.cache import global_cache
+            global_cache.set("health_check", "ok", ttl=10)
+            val = global_cache.get("health_check")
+            if val == "ok":
+                health["checks"]["cache"] = {"status": "healthy", "message": "Cache OK"}
+            else:
+                health["checks"]["cache"] = {"status": "degraded", "message": "Cache not responding"}
+                health["status"] = "degraded"
+        except Exception as e:
+            health["checks"]["cache"] = {"status": "unhealthy", "message": str(e)}
+            health["status"] = "degraded"
+        
+        # Disk space check
+        try:
+            total, used, free = shutil.disk_usage("/")
+            free_percent = (free / total) * 100
+            if free_percent > 10:
+                health["checks"]["disk"] = {"status": "healthy", "message": f"Disk free: {free_percent:.1f}%"}
+            elif free_percent > 5:
+                health["checks"]["disk"] = {"status": "warning", "message": f"Disk free: {free_percent:.1f}%"}
+                health["status"] = "degraded"
+            else:
+                health["checks"]["disk"] = {"status": "critical", "message": f"Disk free: {free_percent:.1f}%"}
+                health["status"] = "unhealthy"
+        except Exception as e:
+            health["checks"]["disk"] = {"status": "unknown", "message": str(e)}
+        
+        # Memory check
+        try:
+            mem = psutil.virtual_memory()
+            if mem.percent < 80:
+                health["checks"]["memory"] = {"status": "healthy", "message": f"Memory usage: {mem.percent:.1f}%"}
+            elif mem.percent < 90:
+                health["checks"]["memory"] = {"status": "warning", "message": f"Memory usage: {mem.percent:.1f}%"}
+                health["status"] = "degraded"
+            else:
+                health["checks"]["memory"] = {"status": "critical", "message": f"Memory usage: {mem.percent:.1f}%"}
+                health["status"] = "unhealthy"
+        except Exception as e:
+            health["checks"]["memory"] = {"status": "unknown", "message": str(e)}
+        
+        # ETL status check
+        try:
+            with get_cursor() as cur:
+                cur.execute("""
+                    SELECT state_key, value, updated_at 
+                    FROM etl_state 
+                    WHERE state_key IN ('last_run', 'last_success')
+                    ORDER BY updated_at DESC
+                """)
+                etl_state = [dict(row) for row in cur.fetchall()]
+            health["checks"]["etl"] = {"status": "healthy", "message": "ETL state available", "details": etl_state}
+        except Exception as e:
+            health["checks"]["etl"] = {"status": "unknown", "message": str(e)}
+        
+        return health

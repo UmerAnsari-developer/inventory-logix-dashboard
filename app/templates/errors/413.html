@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block body_class %}admin{% endblock %}
+{% block title %}413 File Too Large - InventoryLogix{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Error</div>
+    <h1>413 — File Too Large</h1>
+  </div>
+</div>
+
+<div class="alert-strip">
+  <div class="alert-mark">error</div>
+  <div>
+    <div class="alert-title">The uploaded file exceeds the 5 MB size limit.</div>
+    <div class="alert-subtitle">
+      Split the CSV into smaller files (for example, one file per 5,000 rows) and import them one at a time.
+    </div>
+  </div>
+</div>
+
+<div class="page-actions">
+  <a href="/admin/data-import/" class="btn btn-primary">Back to Data Import</a>
+  <a href="/" class="btn btn-secondary">Go home</a>
+</div>
+{% endblock %}

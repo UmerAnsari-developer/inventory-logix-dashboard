@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% set active_page = "my_team" %}
+{% block title %}My Team{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Management</div>
+      <h1>My Team</h1>
+      <p class="heading-note">Direct reports and reports submitted to you</p>
+    </div>
+  </div>
+
+  {# ── SUMMARY CARDS ───────────────────────────────────────────── #}
+  <section class="metric-grid">
+    <div class="metric-card"><div class="metric-label">Direct Reports</div><div class="metric-value">{{ direct_reports | length }}</div><div class="metric-foot">people reporting to you</div></div>
+    <div class="metric-card"><div class="metric-label">Pending Reports</div><div class="metric-value">{{ summary.pending }}</div><div class="metric-foot"><strong>need review</strong></div></div>
+    <div class="metric-card"><div class="metric-label">Under Review</div><div class="metric-value">{{ summary.under_review }}</div><div class="metric-foot">being evaluated</div></div>
+    <div class="metric-card"><div class="metric-label">Approved</div><div class="metric-value">{{ summary.approved }}</div><div class="metric-foot">approved by you</div></div>
+    <div class="metric-card"><div class="metric-label">Completed</div><div class="metric-value">{{ summary.completed }}</div><div class="metric-foot">closed out</div></div>
+  </section>
+
+  {# ── DIRECT REPORTS ──────────────────────────────────────────── #}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Direct Reports</div></div>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr><th>Employee</th><th>Role</th><th>Department</th><th>Email</th><th>Status</th><th>Last Activity</th></tr>
+        </thead>
+        <tbody>
+          {% for u in direct_reports %}
+          <tr>
+            <td><strong>{{ u.full_name or u.username }}</strong></td>
+            <td>{{ (u.job_role or u.role) | replace('_', ' ') | title }}</td>
+            <td>{{ u.department or '—' }}</td>
+            <td>{{ u.email }}</td>
+            <td><span class="status {{ 'good' if u.is_active else 'critical' }}">{{ 'Active' if u.is_active else 'Inactive' }}</span></td>
+            <td>{{ (u.last_login | string)[:16] if u.last_login else '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6"><div class="empty-state">No direct reports assigned. Assign reporting managers in Admin &rarr; Users.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  {# ── TEAM REPORTS INBOX ──────────────────────────────────────── #}
+  <article class="panel">
+    <div class="panel-header"><div class="panel-title">Team Reports</div><div class="panel-caption">Reports submitted to you</div></div>
+    <div class="report-filter-row" style="margin-bottom:0;border:none;background:none;box-shadow:none;padding:0 0 12px">
+      <label class="report-filter-label">
+        <span>Status</span>
+        <select id="filterStatus" class="filter-select" onchange="window.location='{{ url_for('reports_workflow.my_team') }}?status='+this.value{% if priority_filter %}+'&priority={{ priority_filter }}'{% endif %}">
+          <option value="">All statuses</option>
+          <option value="submitted" {{ 'selected' if status_filter == 'submitted' }}>Submitted</option>
+          <option value="under_review" {{ 'selected' if status_filter == 'under_review' }}>Under Review</option>
+          <option value="approved" {{ 'selected' if status_filter == 'approved' }}>Approved</option>
+          <option value="rejected" {{ 'selected' if status_filter == 'rejected' }}>Rejected</option>
+          <option value="completed" {{ 'selected' if status_filter == 'completed' }}>Completed</option>
+        </select>
+      </label>
+      <label class="report-filter-label">
+        <span>Priority</span>
+        <select id="filterPriority" class="filter-select" onchange="window.location='{{ url_for('reports_workflow.my_team') }}?priority='+this.value{% if status_filter %}+'&status={{ status_filter }}'{% endif %}">
+          <option value="">All priorities</option>
+          <option value="critical">Critical</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </label>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr><th>Employee</th><th>Report Title</th><th>Type</th><th>Priority</th><th>Submitted</th><th>Due</th><th>Status</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          {% for r in reports %}
+          <tr>
+            <td>{{ r.submitter_name or r.submitter_username }}</td>
+            <td><a href="{{ url_for('reports_workflow.report_detail', report_id=r.id) }}">{{ r.title }}</a></td>
+            <td>{{ (r.report_type or 'general') | title }}</td>
+            <td><span class="status {{ 'critical' if r.priority == 'critical' else 'warning' if r.priority == 'high' else 'good' if r.priority == 'low' else '' }}">{{ r.priority }}</span></td>
+            <td>{{ (r.submitted_at | string)[:16] }}</td>
+            <td>{{ r.due_date or '—' }}</td>
+            <td><span class="status {{ 'good' if r.status in ('approved', 'completed') else 'warning' if r.status in ('submitted', 'under_review') else 'critical' }}">{{ r.status | replace('_', ' ') }}</span></td>
+            <td><a href="{{ url_for('reports_workflow.report_detail', report_id=r.id) }}" class="btn btn-secondary btn-sm">Review</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8"><div class="empty-state">No reports submitted to you yet</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}

@@ -29,6 +29,10 @@ def index():
         action=action, start_date=start_date, end_date=end_date
     )
     
+    total_count = UserActivityService.get_activities_count(
+        user_id=user_id, action=action, start_date=start_date, end_date=end_date
+    )
+    
     # Get list of users for the filter dropdown (only admins/managers can see all users)
     users_list = []
     if current_user.role in ("admin", "manager"):
@@ -45,6 +49,7 @@ def index():
     return render_template(
         "admin/user_activity/index.html",
         activities=activities,
+        total_count=total_count,
         users=users_list,
         filter_params={
             "user_id": user_id,

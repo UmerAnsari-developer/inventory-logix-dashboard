@@ -22,17 +22,26 @@ def _require_env(name: str) -> str:
 class Config:
     """Base configuration loaded from environment variables."""
 
+    # DB-013/DB-075 (Timezone/UTC): all DB timestamps are UTC — the connection
+    # pins TimeZone=UTC via libpq options (app/database/connection.py). Naive
+    # TIMESTAMP columns store UTC wall-clock values; app code must use
+    # timezone-aware UTC (datetime.now(timezone.utc)) for comparisons against
+    # TIMESTAMPTZ columns (rate_limit_state) and naive UTC for TIMESTAMP columns.
+
     SECRET_KEY = os.environ.get("SECRET_KEY") or _require_env("SECRET_KEY")
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = _bool(os.environ.get("SESSION_COOKIE_SECURE"), True)
-    REMEMBER_COOKIE_HTTPONLY = True
-    REMEMBER_COOKIE_SECURE = True
-    REMEMBER_COOKIE_SAMESITE = "Lax"
-    REMEMBER_COOKIE_DURATION = timedelta(days=7)
+
+    # Admin session timeout (shorter than regular session for security)
+    ADMIN_SESSION_TIMEOUT_MINUTES = int(os.environ.get("ADMIN_SESSION_TIMEOUT_MINUTES", "30"))
 
     WTF_CSRF_TIME_LIMIT = 60 * 60 * 8
     WTF_CSRF_ENABLED = True
+
+    # Upload size limit (CSV import, etc.). Flask rejects larger bodies with
+    # 413 before the bytes are read into memory. Default 5 MB.
+    MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH_MB", "5")) * 1024 * 1024
 
     # Database
     DB_HOST = os.environ.get("DB_HOST", "localhost")
@@ -56,13 +65,9 @@ class Config:
     # SendGrid API (HTTPS) — works on platforms that block outbound SMTP (e.g. Render free tier)
     SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 
-    # Feature flags
-    AI_FORECAST_ENABLED = _bool(os.environ.get("AI_FORECAST_ENABLED"), True)
-    ANOMALY_DETECTION_ENABLED = _bool(os.environ.get("ANOMALY_DETECTION_ENABLED"), True)
-    DARK_MODE_ENABLED = _bool(os.environ.get("DARK_MODE_ENABLED"), True)
-
     # Rate limiting (flask-limiter) storage backend — memory:// default;
-    # Redis deferred until workers>1 or instances>1 (orchestrator decision).
+    # For multi-worker deployments, set RATELIMIT_STORAGE_URI to redis://... or postgresql://...
+    # (requires flask-limiter-postgres package for PostgreSQL).
     RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
     # Opt-in reverse-proxy trust (Render etc.). When truthy the factory
     # installs ProxyFix so the limiter keys on the X-Forwarded-For client
@@ -70,7 +75,7 @@ class Config:
     # spoof-proof when the app is directly exposed.
     TRUST_PROXY = _bool(os.environ.get("TRUST_PROXY"))
 
-    # Anomaly detection thresholds
+    # Anomaly detection thresholds (used by anomaly.py)
     ANOMALY_ZWARNING = float(os.environ.get("ANOMALY_ZWARNING", "2.0"))
     ANOMALY_ZHIGH = float(os.environ.get("ANOMALY_ZHIGH", "3.0"))
     ANOMALY_ZCRITICAL = float(os.environ.get("ANOMALY_ZCRITICAL", "4.0"))
@@ -89,8 +94,11 @@ class Config:
     # warehouse is already populated. Defaults to True for safety.
     RUN_ETL_ON_STARTUP = _bool(os.environ.get("RUN_ETL_ON_STARTUP"), True)
 
-    # Security headers
-    SECURITY_HEADERS_ENABLED = _bool(os.environ.get("SECURITY_HEADERS_ENABLED"), True)
+    # Backup encryption key (optional, derives from SECRET_KEY if not set)
+    BACKUP_ENCRYPTION_KEY = os.environ.get("BACKUP_ENCRYPTION_KEY", "")
+
+    # Portfolio forecast: run actual models per product (cached) vs moving average baseline
+    PORTFOLIO_RUN_ACTUAL_MODELS = _bool(os.environ.get("PORTFOLIO_RUN_ACTUAL_MODELS"), False)
 
     @classmethod
     def psycopg2_params(cls) -> dict:
@@ -122,7 +130,11 @@ class TestingConfig(Config):
     TESTING = True
     DEBUG = False
     WTF_CSRF_ENABLED = False
-    DB_NAME = os.environ.get("TEST_DB_NAME", "inventory_db")
+    # Tests stay hermetic: in-memory rate limiting regardless of .env so the
+    # suite never depends on a running Redis container.
+    RATELIMIT_STORAGE_URI = "memory://"
+    # Default to a test-specific DB name to avoid hitting production data
+    DB_NAME = os.environ.get("TEST_DB_NAME", "inventory_db_test")
 
 
 _CONFIGS = {
@@ -135,4 +147,9 @@ _CONFIGS = {
 def get_config(name: str | None = None) -> type[Config]:
     """Return the configuration class for the given environment name."""
     env = (name or os.environ.get("FLASK_ENV", "development")).lower()
-    return _CONFIGS.get(env, DevelopmentConfig)
+    if env not in _CONFIGS:
+        raise RuntimeError(
+            f"Unknown FLASK_ENV '{env}'. Valid values: {', '.join(_CONFIGS.keys())}. "
+            f"Set FLASK_ENV explicitly (e.g. 'production', 'development', 'testing')."
+        )
+    return _CONFIGS[env]

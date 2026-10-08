@@ -1,10 +1,12 @@
-"""Admin backup and restore routes."""
+"""Admin backup and restore routes with audit logging."""
 from __future__ import annotations
 
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
+from app.extensions import limiter
 from app.security import write_roles_required, roles_required
+from app.security.audit import audit_admin_action
 from app.services import backup_service
 from app.repositories import SystemBackupRepository
 
@@ -14,15 +16,32 @@ admin_backup_bp = Blueprint("admin_backup", __name__, url_prefix="/admin/backup"
 @admin_backup_bp.route("/")
 @login_required
 @roles_required("admin")
+@audit_admin_action("admin.backup.list", target_type="backup")
 def index():
-    """List all backups."""
-    backups = SystemBackupRepository.list_all()
-    return render_template("admin/backup/index.html", backups=backups, active_page="backup")
+    """List all backups with pagination."""
+    page = request.args.get("page", default=1, type=int)
+    per_page = 20
+    offset = (page - 1) * per_page
+    
+    backups = SystemBackupRepository.list_all(limit=per_page, offset=offset)
+    total_count = SystemBackupRepository.count_all()
+    total_pages = (total_count + per_page - 1) // per_page
+    
+    return render_template(
+        "admin/backup/index.html", 
+        backups=backups, 
+        active_page="backup",
+        backup_page=page,
+        total_pages=total_pages,
+        total_count=total_count
+    )
 
 
 @admin_backup_bp.route("/create", methods=["GET", "POST"])
 @login_required
 @roles_required("admin")
+@limiter.limit("10 per minute")
+@audit_admin_action("admin.backup.create", target_type="backup", detail_func=lambda r, *a, **kw: {"backup_name": request.form.get("backup_name")})
 def create():
     """Create a new backup."""
     if request.method == "GET":
@@ -31,7 +50,12 @@ def create():
     # POST request
     backup_name = request.form.get("backup_name", "").strip()
     backup_type = request.form.get("backup_type", "full")
-    
+
+    # ADM-025: validate backup_type against the allowlist.
+    if backup_type not in ("full", "schema", "data"):
+        flash("Invalid backup type.", "error")
+        return redirect(url_for("admin_backup.create"))
+
     if not backup_name:
         flash("Backup name is required.", "error")
         return redirect(url_for("admin_backup.create"))
@@ -53,14 +77,19 @@ def create():
 @admin_backup_bp.route("/restore/<int:backup_id>", methods=["POST"])
 @login_required
 @roles_required("admin")
+@limiter.limit("5 per minute")
+@audit_admin_action("admin.backup.restore", target_type="backup", target_id_arg="backup_id")
 def restore(backup_id: int):
-    """Restore a backup."""
+    """Restore a backup (non-blocking)."""
     result = backup_service.restore_backup(
         backup_id=backup_id,
         user_id=current_user.id
     )
     
-    if result["success"]:
+    if result.get("started"):
+        # Async restore started
+        flash(result["message"], "info")
+    elif result["success"]:
         flash(result["message"], "success")
     else:
         flash(result["message"], "error")
@@ -71,12 +100,17 @@ def restore(backup_id: int):
 @admin_backup_bp.route("/delete/<int:backup_id>", methods=["POST"])
 @login_required
 @roles_required("admin")
+@limiter.limit("5 per minute")
+@audit_admin_action("admin.backup.delete", target_type="backup", target_id_arg="backup_id")
 def delete(backup_id: int):
     """Delete a backup record."""
     # First, get the backup record to delete the file if needed
     backup_record = SystemBackupRepository.get_by_id(backup_id)
     if backup_record:
-        # Delete the file if it exists
+        # ADM-014: soft-delete the DB record FIRST, then remove the file.
+        # If the file unlink fails the record is already hidden (recoverable);
+        # the old order left a live record pointing at a deleted file.
+        SystemBackupRepository.delete_by_id(backup_id)
         import os
         from pathlib import Path
         file_path = Path(backup_record["file_path"])
@@ -86,9 +120,6 @@ def delete(backup_id: int):
                 current_app.logger.info(f"Deleted backup file: {file_path}")
             except Exception as e:
                 current_app.logger.error(f"Error deleting backup file {file_path}: {e}")
-        
-        # Delete the record from the database
-        SystemBackupRepository.delete_by_id(backup_id)
         flash(f"Backup '{backup_record['backup_name']}' deleted successfully.", "success")
     else:
         flash("Backup not found.", "error")

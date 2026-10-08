@@ -10,7 +10,7 @@
     <div>
       <div class="eyebrow">Intelligence</div>
       <h1>Demand Forecasting</h1>
-      <p class="heading-note">Train a Prophet, ARIMA or ensemble model against 180 days of movement history</p>
+      <p class="heading-note">Train a Prophet, XGBoost or ensemble model against 180 days of movement history</p>
     </div>
   </div>
   <div class="forecast-controls">
@@ -23,21 +23,26 @@
     </label>
     <label><span>Horizon</span>
       <select id="forecastHorizon">
+        <option value="7">7 days</option>
+        <option value="15">15 days</option>
         <option value="30">30 days</option>
+        <option value="45">45 days</option>
         <option value="60">60 days</option>
         <option value="90" selected>90 days</option>
+        <option value="120">120 days</option>
+        <option value="150">150 days</option>
         <option value="180">180 days</option>
-        <option value="365">365 days</option>
       </select>
     </label>
     <label><span>Model</span>
       <select id="forecastModel">
         <option value="prophet" {{ 'selected' if default_model == 'prophet' else '' }}>Prophet (seasonality)</option>
-        <option value="arima" {{ 'selected' if default_model == 'arima' else '' }}>ARIMA (trend)</option>
+        <option value="xgboost" {{ 'selected' if default_model == 'xgboost' else '' }}>XGBoost (ML)</option>
         <option value="ensemble" {{ 'selected' if default_model == 'ensemble' else '' }}>Ensemble (both)</option>
       </select>
     </label>
     <button class="btn btn-primary" id="runForecast" type="button">Run forecast</button>
+    <button class="btn btn-secondary" id="runBacktest" type="button">Run backtest</button>
   </div>
   <article class="panel">
     <div class="panel-header">
@@ -64,19 +69,29 @@
       <div class="metric-card"><div class="metric-label">Observations</div><div class="metric-value" id="monObs">&mdash;</div><div class="metric-foot">Days evaluated</div></div>
     </div>
   </article>
+  <article class="panel" id="backtestSection" style="display:none">
+    <div class="panel-header"><div class="panel-title">Backtest Results (Rolling-Origin)</div></div>
+    <div class="table-scroll">
+      <table class="data-table" id="backtestTable">
+        <thead><tr><th>Metric</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th><th>Origins</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="metric-grid" id="backtestBaselines"></div>
+  </article>
   <article class="panel">
     <div class="panel-header"><div class="panel-title">Portfolio forecast snapshot</div></div>
     <div class="table-scroll">
       <table class="data-table" id="portfolioTable">
-        <thead><tr><th>SKU</th><th>Product</th><th>Model</th><th>Baseline</th><th>Predicted</th><th>Delta</th><th>Accuracy</th></tr></thead>
-        <tbody><tr><td colspan="7"><div class="empty-state">Run a forecast to load the portfolio snapshot</div></td></tr></tbody>
+        <thead><tr><th>SKU</th><th>Product</th><th>Model</th><th>Model Used</th><th>Baseline</th><th>Predicted</th><th>Delta</th><th>Accuracy</th><th>Data</th></tr></thead>
+        <tbody><tr><td colspan="9"><div class="empty-state">Run a forecast to load the portfolio snapshot</div></td></tr></tbody>
       </table>
     </div>
   </article>
   <article class="panel">
     <div class="panel-header"><div class="panel-title">How to read this page</div><div class="panel-caption">Every number explained in plain language</div></div>
     <div class="panel-content" style="font-size:0.86rem;line-height:1.7">
-      <p><strong>How the forecast works:</strong> the model studies the last 180 days of stock movement for the selected product and projects the next N days. <strong>Prophet</strong> finds weekly/monthly patterns, <strong>ARIMA</strong> follows the overall trend, and <strong>Ensemble</strong> averages both for a steadier prediction.</p>
+      <p><strong>How the forecast works:</strong> the model studies the last 180 days of stock movement for the selected product and projects the next N days. <strong>Prophet</strong> finds weekly/monthly/yearly seasonal patterns, <strong>XGBoost</strong> learns from lag and calendar features, and <strong>Ensemble</strong> averages both for a steadier prediction.</p>
       <p><strong>Baseline</strong> &mdash; the average units moved per day over the period. Think of it as a "normal day".</p>
       <p><strong>Predicted</strong> &mdash; the total units the model expects to move over the horizon you picked.</p>
       <p><strong>Delta</strong> &mdash; how much recent demand differs from the baseline, in %. Positive = demand is picking up, negative = slowing down.</p>
@@ -87,7 +102,11 @@
       <p><strong>MAPE</strong> (Mean Absolute % Error) &mdash; the same as MAE, but as a percentage of actual demand, so it compares fairly across products.</p>
       <p><strong>RMSE</strong> (Root Mean Square Error) &mdash; like MAE but punishes big misses harder. If RMSE is much larger than MAE, a few days were badly wrong.</p>
       <p><strong>Observations</strong> &mdash; how many days of real data were used to score the model.</p>
-      <p><strong>Portfolio table</strong> &mdash; one row per product: what a normal day looks like (Baseline), what the next period will need (Predicted), whether demand is rising or falling (Delta), and how much to trust the number (Accuracy).</p>
+      <p><strong>WAPE</strong> (Weighted Absolute Percentage Error) &mdash; sum of absolute errors divided by sum of actuals. Better for intermittent demand than MAPE.</p>
+      <p><strong>MASE</strong> (Mean Absolute Scaled Error) &mdash; MAE relative to a seasonal naive forecast. < 1 means better than naive.</p>
+      <p><strong>Interval Coverage</strong> &mdash; % of actuals falling within the 95% prediction interval. Should be ~95%.</p>
+      <p><strong>Backtest</strong> &mdash; rolling-origin evaluation on chronologically held-out data. The gold standard for forecast validation.</p>
+      <p><strong>Portfolio table</strong> &mdash; one row per product: what a normal day looks like (Baseline), what the next period will need (Predicted), whether demand is rising or falling (Delta), how much to trust the number (Accuracy), and which model was actually used.</p>
     </div>
   </article>
 </section>
@@ -100,6 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     horizon: document.getElementById('forecastHorizon'),
     model: document.getElementById('forecastModel'),
     runButton: document.getElementById('runForecast'),
+    backtestButton: document.getElementById('runBacktest'),
     chartId: 'forecastChart',
     badge: document.getElementById('forecastModelBadge'),
     metrics: {
@@ -109,7 +129,11 @@ document.addEventListener('DOMContentLoaded', () => {
       runtime: document.getElementById('forecastRuntime'),
     },
     table: document.getElementById('portfolioTable'),
+    backtestTable: document.getElementById('backtestTable'),
+    backtestBaselines: document.getElementById('backtestBaselines'),
+    backtestSection: document.getElementById('backtestSection'),
     runUrl: "{{ url_for('ai.forecast_run') }}",
+    backtestUrl: "{{ url_for('ai.forecast_backtest') }}",
     portfolioUrl: "{{ url_for('ai.forecast_portfolio') }}",
     monitoring: {
       section: document.getElementById('monitoringSection'),

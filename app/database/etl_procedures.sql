@@ -202,12 +202,15 @@ $$ LANGUAGE plpgsql;
 
 -- ── INCREMENTAL: PROCESS LOGIN EVENTS ───────────────────────────────────────
 -- Reads from audit_log where action = 'login.*' and inserts into fact_login_events
+-- DB-028 fix: watermark = max created_at actually processed (not NOW()) to avoid
+-- skipping rows committed after the read but before the watermark update.
 
 CREATE OR REPLACE FUNCTION etl_load_login_events()
 RETURNS INTEGER AS $$
 DECLARE
     v_last TIMESTAMP;
     v_count INTEGER := 0;
+    v_max_created TIMESTAMP;
 BEGIN
     SELECT value::TIMESTAMPTZ INTO v_last
     FROM etl_warehouse_state WHERE state_key = 'last_login_event_at';
@@ -233,8 +236,16 @@ BEGIN
 
     GET DIAGNOSTICS v_count = ROW_COUNT;
 
+    -- DB-028: use max created_at actually processed, not NOW()
+    SELECT COALESCE(MAX(a.created_at), v_last) INTO v_max_created
+    FROM audit_log a
+    LEFT JOIN dim_user du ON du.user_id = a.user_id AND du.is_current = TRUE
+    WHERE a.created_at > v_last
+      AND a.action IN ('login_success', 'login_failed')
+      AND du.user_key IS NOT NULL;
+
     INSERT INTO etl_warehouse_state (state_key, value, updated_at)
-    VALUES ('last_login_event_at', NOW()::TEXT, NOW())
+    VALUES ('last_login_event_at', v_max_created::TEXT, NOW())
     ON CONFLICT (state_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
 
     RETURN v_count;
@@ -244,12 +255,14 @@ $$ LANGUAGE plpgsql;
 
 -- ── INCREMENTAL: PROCESS SESSION EVENTS ──────────────────────────────────────
 -- Syncs user_sessions into fact_session_activity
+-- DB-041 fix: always-run upsert pass for session refresh (logout_at/last_activity/is_active)
 
 CREATE OR REPLACE FUNCTION etl_load_session_events()
 RETURNS INTEGER AS $$
 DECLARE
     v_last TIMESTAMP;
     v_count INTEGER := 0;
+    v_max_created TIMESTAMP;
 BEGIN
     SELECT value::TIMESTAMPTZ INTO v_last
     FROM etl_warehouse_state WHERE state_key = 'last_session_event_at';
@@ -258,7 +271,7 @@ BEGIN
         v_last := '2024-01-01'::TIMESTAMPTZ;
     END IF;
 
-    -- Upsert new/changed sessions
+    -- Upsert new/changed sessions (DB-041: always run, not just created_at > v_last)
     INSERT INTO fact_session_activity (
         user_key, session_token, login_at, logout_at, last_activity,
         ip_address, user_agent, is_active, created_at
@@ -267,8 +280,7 @@ BEGIN
            s.last_activity, s.ip_address, s.user_agent, s.is_active, s.created_at
     FROM user_sessions s
     LEFT JOIN dim_user du ON du.user_id = s.user_id AND du.is_current = TRUE
-    WHERE s.created_at > v_last
-      AND du.user_key IS NOT NULL
+    WHERE du.user_key IS NOT NULL
     ON CONFLICT (session_token) DO UPDATE SET
         logout_at = EXCLUDED.logout_at,
         last_activity = EXCLUDED.last_activity,
@@ -276,8 +288,15 @@ BEGIN
 
     GET DIAGNOSTICS v_count = ROW_COUNT;
 
+    -- DB-028: use max created_at actually processed for new sessions
+    SELECT COALESCE(MAX(s.created_at), v_last) INTO v_max_created
+    FROM user_sessions s
+    LEFT JOIN dim_user du ON du.user_id = s.user_id AND du.is_current = TRUE
+    WHERE s.created_at > v_last
+      AND du.user_key IS NOT NULL;
+
     INSERT INTO etl_warehouse_state (state_key, value, updated_at)
-    VALUES ('last_session_event_at', NOW()::TEXT, NOW())
+    VALUES ('last_session_event_at', v_max_created::TEXT, NOW())
     ON CONFLICT (state_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
 
     RETURN v_count;
@@ -292,6 +311,7 @@ RETURNS INTEGER AS $$
 DECLARE
     v_last TIMESTAMP;
     v_count INTEGER := 0;
+    v_max_created TIMESTAMP;
 BEGIN
     SELECT value::TIMESTAMPTZ INTO v_last
     FROM etl_warehouse_state WHERE state_key = 'last_signup_event_at';
@@ -316,8 +336,16 @@ BEGIN
 
     GET DIAGNOSTICS v_count = ROW_COUNT;
 
+    -- DB-028: use max created_at actually processed, not NOW()
+    SELECT COALESCE(MAX(a.created_at), v_last) INTO v_max_created
+    FROM audit_log a
+    LEFT JOIN dim_user du ON du.user_id = a.user_id AND du.is_current = TRUE
+    WHERE a.created_at > v_last
+      AND a.action IN ('signup_success', 'signup_failed')
+      AND du.user_key IS NOT NULL;
+
     INSERT INTO etl_warehouse_state (state_key, value, updated_at)
-    VALUES ('last_signup_event_at', NOW()::TEXT, NOW())
+    VALUES ('last_signup_event_at', v_max_created::TEXT, NOW())
     ON CONFLICT (state_key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
 
     RETURN v_count;
@@ -554,19 +582,29 @@ END;
 $$ LANGUAGE plpgsql;
 
 
--- Revoke PostgreSQL's default PUBLIC EXECUTE on ETL/monitoring functions.
+-- Revoke PostgreSQL's default PUBLIC EXECUTE on ETL/monitoring/retention functions.
 -- The Flask app connects as the owner role and keeps EXECUTE; shared/anonymous
--- roles must not be able to call etl_full_build() or monitor procs directly.
+-- roles must not be able to call etl_full_build(), monitor procs, or the
+-- sp_retention_* purge procs (they DELETE data) directly.
+-- Supabase also grants EXECUTE to anon/authenticated/service_role via its
+-- default privileges — a PUBLIC revoke alone doesn't remove those, so revoke
+-- from them too when the roles exist (no-op on plain PostgreSQL).
 DO $$
-DECLARE fn TEXT;
+DECLARE fn TEXT; r TEXT;
 BEGIN
   FOR fn IN
     SELECT p.oid::regprocedure::text
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
-      AND (p.proname LIKE 'etl\_%' OR p.proname LIKE 'sp\_monitor\_%')
+      AND (p.proname LIKE 'etl\_%' OR p.proname LIKE 'sp\_monitor\_%'
+           OR p.proname LIKE 'sp\_retention\_%')
   LOOP
     EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', fn);
+    FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+        EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM %I', fn, r);
+      END IF;
+    END LOOP;
   END LOOP;
 END $$;

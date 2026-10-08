@@ -31,6 +31,9 @@ LOGGER = logging.getLogger(__name__)
 
 INVENTORY_HISTORY_DAYS = 30
 
+# DB-003: advisory-lock key serializing ETL runs across threads AND processes.
+_ETL_LOCK_KEY = 774001
+
 # "WH-Pune" -> code "WH-PUN", city "Pune". Legacy names map to regions.
 _REGION_HINT = {
     "Pune": "Central",
@@ -247,8 +250,8 @@ def _build_movement_facts(cur, start: date, end: date) -> int:
                 COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS in_value,
                 COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS out_value
         FROM movements m
-        JOIN dim_product dp ON dp.sku = m.sku
-        JOIN products p ON p.sku = m.sku
+        JOIN products p ON p.id = m.product_id
+        JOIN dim_product dp ON dp.sku = p.sku
         JOIN dim_warehouse dw ON dw.warehouse_name = p.warehouse
         WHERE m.created_at::date BETWEEN %s AND %s
         GROUP BY m.created_at::date, dw.warehouse_key, dp.product_key
@@ -283,38 +286,38 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
     cur.execute(
         """
         WITH daily_net AS (
-            SELECT m.sku, m.created_at::date AS day,
+            SELECT m.product_id, m.created_at::date AS day,
                     SUM(CASE WHEN m.type='IN' THEN m.quantity
                              WHEN m.type='OUT' THEN -m.quantity ELSE 0 END) AS net
             FROM movements m
             WHERE m.created_at::date BETWEEN %s AND %s
-            GROUP BY m.sku, m.created_at::date
+            GROUP BY m.product_id, m.created_at::date
         ),
         product_days AS (
-            SELECT p.sku, p.warehouse, p.current_stock, p.reorder_point, p.unit_price,
+            SELECT p.id, p.warehouse, p.current_stock, p.reorder_point, p.unit_price,
                     gs::date AS day
             FROM products p
             CROSS JOIN generate_series(%s::date, %s::date, '1 day'::interval) gs
-            WHERE p.sku = ANY(%s)
+            WHERE p.id = ANY(%s)
         )
-        SELECT pd.day, pd.warehouse, pd.sku,
+        SELECT pd.day, pd.warehouse, pd.id,
                 pd.current_stock - COALESCE(
                     SUM(dn.net) OVER (
-                        PARTITION BY pd.sku ORDER BY pd.day DESC
+                        PARTITION BY pd.id ORDER BY pd.day DESC
                         ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
                     ), 0
                 ) AS stock_on_hand,
                 pd.reorder_point, pd.unit_price
         FROM product_days pd
-        LEFT JOIN daily_net dn ON dn.sku = pd.sku AND dn.day = pd.day
-        ORDER BY pd.sku, pd.day
+        LEFT JOIN daily_net dn ON dn.product_id = pd.id AND dn.day = pd.day
+        ORDER BY pd.id, pd.day
         """,
-        (start_day, end_day, start_day, end_day, prod_skus),
+        (start_day, end_day, start_day, end_day, prod_ids),
     )
     rows = []
     for r in cur.fetchall():
         wh_key = wh_keys.get(r["warehouse"])
-        prod_key = prod_keys.get(r["sku"])
+        prod_key = prod_keys.get(r["id"])
         if wh_key is None or prod_key is None:
             continue
         stock = max(float(r["stock_on_hand"] or 0), 0.0)
@@ -446,7 +449,7 @@ def _validate_product_consistency(cur) -> bool:
         cur.execute("""
             SELECT COUNT(*) 
             FROM movements m 
-            LEFT JOIN dim_product dp ON dp.sku = m.sku
+            LEFT JOIN dim_product dp ON dp.sku = (SELECT sku FROM products WHERE id = m.product_id)
             WHERE dp.product_key IS NULL
             """)
         orphaned_movements = cur.fetchone()["count"]
@@ -480,6 +483,23 @@ def run_etl(force: bool = False) -> dict:
     try:
         conn = _retry_operation(_open_conn)
         with conn.cursor() as cur:
+            # Release any stale advisory lock from previous pooled connection use
+            # (advisory locks are session-level and persist across pooled connections).
+            cur.execute("SELECT pg_advisory_unlock(%s)", (_ETL_LOCK_KEY,))
+
+            # DB-003: single-run guard. Session-level advisory lock.
+            # Must be explicitly released before returning connection to pool
+            # (advisory locks are session-level and persist across pooled connections).
+            cur.execute("SELECT pg_try_advisory_lock(%s) AS locked", (_ETL_LOCK_KEY,))
+            if not cur.fetchone()["locked"]:
+                summary["skipped"] = True
+                LOGGER.info(
+                    "ETL skipped: another ETL run is already in progress."
+                )
+                # Release lock before early return
+                cur.execute("SELECT pg_advisory_unlock(%s)", (_ETL_LOCK_KEY,))
+                return summary
+
             cur.execute("SELECT 1 FROM fact_movement_daily LIMIT 1")
             facts_exist = cur.fetchone() is not None
 
@@ -493,6 +513,8 @@ def run_etl(force: bool = False) -> dict:
                     LOGGER.info(
                         "ETL skipped: no new movements since watermark %s.", last_id
                     )
+                    # Release lock before early return
+                    cur.execute("SELECT pg_advisory_unlock(%s)", (_ETL_LOCK_KEY,))
                     return summary
 
                 today = date.today()
@@ -689,9 +711,26 @@ def run_etl(force: bool = False) -> dict:
                 "Warehouse ETL failed (non-fatal): %s", _safe_error(e)
             )
 
+        # Release advisory lock before returning connection to pool
+        # (advisory locks are session-level and persist across pooled connections)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT pg_advisory_unlock(%s)", (_ETL_LOCK_KEY,))
+            cur.close()
+        except Exception:
+            pass  # Best effort
+
         return summary
     except Exception as e:
         LOGGER.error(f"ETL failed: {_safe_error(e)}")
+        # Release advisory lock on error too
+        try:
+            if conn and not conn.closed:
+                cur = conn.cursor()
+                cur.execute("SELECT pg_advisory_unlock(%s)", (_ETL_LOCK_KEY,))
+                cur.close()
+        except Exception:
+            pass
         raise
     finally:
         if conn:

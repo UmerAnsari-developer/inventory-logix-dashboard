@@ -3,6 +3,36 @@
 -- Auto-records login, logout, signup events to warehouse fact tables
 -- =============================================================================
 
+-- ── FUNCTION: current_app_user_id() — Read transaction-local app user ID ───────
+-- Reads the GUC 'app.current_user_id' set via set_config() in the application layer.
+-- Returns NULL if not set or not a valid integer. Used by audit triggers to
+-- attribute changes to the current application user without passing user_id explicitly.
+
+CREATE OR REPLACE FUNCTION current_app_user_id() RETURNS bigint
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+    v_user_id text;
+    v_result bigint;
+BEGIN
+    v_user_id := current_setting('app.current_user_id', true);
+    
+    IF v_user_id IS NULL OR v_user_id = '' THEN
+        RETURN NULL;
+    END IF;
+    
+    BEGIN
+        v_result := v_user_id::bigint;
+        RETURN v_result;
+    EXCEPTION WHEN invalid_text_representation THEN
+        RETURN NULL;
+    END;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION current_app_user_id() TO postgres;
+
 -- ── FUNCTION: Log user signup to audit_log ───────────────────────────────────
 
 CREATE OR REPLACE FUNCTION trg_log_user_signup()
@@ -132,6 +162,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Fix DB-012: the function above existed but was never attached, so stale
+-- sessions accumulated forever. Each login now sweeps sessions idle > 24h
+-- (cheap: partial index idx_user_sessions_active scopes the UPDATE).
+DROP TRIGGER IF EXISTS trg_session_cleanup ON user_sessions;
+CREATE TRIGGER trg_session_cleanup
+    AFTER INSERT ON user_sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION trg_cleanup_stale_sessions();
+
 
 -- ── FUNCTION: Track product changes for audit ────────────────────────────────
 
@@ -139,16 +178,24 @@ CREATE OR REPLACE FUNCTION trg_log_product_change()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
-        INSERT INTO audit_log (action, target_type, target_id, detail)
-        VALUES ('product_created', 'product', NEW.id,
+        INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+        VALUES (current_app_user_id(), 'product_created', 'product', NEW.id,
                 jsonb_build_object('sku', NEW.sku, 'name', NEW.name));
     ELSIF TG_OP = 'UPDATE' THEN
-        INSERT INTO audit_log (action, target_type, target_id, detail)
-        VALUES ('product_updated', 'product', NEW.id,
-                jsonb_build_object('sku', NEW.sku, 'name', NEW.name));
+        -- DB-068: soft delete (deleted_at NULL -> NOT NULL) is an UPDATE to the
+        -- database but a DELETE to the business — log it as product_deleted.
+        IF NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL THEN
+            INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+            VALUES (current_app_user_id(), 'product_deleted', 'product', OLD.id,
+                    jsonb_build_object('sku', OLD.sku, 'name', OLD.name));
+        ELSE
+            INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+            VALUES (current_app_user_id(), 'product_updated', 'product', NEW.id,
+                    jsonb_build_object('sku', NEW.sku, 'name', NEW.name));
+        END IF;
     ELSIF TG_OP = 'DELETE' THEN
-        INSERT INTO audit_log (action, target_type, target_id, detail)
-        VALUES ('product_deleted', 'product', OLD.id,
+        INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+        VALUES (current_app_user_id(), 'product_deleted', 'product', OLD.id,
                 jsonb_build_object('sku', OLD.sku, 'name', OLD.name));
     END IF;
     RETURN COALESCE(NEW, OLD);
@@ -168,16 +215,16 @@ CREATE OR REPLACE FUNCTION trg_log_supplier_change()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
-        INSERT INTO audit_log (action, target_type, target_id, detail)
-        VALUES ('supplier_created', 'supplier', NEW.id,
+        INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+        VALUES (current_app_user_id(), 'supplier_created', 'supplier', NEW.id,
                 jsonb_build_object('name', NEW.name));
     ELSIF TG_OP = 'UPDATE' THEN
-        INSERT INTO audit_log (action, target_type, target_id, detail)
-        VALUES ('supplier_updated', 'supplier', NEW.id,
+        INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+        VALUES (current_app_user_id(), 'supplier_updated', 'supplier', NEW.id,
                 jsonb_build_object('name', NEW.name));
     ELSIF TG_OP = 'DELETE' THEN
-        INSERT INTO audit_log (action, target_type, target_id, detail)
-        VALUES ('supplier_deleted', 'supplier', OLD.id,
+        INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+        VALUES (current_app_user_id(), 'supplier_deleted', 'supplier', OLD.id,
                 jsonb_build_object('name', OLD.name));
     END IF;
     RETURN COALESCE(NEW, OLD);
@@ -204,8 +251,6 @@ BEGIN
     IF v_sku IS NULL THEN
         RAISE EXCEPTION 'Invalid product_id %: product does not exist', NEW.product_id;
     END IF;
-    NEW.sku := v_sku;
-
     -- Prevent negative stock on OUT and ADJUSTMENT
     IF NEW.type = 'OUT' AND v_stock - NEW.quantity < 0 THEN
         RAISE EXCEPTION 'Insufficient stock: have %, need %', v_stock, NEW.quantity;
@@ -230,14 +275,15 @@ CREATE TRIGGER trg_validate_movement
 CREATE OR REPLACE FUNCTION trg_log_movement_create()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO audit_log (action, target_type, target_id, detail)
+    INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
     VALUES (
+        current_app_user_id(),
         'movement_' || LOWER(NEW.type),
         'movement',
         NEW.id,
         jsonb_build_object(
             'product_id', NEW.product_id,
-            'sku', NEW.sku,
+            'sku', (SELECT sku FROM products WHERE id = NEW.product_id),
             'type', NEW.type,
             'quantity', NEW.quantity,
             'reference', NEW.reference
@@ -260,12 +306,12 @@ CREATE OR REPLACE FUNCTION trg_log_po_change()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
-        INSERT INTO audit_log (action, target_type, target_id, detail)
-        VALUES ('po_created', 'purchase_order', NEW.id,
+        INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+        VALUES (current_app_user_id(), 'po_created', 'purchase_order', NEW.id,
                 jsonb_build_object('po_number', NEW.po_number, 'status', NEW.status));
     ELSIF TG_OP = 'UPDATE' AND OLD.status != NEW.status THEN
-        INSERT INTO audit_log (action, target_type, target_id, detail)
-        VALUES ('po_status_changed', 'purchase_order', NEW.id,
+        INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+        VALUES (current_app_user_id(), 'po_status_changed', 'purchase_order', NEW.id,
                 jsonb_build_object(
                     'po_number', NEW.po_number,
                     'old_status', OLD.status,

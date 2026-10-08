@@ -15,11 +15,8 @@ class NotificationCenterService:
         """List notifications for the current user."""
         if not current_user.is_authenticated:
             raise ValueError("Authentication required")
-        # The repository method doesn't support offset, so we'll implement it here
-        # by getting a larger list and then slicing.
-        # We'll get limit + offset and then slice.
-        raw = NotificationRepository.list_for_user(current_user.id, limit=limit + offset)
-        return raw[offset:offset+limit]
+        # ADM-019: repository supports offset natively — no over-fetch + slice.
+        return NotificationRepository.list_for_user(current_user.id, limit=limit, offset=offset)
 
     @staticmethod
     def get_notification(notification_id: int) -> dict | None:

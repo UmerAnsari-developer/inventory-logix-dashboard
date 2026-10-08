@@ -128,3 +128,102 @@ class UserRepository:
     def end_session(token: str) -> None:
         with get_cursor(commit=True) as cur:
             cur.execute("SELECT sp_session_end(%s)", (token,))
+
+    @staticmethod
+    def delete_sessions_for_user(user_id: int) -> None:
+        """Invalidate all active sessions for a user (ADM-016: role change / deactivation)."""
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "UPDATE user_sessions SET is_active = FALSE, logout_at = NOW() "
+                "WHERE user_id = %s AND is_active = TRUE",
+                (user_id,),
+            )
+
+    # ── Reporting hierarchy (org relationship — grants visibility, not permissions) ──
+
+    @staticmethod
+    def set_reporting_manager(user_id: int, manager_id: int | None) -> None:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "UPDATE users SET reporting_manager_id = %s WHERE id = %s",
+                (manager_id, user_id),
+            )
+
+    @staticmethod
+    def get_reporting_manager(user_id: int) -> dict | None:
+        """The user's reporting manager (or None)."""
+        with get_cursor() as cur:
+            cur.execute(
+                """SELECT m.id, m.username, m.full_name, m.email, m.role, m.job_role,
+                          m.department, m.is_active
+                   FROM users u JOIN users m ON m.id = u.reporting_manager_id
+                   WHERE u.id = %s""",
+                (user_id,),
+            )
+            return cur.fetchone()
+
+    @staticmethod
+    def direct_reports(manager_id: int) -> list[dict]:
+        """Users whose reporting_manager_id is the given manager."""
+        with get_cursor() as cur:
+            cur.execute(
+                """SELECT id, username, full_name, email, role, job_role,
+                          department, is_active, last_login
+                   FROM users
+                   WHERE reporting_manager_id = %s AND deleted_at IS NULL
+                   ORDER BY username""",
+                (manager_id,),
+            )
+            return list(cur.fetchall())
+
+    @staticmethod
+    def list_managers() -> list[dict]:
+        """Active users eligible as reporting managers (for the assignment dropdown)."""
+        with get_cursor() as cur:
+            cur.execute(
+                """SELECT id, username, full_name, email, role, job_role, department
+                   FROM users
+                   WHERE is_active = TRUE AND deleted_at IS NULL
+                   ORDER BY username""",
+            )
+            return list(cur.fetchall())
+
+    @staticmethod
+    def manager_chain(user_id: int, max_depth: int = 50) -> list[int]:
+        """Walk up the reporting_manager_id chain (for cycle detection)."""
+        chain: list[int] = []
+        current: int | None = user_id
+        with get_cursor() as cur:
+            for _ in range(max_depth):
+                if current is None:
+                    break
+                cur.execute(
+                    "SELECT reporting_manager_id FROM users WHERE id = %s", (current,)
+                )
+                row = cur.fetchone()
+                if not row or row["reporting_manager_id"] is None:
+                    break
+                nxt = int(row["reporting_manager_id"])
+                if nxt in chain:
+                    break  # existing cycle — stop walking
+                chain.append(nxt)
+                current = nxt
+        return chain
+
+    @staticmethod
+    def update_profile(user_id: int, *, full_name: str | None = None,
+                       department: str | None = None,
+                       job_role: str | None = None) -> None:
+        """Update organizational profile fields (admin)."""
+        sets, params = [], []
+        if full_name is not None:
+            sets.append("full_name = %s"); params.append(full_name)
+        if department is not None:
+            sets.append("department = %s"); params.append(department)
+        if job_role is not None:
+            sets.append("job_role = %s"); params.append(job_role)
+        if not sets:
+            return
+        params.append(user_id)
+        with get_cursor(commit=True) as cur:
+            cur.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = %s", params)

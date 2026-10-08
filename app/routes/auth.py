@@ -1,6 +1,7 @@
 """Authentication blueprint — login, register, logout."""
 from __future__ import annotations
 
+import os
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
@@ -32,6 +33,11 @@ def login():
         # No remember cookie: only the browser-session cookie is set, so
         # closing the browser always ends the login.
         login_user(user)
+        # Store session_token in Flask session for logout
+        session_token = getattr(user, "session_token", None)
+        if session_token:
+            from flask import session
+            session["session_token"] = session_token
         # Warm caches so first page load is fast
         try:
             from ..utils.cache import global_cache
@@ -85,10 +91,13 @@ def forgot_password():
             "If an account exists for that email, a reset link has been sent.",
             "info",
         )
+        # Only show reset link in debug mode AND when explicitly enabled for testing
+        # In production, the link is only sent via email
+        show_reset_link = current_app.debug and os.environ.get("SHOW_RESET_LINK_IN_UI", "false").lower() == "true"
         return render_template(
             "auth/forgot_password.html",
             email="",
-            reset_link=result.get("reset_link") if current_app.debug else "",
+            reset_link=result.get("reset_link") if show_reset_link else "",
         )
     return render_template("auth/forgot_password.html", email="", reset_link="")
 
@@ -176,7 +185,8 @@ def check_email():
 @login_required
 def logout():
     # End session tracking
-    session_token = getattr(current_user, "session_token", None)
+    from flask import session
+    session_token = session.pop("session_token", None)
     if session_token:
         UserRepository.end_session(session_token)
     logout_user()

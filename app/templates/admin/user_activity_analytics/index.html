@@ -121,6 +121,49 @@
           </tbody>
         </table>
       </div>
+
+      {# ── Pagination for Recent Activities ───────────────────────────────── #}
+      {% set total_pages = ((recent_total - 1) // recent_limit) + 1 %}
+      {% if total_pages > 1 %}
+      <nav class="pagination" aria-label="Recent activities pagination">
+        <ul class="pagination-list">
+          {% if recent_page > 1 %}
+          <li>
+            <a href="{{ url_for('admin_user_activity_analytics.index', recent_page=1) }}"
+               class="pagination-link" aria-label="First page">&laquo;&laquo;</a>
+          </li>
+          <li>
+            <a href="{{ url_for('admin_user_activity_analytics.index', recent_page=recent_page - 1) }}"
+               class="pagination-link" aria-label="Previous page">&laquo;</a>
+          </li>
+          {% endif %}
+
+          {% set start_page = 1 if recent_page <= 2 else recent_page - 2 %}
+          {% set end_page = total_pages if recent_page >= total_pages - 1 else recent_page + 2 %}
+          {% for page_num in range(start_page, end_page + 1) %}
+          <li>
+            {% if page_num == recent_page %}
+            <span class="pagination-link current" aria-current="page">{{ page_num }}</span>
+            {% else %}
+            <a href="{{ url_for('admin_user_activity_analytics.index', recent_page=page_num) }}"
+               class="pagination-link">{{ page_num }}</a>
+            {% endif %}
+          </li>
+          {% endfor %}
+
+          {% if recent_page < total_pages %}
+          <li>
+            <a href="{{ url_for('admin_user_activity_analytics.index', recent_page=recent_page + 1) }}"
+               class="pagination-link" aria-label="Next page">&raquo;</a>
+          </li>
+          <li>
+            <a href="{{ url_for('admin_user_activity_analytics.index', recent_page=total_pages) }}"
+               class="pagination-link" aria-label="Last page">&raquo;&raquo;</a>
+          </li>
+          {% endif %}
+        </ul>
+      </nav>
+      {% endif %}
       {% else %}
         <p style="color: var(--muted);">No recent activities.</p>
       {% endif %}

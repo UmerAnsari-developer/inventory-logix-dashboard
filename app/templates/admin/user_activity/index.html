@@ -62,7 +62,7 @@
         <td>
           {% if activity.user_id %}
             {% set user_activities_url = url_for('admin_user_activity.user_activities', user_id=activity.user_id) %}
-            <a href="{{ user_activities_url }}">{{ activity.user_id }}</a>
+            <a href="{{ user_activities_url }}">{{ activity.username or activity.user_id }}</a>
           {% else %}
             System
           {% endif %}
@@ -84,6 +84,18 @@
     </tbody>
   </table>
 </div>
+
+{# ── Pagination ───────────────────────────────────────────────────────────── #}
+{% set current_page = (filter_params.offset // filter_params.limit) + 1 %}
+{% set total_pages = ((total_count - 1) // filter_params.limit) + 1 %}
+{% from "_macros/pagination.html" import pagination %}
+{% if total_pages > 1 %}
+{{ pagination('admin_user_activity.index', current_page, total_pages,
+              aria_label='User activities pagination', param_name='offset',
+              limit=filter_params.limit,
+              user_id=filter_params.user_id, action=filter_params.action,
+              start_date=filter_params.start_date, end_date=filter_params.end_date) }}
+{% endif %}
 {% else %}
 <div class="alert-strip">
   <div class="alert-mark">info</div>

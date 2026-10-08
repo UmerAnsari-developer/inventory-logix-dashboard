@@ -195,14 +195,14 @@ def _seed_products(cur, supplier_ids: list[int]) -> int:
 
 
 def _movement_row(product: dict, mtype: str, qty: int, day: date, rng: random.Random) -> tuple:
-    ts = datetime.combine(day, time.min) + timedelta(
-        hours=rng.randint(7, 20), minutes=rng.randint(0, 59)
-    )
-    refs = {"IN": "RESTOCK", "OUT": "SALE", "ADJUSTMENT": "ADJ", "RETURN": "RTN"}
-    return (
-        product["id"], product["sku"], mtype, qty,
-        f"{refs[mtype]}-{day:%Y%m%d}", None, None, ts,
-    )
+      ts = datetime.combine(day, time.min) + timedelta(
+          hours=rng.randint(7, 20), minutes=rng.randint(0, 59)
+      )
+      refs = {"IN": "RESTOCK", "OUT": "SALE", "ADJUSTMENT": "ADJ", "RETURN": "RTN"}
+      return (
+          product["id"], mtype, qty,
+          f"{refs[mtype]}-{day:%Y%m%d}", None, None, ts,
+      )
 
 
 def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> list[date]:
@@ -215,7 +215,8 @@ def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> lis
     dates: list[date] = []
     current_year = today.year
     # Base movement days per year with slight variation for YoY competition
-    BASE_DAYS_PER_YEAR = {2024: 18, 2025: 17, 2026: 19}
+    # Increased to ~180 days/year (daily-ish) for proper ML training/backtesting
+    BASE_DAYS_PER_YEAR = {2024: 180, 2025: 180, 2026: 180}
     for year in range(MOVEMENT_START.year, current_year + 1):
         year_start = max(MOVEMENT_START, date(year, 1, 1))
         year_end = min(today, date(year, 12, 31))
@@ -316,7 +317,7 @@ def _generate_movements(cur) -> int:
         execute_values(
             cur,
             """
-            INSERT INTO movements (product_id, sku, type, quantity,
+            INSERT INTO movements (product_id, type, quantity,
                                    reference, notes, user_id, created_at)
             VALUES %s
             """,
@@ -406,10 +407,20 @@ def run_seed(force: bool = False) -> None:
     tables on partial restarts. Movements are generated from Jan 2024 through
     yesterday (date.today() - 1 day).
     """
+    # DB-040 / ADM-006b: skip ALL demo seeding in production unless forced.
+    import os
+    is_production = os.environ.get("FLASK_ENV") == "production"
+
     conn = _open_conn()
     try:
         with conn.cursor() as cur:
-            _seed_users(cur)
+            if is_production and not force:
+                LOGGER.info("Seed skipped: demo data is not created in production (set SEED_DEMO_DATA=true to force).")
+                return
+            if not is_production:
+                _seed_users(cur)
+            else:
+                LOGGER.info("Seed skipped: demo users not created in production.")
 
             cur.execute("SELECT COUNT(*) AS c FROM suppliers")
             suppliers_exist = (cur.fetchone() or {}).get("c", 0) > 0

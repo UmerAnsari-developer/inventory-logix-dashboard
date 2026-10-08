@@ -145,6 +145,10 @@
                 cfg.metrics.band.textContent = '+/- ' +
                     ((data.upper[data.upper.length - 1] - data.lower[data.lower.length - 1]) / 2).toFixed(0) + ' units';
                 cfg.metrics.runtime.textContent = elapsed + ' s';
+                // Show data sufficiency warning if present
+                if (data.warning) {
+                    showToast(data.warning, 'warning');
+                }
                 showToast('Forecast completed', 'success');
                 loadPortfolio();
                 if (cfg.monitoring) loadMonitoring(data);
@@ -204,14 +208,70 @@
                     '<tr><td><span class="sku">' + r.sku + '</span></td>' +
                     '<td>' + r.name + '</td>' +
                     '<td>' + (r.model || '—') + '</td>' +
+                    '<td>' + (r.model_used || '—') + '</td>' +
                     '<td>' + r.baseline + '</td>' +
                     '<td>' + r.predicted_units + '</td>' +
                     '<td>' + r.delta_pct + '%</td>' +
-                    '<td>' + r.accuracy + '%</td></tr>'
-                )).join('') : '<tr><td colspan="7" class="empty-state">No data</td></tr>';
+                    '<td>' + r.accuracy + '%</td>' +
+                    '<td>' + (r.data_sufficiency || '—') + '</td></tr>'
+                )).join('') : '<tr><td colspan="9" class="empty-state">No data</td></tr>';
             } catch (e) {}
         }
+        // Backtest functionality
+        async function runBacktest() {
+            if (!cfg.backtestButton) return;
+            cfg.backtestButton.disabled = true;
+            cfg.backtestButton.textContent = 'Running...';
+            try {
+                const res = await api(cfg.backtestUrl, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        product_id: parseInt(cfg.product.value, 10),
+                        horizon: parseInt(cfg.horizon.value, 10),
+                        model: cfg.model.value,
+                    }),
+                });
+                const data = res.data;
+                showToast('Backtest completed', 'success');
+                renderBacktestResults(data, cfg);
+                cfg.backtestSection.style.display = '';
+            } catch (e) {
+                showToast('Backtest failed', 'error');
+            } finally {
+                cfg.backtestButton.disabled = false;
+                cfg.backtestButton.textContent = 'Run backtest';
+            }
+        }
+        function renderBacktestResults(data, cfg) {
+            // Render metrics table
+            const metrics = data.metrics || {};
+            const tbody = cfg.backtestTable.tBodies[0];
+            const metricOrder = ['mae', 'rmse', 'wape', 'mase', 'bias', 'interval_coverage'];
+            const metricLabels = {
+                mae: 'MAE', rmse: 'RMSE', wape: 'WAPE', mase: 'MASE', 
+                bias: 'Bias', interval_coverage: 'Interval Coverage (%)'
+            };
+            tbody.innerHTML = metricOrder.map(m => {
+                const v = metrics[m];
+                if (!v || v.mean === null || v.mean === undefined) return '';
+                return '<tr><td>' + metricLabels[m] + '</td>' +
+                    '<td>' + (v.mean !== null ? parseFloat(v.mean).toFixed(2) : '—') + '</td>' +
+                    '<td>' + (v.std !== null ? parseFloat(v.std).toFixed(2) : '—') + '</td>' +
+                    '<td>' + (v.min !== null ? parseFloat(v.min).toFixed(2) : '—') + '</td>' +
+                    '<td>' + (v.max !== null ? parseFloat(v.max).toFixed(2) : '—') + '</td>' +
+                    '<td>' + (v.count || 0) + '</td></tr>';
+            }).join('');
+            // Render baselines
+            const baselines = data.baselines || {};
+            cfg.backtestBaselines.innerHTML = Object.entries(baselines).map(([name, vals]) => (
+                '<div class="metric-card"><div class="metric-label">' + name + '</div>' +
+                '<div class="metric-value">MAE: ' + (vals.mae && vals.mae.mean !== null ? parseFloat(vals.mae.mean).toFixed(2) : '—') +
+                ' | RMSE: ' + (vals.rmse && vals.rmse.mean !== null ? parseFloat(vals.rmse.mean).toFixed(2) : '—') +
+                ' | WAPE: ' + (vals.wape && vals.wape.mean !== null ? parseFloat(vals.wape.mean).toFixed(1) : '—') + '%</div></div>'
+            )).join('');
+        }
         if (cfg.runButton) cfg.runButton.addEventListener('click', run);
+        if (cfg.backtestButton) cfg.backtestButton.addEventListener('click', runBacktest);
     }
     window.StockflowForecast = { init: initForecast, render: renderForecast };
 
@@ -309,6 +369,8 @@
                 if (cfg.kpiLow) cfg.kpiLow.textContent = d.low || 0;
                 if (cfg.kpiNew) cfg.kpiNew.textContent = d['new'] || 0;
                 if (cfg.kpiReviewed) cfg.kpiReviewed.textContent = d.reviewed || 0;
+                if (cfg.kpiAlertsPerDay) cfg.kpiAlertsPerDay.textContent = (d.alerts_per_day || 0).toFixed(1);
+                if (cfg.kpiReviewRate) cfg.kpiReviewRate.textContent = (d.review_rate || 0).toFixed(1) + '%';
 
                 function pct(n) { return total ? Math.round((n / total) * 100) : 0; }
                 setFoot(cfg.kpiTotal, total + ' alerts detected');
@@ -389,6 +451,7 @@
                     '</table>';
                 var actions = cfg.modalActions;
                 actions.innerHTML = '';
+                // Status transition buttons
                 ['new','reviewed','acknowledged','resolved'].forEach(function(s) {
                     if (s !== a.status) {
                         var btn = document.createElement('button');
@@ -398,6 +461,19 @@
                         actions.appendChild(btn);
                     }
                 });
+                // Labeling buttons (Confirm/Reject)
+                if (a.status === 'new') {
+                    var confirmBtn = document.createElement('button');
+                    confirmBtn.className = 'btn btn-sm btn-success';
+                    confirmBtn.textContent = 'Confirm (True Positive)';
+                    confirmBtn.addEventListener('click', function() { labelAlert(id, 'true_positive'); });
+                    actions.appendChild(confirmBtn);
+                    var rejectBtn = document.createElement('button');
+                    rejectBtn.className = 'btn btn-sm btn-warning';
+                    rejectBtn.textContent = 'Reject (False Positive)';
+                    rejectBtn.addEventListener('click', function() { labelAlert(id, 'false_positive'); });
+                    actions.appendChild(rejectBtn);
+                }
                 cfg.alertModal.style.display = 'flex';
             } catch (e) { showToast('Failed to load alert detail', 'error'); }
         }
@@ -413,6 +489,61 @@
                 loadAlerts();
                 loadSummary();
             } catch (e) { showToast('Failed to update alert', 'error'); }
+        }
+
+        async function labelAlert(id, label) {
+            try {
+                await api(cfg.alertLabelUrl + id, {
+                    method: 'POST',
+                    body: JSON.stringify({ label: label }),
+                });
+                showToast('Alert labeled as ' + label, 'success');
+                cfg.alertModal.style.display = 'none';
+                loadAlerts();
+                loadSummary();
+                loadPrecisionRecall();
+            } catch (e) { showToast('Failed to label alert', 'error'); }
+        }
+
+        // ── Load precision/recall from labels ──
+        async function loadPrecisionRecall() {
+            try {
+                var res = await api(cfg.precisionRecallUrl);
+                var data = res.data || {};
+                // Render risk level table
+                if (cfg.prRiskTable) {
+                    var byRisk = data.by_risk_level || {};
+                    cfg.prRiskTable.tBodies[0].innerHTML = Object.entries(byRisk).map(([risk, v]) => (
+                        '<tr><td>' + risk + '</td>' +
+                        '<td>' + (v.precision != null ? (v.precision * 100).toFixed(1) + '%' : '—') + '</td>' +
+                        '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td>' +
+                        '<td>' + (v.f1 != null ? (v.f1 * 100).toFixed(1) + '%' : '—') + '</td>' +
+                        '<td>' + v.tp + '</td><td>' + v.fp + '</td></tr>'
+                    )).join('');
+                    cfg.precisionRecallSection.style.display = '';
+                }
+                // Render method table
+                if (cfg.prMethodTable) {
+                    var byMethod = data.by_detection_method || {};
+                    cfg.prMethodTable.tBodies[0].innerHTML = Object.entries(byMethod).map(([method, v]) => (
+                        '<tr><td>' + method + '</td>' +
+                        '<td>' + (v.precision != null ? (v.precision * 100).toFixed(1) + '%' : '—') + '</td>' +
+                        '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td>' +
+                        '<td>' + (v.f1 != null ? (v.f1 * 100).toFixed(1) + '%' : '—') + '</td>' +
+                        '<td>' + v.tp + '</td><td>' + v.fp + '</td></tr>'
+                    )).join('');
+                }
+            } catch (e) {}
+        }
+
+        // ── Load fatigue metrics ──
+        async function loadFatigue() {
+            try {
+                var res = await api(cfg.fatigueUrl + '?days=30');
+                var data = res.data || {};
+                // Update KPI cards already done in loadSummary
+                // Could add a fatigue panel here if needed
+            } catch (e) {}
         }
 
         // ── Run detection ──
@@ -446,6 +577,7 @@
                 showToast('Anomaly detection complete', 'success');
                 loadPortfolio();
                 loadSummary();
+                loadPrecisionRecall();
                 alertPage = 0;
                 loadAlerts();
             } catch (e) {
@@ -454,6 +586,52 @@
                 cfg.runButton.disabled = false;
             }
         };
+
+        // ── Run benchmark ──
+        async function runBenchmark() {
+            if (!cfg.benchmarkButton) return;
+            cfg.benchmarkButton.disabled = true;
+            cfg.benchmarkButton.textContent = 'Running...';
+            try {
+                const res = await api(cfg.benchmarkUrl + '?contamination=' + parseFloat(cfg.contamination.value));
+                const data = res.data;
+                showToast('Benchmark completed', 'success');
+                renderBenchmarkResults(data, cfg);
+                cfg.benchmarkSection.style.display = '';
+            } catch (e) {
+                showToast('Benchmark failed', 'error');
+            } finally {
+                cfg.benchmarkButton.disabled = false;
+                cfg.benchmarkButton.textContent = 'Run benchmark';
+            }
+        }
+
+        function renderBenchmarkResults(data, cfg) {
+            // Summary
+            cfg.benchmarkSummary.innerHTML = [
+                '<div class="metric-card"><div class="metric-label">Products Tested</div><div class="metric-value">' + (data.products_tested || 0) + '</div></div>',
+                '<div class="metric-card"><div class="metric-label">Total Injected</div><div class="metric-value">' + (data.total_injected || 0) + '</div></div>',
+                '<div class="metric-card"><div class="metric-label">Total Detected</div><div class="metric-value">' + (data.total_detected || 0) + '</div></div>',
+            ].join('');
+            // By method
+            var byMethod = data.by_method || {};
+            cfg.benchmarkMethodTable.tBodies[0].innerHTML = Object.entries(byMethod).map(([method, v]) => (
+                '<tr><td>' + method + '</td>' +
+                '<td>' + (v.precision != null ? (v.precision * 100).toFixed(1) + '%' : '—') + '</td>' +
+                '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td>' +
+                '<td>' + (v.f1 != null ? (v.f1 * 100).toFixed(1) + '%' : '—') + '</td>' +
+                '<td>' + (v.pr_auc != null ? (v.pr_auc * 100).toFixed(1) + '%' : '—') + '</td>' +
+                '<td>' + (v.products_with_data || 0) + '</td></tr>'
+            )).join('');
+            // By type
+            var byType = data.by_type || {};
+            cfg.benchmarkTypeTable.tBodies[0].innerHTML = Object.entries(byType).map(([type, v]) => (
+                '<tr><td>' + type + '</td>' +
+                '<td>' + v.injected + '</td>' +
+                '<td>' + v.detected + '</td>' +
+                '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td></tr>'
+            )).join('');
+        }
 
         async function loadPortfolio() {
             try {
@@ -465,7 +643,7 @@
                 tbody.innerHTML = rows.length ? rows.map(r => (
                     '<tr><td><span class="sku">' + r.sku + '</span></td>' +
                     '<td>' + r.name + '</td>' +
-                    '<td>' + (r.model || '—') + '</td>' +
+                    '<td>' + (r.model_used || '—') + '</td>' +
                     '<td>' + r.anomaly_count + '</td>' +
                     '<td>' + (r.max_z || 0).toFixed(2) + '</td></tr>'
                 )).join('') : '<tr><td colspan="5" class="empty-state">No anomalies across the portfolio</td></tr>';
@@ -473,6 +651,7 @@
         }
 
         if (cfg.runButton) cfg.runButton.addEventListener('click', run);
+        if (cfg.benchmarkButton) cfg.benchmarkButton.addEventListener('click', runBenchmark);
         if (cfg.filterRisk) cfg.filterRisk.addEventListener('change', function() { alertPage = 0; loadAlerts(); });
         if (cfg.filterStatus) cfg.filterStatus.addEventListener('change', function() { alertPage = 0; loadAlerts(); });
         if (cfg.filterType) cfg.filterType.addEventListener('change', function() { alertPage = 0; loadAlerts(); });
@@ -483,6 +662,8 @@
 
         loadSummary();
         loadAlerts();
+        loadPrecisionRecall();
+        loadFatigue();
     }
     window.StockflowAnomaly = { init: initAnomaly };
 

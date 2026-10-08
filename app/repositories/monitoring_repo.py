@@ -12,7 +12,13 @@ class MonitoringRepository:
 
     @staticmethod
     def save_predictions_batch(rows: list[dict]) -> None:
-        """Batch insert predictions with actual values already set (single round-trip)."""
+        """Batch upsert predictions with actual values already set (single round-trip).
+
+        Upsert on (sku, model_name, forecast_date) so re-running a forecast
+        updates the existing row instead of accumulating duplicates —
+        duplicate rows made actual_vs_predicted metrics compute over
+        run-copies of the earliest (often zero-demand) days.
+        """
         if not rows:
             return
         with get_cursor(commit=True) as cur:
@@ -22,7 +28,12 @@ class MonitoringRepository:
                 """INSERT INTO forecast_predictions
                    (sku, model_name, forecast_date, predicted_value, actual_value,
                     forecast_horizon, forecast_generated_at, status)
-                   VALUES %s""",
+                   VALUES %s
+                   ON CONFLICT (sku, model_name, forecast_date)
+                   DO UPDATE SET predicted_value = EXCLUDED.predicted_value,
+                                 actual_value = EXCLUDED.actual_value,
+                                 forecast_generated_at = NOW(),
+                                 status = 'evaluated'""",
                 [
                     (r["sku"], r["model_name"], r["forecast_date"],
                      r["predicted_value"], r["actual_value"],
@@ -127,20 +138,20 @@ class MonitoringRepository:
                      mae, mape, rmse, mean_error, error_std,
                      zero_demand_count: int, baseline_mae, baseline_mape,
                      mae_change_percent, mape_change_percent,
-                     model_status: str) -> int:
+                     model_status: str, wape=None) -> int:
         with get_cursor(commit=True) as cur:
             cur.execute(
                 """INSERT INTO forecast_monitoring_metrics
                    (sku, model_name, monitoring_date, aggregation_period,
                     observation_count, mae, mape, rmse, mean_error, error_std,
                     zero_demand_count, baseline_mae, baseline_mape,
-                    mae_change_percent, mape_change_percent, model_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    mae_change_percent, mape_change_percent, model_status, wape)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    RETURNING id""",
                 (sku, model_name, monitoring_date, aggregation_period,
                  observation_count, mae, mape, rmse, mean_error, error_std,
                  zero_demand_count, baseline_mae, baseline_mape,
-                 mae_change_percent, mape_change_percent, model_status),
+                 mae_change_percent, mape_change_percent, model_status, wape),
             )
             return cur.fetchone()["id"]
 
@@ -161,7 +172,7 @@ class MonitoringRepository:
         with get_cursor() as cur:
             cur.execute(
                 f"""SELECT * FROM forecast_monitoring_metrics {w}
-                    ORDER BY monitoring_date DESC LIMIT %s""",
+                    ORDER BY monitoring_date DESC, id DESC LIMIT %s""",
                 params + [limit],
             )
             return list(cur.fetchall())

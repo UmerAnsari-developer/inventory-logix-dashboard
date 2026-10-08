@@ -230,6 +230,14 @@ Schema is applied and seeded automatically on first run. Demo credentials:
 
 `autoDeploy: true` redeploys on every push to `main`.
 
+- **Backups**: Render managed PostgreSQL provides daily backups + PITR;
+  `system_backups` table tracks app-level backup metadata. Verify RPO/RTO
+  expectations before production launch.
+- **Known accepted tradeoffs**: `audit_log.target_id` is polymorphic (no FK —
+  dangles after hard deletes, acceptable for audit history);
+  `dim_product.supplier_id` is a bare INTEGER (SCD2 history table — an FK
+  would break historical rows).
+
 ---
 
 ## Performance
@@ -286,8 +294,8 @@ All CRUD goes through `sp_*` functions to prevent SQL injection. Examples:
 `sp_settings_upsert_batch`.
 
 ### Triggers
-- `trg_validate_movement` — auto-populates SKU from product_id, validates FK,
-  prevents negative stock on OUT/ADJUSTMENT.
+- `trg_validate_movement` — validates product FK, prevents negative stock on
+  OUT/ADJUSTMENT. (SKU is read from `products`, not stored on `movements`.)
 - `trg_audit_*` — audit log triggers on products, suppliers, movements, POs.
 
 ### Data warehouse (Alembic-managed)
@@ -385,6 +393,40 @@ Covers auth flow, role-based access, REST API, security helpers, ML smoke
 tests, service-layer validation, caching, ETL, and the reports fact-table
 endpoints (`tests/test_reports_fact.py` — verifies 200 OK, fact-table SQL
 execution, and dimension-table joins when filters are applied).
+
+
+## Known Limitations
+- **ETL watermark semantics (DB-005/006):** stages commit individually with
+  idempotent `ON CONFLICT DO NOTHING` reloads, so a failed run replays safely.
+  A full rebuild can show one cycle of cross-fact skew that self-heals on the
+  next run (`_validate_warehouse_consistency` is the backstop). Intentional.
+- **Per-process login lockout (DB-007):** failed-login counters live in process
+  memory, so the threshold multiplies per worker. Keep `WORKERS=1` (current
+  Render setup); a shared store (Redis or DB table) is a follow-up.
+- **Accepted as-is (DB-015/016):** ETL state keys are negligible in size; the
+  seed-time trigger disable is dev-only and wrapped in `try/finally`.
+- **Cache invalidation granularity (DB-017):** `cache_bust_products()` clears
+  five caches — correctness-safe (cold reads only), but a keyed invalidation
+  scheme is a perf follow-up.
+- **Backups (DB-018):** rely on managed Postgres daily backups + PITR — enable
+  PITR and run a quarterly restore test before any production data matters.
+- **Timezones (DB-019):** all app code uses naive UTC timestamps (`_utcnow()`);
+  set `TZ=UTC` in production. A mass `TIMESTAMPTZ` migration is deferred.
+- **Immutable SKUs (DB-020):** SKU is the warehouse key for `dim_product` and
+  has no update path; add `product_id` to `dim_product` if SKUs ever become
+  mutable.
+
+### Changelog
+- **2026-09-25 — DB integrity fixes (D-1…D-8):** atomic `sp_movement_record`
+  (row lock + stock guard, no lost updates or negative stock), PO state machine
+  `sp_po_transition` (valid transitions only, idempotent receive, stock/`on_order`
+  effects), DB-level unique SKU constraint with duplicate-create mapping to
+  `ProductError` (no more 500s), soft supplier delete with `deleted_at IS NULL`
+  visibility filters, `ON CONFLICT` upserts + dedup unique indexes for
+  `anomaly_log`/`forecast_cache`, partial product-list index, and the stale-session
+  cleanup trigger attached on `user_sessions`. Shipped in both the SQL files and
+  Alembic migration `20260925_db_integrity_fixes` (dual-apply), covered by
+  `tests/test_db_integrity_fixes.py`.
 
 
 ## License

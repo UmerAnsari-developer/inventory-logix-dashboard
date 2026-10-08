@@ -1,0 +1,42 @@
+{# Shared pagination macro (ADM-022) — replaces the duplicated offset-style
+   pagination blocks (user_activity, log_viewer). Emits offset=(page_num-1)*limit
+   plus limit=limit so filter state survives pagination navigation.
+   Extra keyword args passed by callers (user_id, action, search, ...) are
+   collected in Jinja's implicit `kwargs` and forwarded to url_for. #}
+{% macro pagination(endpoint, current_page, total_pages, aria_label='Pagination', limit=0) %}
+{% if total_pages > 1 %}
+<nav class="pagination" aria-label="{{ aria_label }}">
+  <ul class="pagination-list">
+    {% if current_page > 1 %}
+    <li>
+      <a href="{{ url_for(endpoint, offset=0, limit=limit, **kwargs) }}" class="pagination-link" aria-label="First page">««</a>
+    </li>
+    <li>
+      <a href="{{ url_for(endpoint, offset=(current_page - 2) * limit, limit=limit, **kwargs) }}" class="pagination-link" aria-label="Previous page">«</a>
+    </li>
+    {% endif %}
+
+    {% set start_page = 1 if current_page <= 2 else current_page - 2 %}
+    {% set end_page = total_pages if current_page >= total_pages - 1 else current_page + 2 %}
+    {% for page_num in range(start_page, end_page + 1) %}
+    <li>
+      {% if page_num == current_page %}
+      <span class="pagination-link current" aria-current="page">{{ page_num }}</span>
+      {% else %}
+      <a href="{{ url_for(endpoint, offset=(page_num - 1) * limit, limit=limit, **kwargs) }}" class="pagination-link">{{ page_num }}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+
+    {% if current_page < total_pages %}
+    <li>
+      <a href="{{ url_for(endpoint, offset=current_page * limit, limit=limit, **kwargs) }}" class="pagination-link" aria-label="Next page">»</a>
+    </li>
+    <li>
+      <a href="{{ url_for(endpoint, offset=(total_pages - 1) * limit, limit=limit, **kwargs) }}" class="pagination-link" aria-label="Last page">»»</a>
+    </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endmacro %}

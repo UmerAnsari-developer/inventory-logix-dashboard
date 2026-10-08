@@ -77,28 +77,26 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- DB-021: drop the legacy 11-param overload (had p_current_stock). It makes
+-- calls with NULL args ambiguous once the 10-param version exists.
+DROP FUNCTION IF EXISTS sp_product_update(integer, varchar, varchar, varchar, numeric, integer, integer, integer, numeric, numeric, numeric);
 CREATE OR REPLACE FUNCTION sp_product_update(
     p_id INT, p_name VARCHAR, p_category VARCHAR DEFAULT '',
     p_warehouse VARCHAR DEFAULT 'WH-Pune', p_unit_price NUMERIC DEFAULT 0,
-    p_supplier_id INT DEFAULT NULL, p_current_stock INT DEFAULT 0,
-    p_reorder_point INT DEFAULT 0, p_demand_rate NUMERIC DEFAULT 0,
-    p_ordering_cost NUMERIC DEFAULT 0, p_holding_cost NUMERIC DEFAULT 0
+    p_supplier_id INT DEFAULT NULL, p_reorder_point INT DEFAULT 0,
+    p_demand_rate NUMERIC DEFAULT 0, p_ordering_cost NUMERIC DEFAULT 0,
+    p_holding_cost NUMERIC DEFAULT 0
 ) RETURNS VOID AS $$
 BEGIN
+    -- DB-021: current_stock is intentionally NOT updated here.
+    -- Stock changes ONLY via sp_movement_record (atomic delta + ledger).
     UPDATE products SET
         name = p_name, category = p_category, warehouse = p_warehouse,
         unit_price = p_unit_price, supplier_id = p_supplier_id,
-        current_stock = p_current_stock, reorder_point = p_reorder_point,
+        reorder_point = p_reorder_point,
         demand_rate = p_demand_rate, ordering_cost = p_ordering_cost,
         holding_cost = p_holding_cost, updated_at = NOW()
     WHERE id = p_id;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION sp_product_delete(p_id INT)
-RETURNS VOID AS $$
-BEGIN
-    DELETE FROM products WHERE id = p_id;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -155,17 +153,22 @@ $$ LANGUAGE plpgsql;
 
 -- ── SUPPLIERS ────────────────────────────────────────────────────────────────
 
+-- suppliers gained deleted_at (schema.sql:40); the OUT row type differs from
+-- older installs, so CREATE OR REPLACE alone cannot update it.
+DROP FUNCTION IF EXISTS sp_supplier_list_all();
+
 CREATE OR REPLACE FUNCTION sp_supplier_list_all()
 RETURNS TABLE (
     id INT, name VARCHAR, initials VARCHAR, location VARCHAR,
     lead_days INT, spend_amount NUMERIC, reliability NUMERIC, tone VARCHAR,
-    created_at TIMESTAMP, active_skus BIGINT
+    created_at TIMESTAMP, deleted_at TIMESTAMP, active_skus BIGINT
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT s.*, COUNT(p.id) AS active_skus
     FROM suppliers s
     LEFT JOIN products p ON p.supplier_id = s.id
+    WHERE s.deleted_at IS NULL
     GROUP BY s.id ORDER BY s.name;
 END;
 $$ LANGUAGE plpgsql;
@@ -173,7 +176,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION sp_supplier_find(p_id INT)
 RETURNS SETOF suppliers AS $$
 BEGIN
-    RETURN QUERY SELECT * FROM suppliers WHERE id = p_id;
+    RETURN QUERY SELECT * FROM suppliers WHERE id = p_id AND deleted_at IS NULL;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -205,28 +208,63 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Soft delete (fix DB-004): keep supplier rows so products, purchase orders and
+-- audit history retain their references; visibility filters exclude deleted rows.
 CREATE OR REPLACE FUNCTION sp_supplier_delete(p_id INT)
 RETURNS VOID AS $$
 BEGIN
-    UPDATE products SET supplier_id = NULL WHERE supplier_id = p_id;
-    DELETE FROM suppliers WHERE id = p_id;
+    UPDATE suppliers SET deleted_at = NOW() WHERE id = p_id;
 END;
 $$ LANGUAGE plpgsql;
 
 
 -- ── MOVEMENTS ────────────────────────────────────────────────────────────────
 
+-- Atomic movement recording (fix DB-002): validate stock, insert the movement
+-- and adjust stock inside ONE transaction while holding the product row lock.
+-- The lock is held until the caller commits, so concurrent OUT movements cannot
+-- read a stale balance or overwrite each other's absolute stock write.
 CREATE OR REPLACE FUNCTION sp_movement_record(
-    p_product_id INT, p_sku VARCHAR, p_type VARCHAR, p_quantity INT,
+    p_product_id INT, p_type VARCHAR, p_quantity INT,
     p_reference VARCHAR DEFAULT NULL, p_notes TEXT DEFAULT NULL,
     p_user_id INT DEFAULT NULL
 ) RETURNS INT AS $$
 DECLARE
     new_id INT;
+    v_stock INT;
+    v_delta INT;
 BEGIN
-    INSERT INTO movements (product_id, sku, type, quantity, reference, notes, user_id)
-    VALUES (p_product_id, p_sku, p_type, p_quantity, p_reference, p_notes, p_user_id)
+    SELECT current_stock INTO v_stock
+    FROM products
+    WHERE id = p_product_id AND deleted_at IS NULL
+    FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Invalid product_id %: product does not exist', p_product_id;
+    END IF;
+
+    IF p_type IN ('IN', 'RETURN', 'ADJUSTMENT') THEN
+        v_delta := p_quantity;
+    ELSIF p_type = 'OUT' THEN
+        v_delta := -p_quantity;
+    ELSE
+        RAISE EXCEPTION 'Invalid movement type %', p_type;
+    END IF;
+
+    v_stock := COALESCE(v_stock, 0);
+    IF v_stock + v_delta < 0 THEN
+        RAISE EXCEPTION 'Insufficient stock: have %, need %', v_stock, p_quantity;
+    END IF;
+
+    -- Insert first so trg_validate_movement checks against the pre-update balance,
+    -- then apply the delta (both in this transaction — atomic by construction).
+    INSERT INTO movements (product_id, type, quantity, reference, notes, user_id)
+    VALUES (p_product_id, p_type, p_quantity, p_reference, p_notes, p_user_id)
     RETURNING id INTO new_id;
+
+    UPDATE products
+    SET current_stock = v_stock + v_delta, updated_at = NOW()
+    WHERE id = p_product_id;
+
     RETURN new_id;
 END;
 $$ LANGUAGE plpgsql;
@@ -278,12 +316,22 @@ CREATE OR REPLACE FUNCTION sp_movement_daily_for_product(
 ) RETURNS TABLE(day DATE, total BIGINT) AS $$
 BEGIN
     RETURN QUERY
-    SELECT date_trunc('day', m.created_at)::date AS day,
-           COALESCE(SUM(m.quantity), 0)::BIGINT AS total
-    FROM movements m
-    WHERE m.created_at >= (CURRENT_DATE - (p_days - 1))
-      AND m.product_id = p_product_id
-    GROUP BY day ORDER BY day;
+    SELECT d.day::date,
+           COALESCE(m.total, 0)::BIGINT AS total
+    FROM generate_series(
+             (CURRENT_DATE - (p_days - 1))::date,
+             CURRENT_DATE,
+             '1 day'::interval
+         ) AS d(day)
+    LEFT JOIN (
+        SELECT date_trunc('day', m.created_at)::date AS day,
+               COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0)::BIGINT AS total
+        FROM movements m
+        WHERE m.created_at >= (CURRENT_DATE - (p_days - 1))
+          AND m.product_id = p_product_id
+        GROUP BY day
+    ) m ON m.day = d.day::date
+    ORDER BY d.day;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -516,7 +564,7 @@ CREATE OR REPLACE FUNCTION sp_audit_record(
 ) RETURNS VOID AS $$
 BEGIN
     INSERT INTO audit_log (user_id, action, target_type, target_id, detail, ip_address)
-    VALUES (p_user_id, p_action, p_target_type, p_target_id, p_detail, p_ip_address);
+    VALUES (COALESCE(p_user_id, current_app_user_id()), p_action, p_target_type, p_target_id, p_detail, p_ip_address);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -614,10 +662,51 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION sp_po_update_status(p_id INT, p_status VARCHAR)
+-- PO state machine (fix DB-003/DB-024): validates the transition, applies stock and
+-- on_order effects atomically, and is idempotent (same-status = no-op).
+--   draft -> approved | cancelled
+--   approved -> in_transit | cancelled
+--   in_transit -> received | cancelled
+--   received / cancelled are terminal.
+-- DB-024: on 'received', insert a movement via sp_movement_record (ledger + stock delta)
+-- instead of direct stock UPDATE. This ensures the ledger row exists and reuses
+-- the atomic stock adjustment logic (row lock, delta, negative guard).
+CREATE OR REPLACE FUNCTION sp_po_transition(p_id INT, p_new_status VARCHAR)
 RETURNS VOID AS $$
+DECLARE
+    po purchase_orders%ROWTYPE;
 BEGIN
-    UPDATE purchase_orders SET status = p_status, updated_at = NOW() WHERE id = p_id;
+    SELECT * INTO po FROM purchase_orders WHERE id = p_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Purchase order % not found', p_id;
+    END IF;
+    IF po.status = p_new_status THEN
+        RETURN;  -- idempotent re-apply
+    END IF;
+    IF NOT (
+        (po.status = 'draft'       AND p_new_status IN ('approved', 'cancelled')) OR
+        (po.status = 'approved'    AND p_new_status IN ('in_transit', 'cancelled')) OR
+        (po.status = 'in_transit'  AND p_new_status IN ('received', 'cancelled'))
+    ) THEN
+        RAISE EXCEPTION 'Invalid PO transition: % -> %', po.status, p_new_status;
+    END IF;
+
+    IF po.product_id IS NOT NULL AND p_new_status = 'received' THEN
+        -- DB-024: route through the atomic movement funnel (ledger + stock delta)
+        PERFORM sp_movement_record(po.product_id, 'IN', po.quantity,
+                                   po.po_number, 'PO received', NULL);
+        UPDATE products
+        SET on_order = GREATEST(on_order - po.quantity, 0),
+            updated_at = NOW()
+        WHERE id = po.product_id;
+    ELSIF po.product_id IS NOT NULL AND p_new_status = 'cancelled' THEN
+        UPDATE products
+        SET on_order = GREATEST(on_order - po.quantity, 0),
+            updated_at = NOW()
+        WHERE id = po.product_id;
+    END IF;
+
+    UPDATE purchase_orders SET status = p_new_status, updated_at = NOW() WHERE id = p_id;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -636,5 +725,392 @@ BEGIN
         ON CONFLICT (user_id, key)
         DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
     END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+-- =============================================================================
+-- UPDATED PROCEDURES FOR INTEGRITY FIXES
+-- =============================================================================
+
+-- Users
+DROP FUNCTION IF EXISTS sp_user_delete(integer);
+CREATE FUNCTION sp_user_delete(p_id INT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE users SET deleted_at = NOW() WHERE id = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- User list and find functions (filter deleted_at)
+DROP FUNCTION IF EXISTS sp_user_list_all();
+CREATE FUNCTION sp_user_list_all()
+RETURNS TABLE (
+    id INT, username VARCHAR, email VARCHAR, role VARCHAR,
+    is_active BOOLEAN, last_login TIMESTAMP, created_at TIMESTAMP
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT u.id, u.username, u.email, u.role, u.is_active, u.last_login, u.created_at
+    FROM users u
+    WHERE u.deleted_at IS NULL
+    ORDER BY u.created_at DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS sp_user_find_by_id(integer);
+CREATE FUNCTION sp_user_find_by_id(p_id INT)
+RETURNS SETOF users AS $$
+BEGIN
+    RETURN QUERY SELECT * FROM users WHERE id = p_id AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS sp_user_find_by_username(varchar);
+CREATE FUNCTION sp_user_find_by_username(p_username VARCHAR)
+RETURNS SETOF users AS $$
+BEGIN
+    RETURN QUERY SELECT * FROM users WHERE username = LOWER(p_username) AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS sp_user_find_by_email(varchar);
+CREATE FUNCTION sp_user_find_by_email(p_email VARCHAR)
+RETURNS SETOF users AS $$
+BEGIN
+    RETURN QUERY SELECT * FROM users WHERE email = LOWER(p_email) AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Products
+DROP FUNCTION IF EXISTS sp_product_delete(integer);
+CREATE FUNCTION sp_product_delete(p_id INT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE products SET deleted_at = NOW() WHERE id = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS sp_product_list(text, text, text, text, integer, integer);
+CREATE FUNCTION sp_product_list(
+    p_search   TEXT DEFAULT '',
+    p_category TEXT DEFAULT '',
+    p_warehouse TEXT DEFAULT '',
+    p_status   TEXT DEFAULT '',
+    p_limit    INT DEFAULT 100,
+    p_offset   INT DEFAULT 0
+) RETURNS TABLE (
+    id INT, sku VARCHAR, name VARCHAR, category VARCHAR, warehouse VARCHAR,
+    current_stock INT, reorder_point INT, demand_rate NUMERIC,
+    ordering_cost NUMERIC, holding_cost NUMERIC, unit_price NUMERIC,
+    supplier_id INT, on_order INT, created_at TIMESTAMP, updated_at TIMESTAMP,
+    supplier_name VARCHAR, supplier_tone VARCHAR, lead_days INT,
+    total_count BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH filtered AS (
+        SELECT p.id, p.sku, p.name, p.category, p.warehouse, p.current_stock, p.reorder_point, p.demand_rate, p.ordering_cost, p.holding_cost, p.unit_price, p.supplier_id, p.on_order, p.created_at, p.updated_at,
+               s.name AS supplier_name, s.tone AS supplier_tone, s.lead_days
+        FROM products p
+        LEFT JOIN suppliers s ON s.id = p.supplier_id
+        WHERE (p_search = '' OR p.sku ILIKE '%' || p_search || '%'
+                OR p.name ILIKE '%' || p_search || '%'
+                OR p.category ILIKE '%' || p_search || '%'
+                OR s.name ILIKE '%' || p_search || '%')
+      AND (p_category = '' OR p.category = ANY(string_to_array(p_category, ',')))
+      AND (p_warehouse = '' OR p.warehouse = ANY(string_to_array(p_warehouse, ',')))
+      AND (p_status = '' OR
+            (p_status = 'ok' AND p.current_stock > p.reorder_point) OR
+            (p_status = 'low' AND p.current_stock <= p.reorder_point AND p.current_stock > 0) OR
+            (p_status = 'out' AND p.current_stock <= 0))
+      AND p.deleted_at IS NULL
+    )
+    SELECT f.*, (SELECT COUNT(*) FROM filtered) AS total_count
+    FROM filtered f
+    ORDER BY f.sku
+    LIMIT p_limit OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS sp_product_find(integer);
+CREATE FUNCTION sp_product_find(p_id INT)
+RETURNS SETOF products AS $$
+BEGIN
+    RETURN QUERY SELECT * FROM products WHERE id = p_id AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS sp_product_find_by_sku(varchar);
+CREATE FUNCTION sp_product_find_by_sku(p_sku VARCHAR)
+RETURNS SETOF products AS $$
+BEGIN
+    RETURN QUERY SELECT * FROM products WHERE sku = p_sku AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Low stock products (exclude deleted, explicit columns)
+DROP FUNCTION IF EXISTS sp_product_low_stock();
+CREATE FUNCTION sp_product_low_stock()
+RETURNS TABLE (
+    id INT, sku VARCHAR, name VARCHAR, category VARCHAR, warehouse VARCHAR,
+    current_stock INT, reorder_point INT, demand_rate NUMERIC,
+    ordering_cost NUMERIC, holding_cost NUMERIC, unit_price NUMERIC,
+    supplier_id INT, on_order INT, created_at TIMESTAMP, updated_at TIMESTAMP,
+    supplier_name VARCHAR, supplier_tone VARCHAR, lead_days INT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT p.id, p.sku, p.name, p.category, p.warehouse, p.current_stock, p.reorder_point, p.demand_rate, p.ordering_cost, p.holding_cost, p.unit_price, p.supplier_id, p.on_order, p.created_at, p.updated_at,
+           s.name AS supplier_name, s.tone AS supplier_tone, s.lead_days
+    FROM products p
+    LEFT JOIN suppliers s ON s.id = p.supplier_id
+    WHERE p.current_stock <= p.reorder_point AND p.on_order <= 0
+      AND p.deleted_at IS NULL
+    ORDER BY (p.reorder_point - p.current_stock) DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================================================
+-- ADMIN TABLES SOFT DELETE PROCEDURES
+-- =============================================================================
+
+-- System Backups
+CREATE OR REPLACE FUNCTION sp_system_backup_list(
+    p_limit INT DEFAULT 100,
+    p_offset INT DEFAULT 0,
+    p_include_deleted BOOLEAN DEFAULT FALSE
+) RETURNS TABLE (
+    id INT, backup_name VARCHAR, backup_type VARCHAR, file_path VARCHAR,
+    size BIGINT, status VARCHAR, created_at TIMESTAMP, created_by INT,
+    deleted_at TIMESTAMP, encrypted BOOLEAN, encryption_key_id VARCHAR, checksum VARCHAR,
+    total_count BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH filtered AS (
+        SELECT *
+        FROM system_backups
+        WHERE (p_include_deleted = TRUE OR deleted_at IS NULL)
+        ORDER BY created_at DESC
+    )
+    SELECT f.*, (SELECT COUNT(*) FROM filtered) AS total_count
+    FROM filtered f
+    LIMIT p_limit OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_system_backup_find(p_id INT)
+RETURNS SETOF system_backups AS $$
+BEGIN
+    RETURN QUERY SELECT * FROM system_backups WHERE id = p_id AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_system_backup_delete(p_id INT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE system_backups SET deleted_at = NOW() WHERE id = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- System Config Overrides
+CREATE OR REPLACE FUNCTION sp_system_config_override_list(
+    p_limit INT DEFAULT 100,
+    p_offset INT DEFAULT 0,
+    p_include_deleted BOOLEAN DEFAULT FALSE
+) RETURNS TABLE (
+    id INT, key VARCHAR, value TEXT, description TEXT, is_sensitive BOOLEAN,
+    updated_at TIMESTAMP, updated_by INT, deleted_at TIMESTAMP,
+    total_count BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH filtered AS (
+        SELECT *
+        FROM system_config_overrides
+        WHERE (p_include_deleted = TRUE OR deleted_at IS NULL)
+        ORDER BY updated_at DESC
+    )
+    SELECT f.*, (SELECT COUNT(*) FROM filtered) AS total_count
+    FROM filtered f
+    LIMIT p_limit OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_system_config_override_find(p_id INT)
+RETURNS SETOF system_config_overrides AS $$
+BEGIN
+    RETURN QUERY SELECT * FROM system_config_overrides WHERE id = p_id AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_system_config_override_delete(p_id INT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE system_config_overrides SET deleted_at = NOW() WHERE id = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Scheduled Audit Reports
+CREATE OR REPLACE FUNCTION sp_scheduled_audit_report_list(
+    p_limit INT DEFAULT 100,
+    p_offset INT DEFAULT 0,
+    p_active_only BOOLEAN DEFAULT FALSE,
+    p_include_deleted BOOLEAN DEFAULT FALSE
+) RETURNS TABLE (
+    id INT, name VARCHAR, description TEXT, format VARCHAR, frequency VARCHAR,
+    parameters JSON, next_run_time TIMESTAMP, last_run_time TIMESTAMP,
+    is_active BOOLEAN, created_at TIMESTAMP, updated_at TIMESTAMP,
+    created_by INT, updated_by INT, deleted_at TIMESTAMP,
+    total_count BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH filtered AS (
+        SELECT *
+        FROM scheduled_audit_reports
+        WHERE (p_include_deleted = TRUE OR deleted_at IS NULL)
+          AND (p_active_only = FALSE OR is_active = TRUE)
+        ORDER BY created_at DESC
+    )
+    SELECT f.*, (SELECT COUNT(*) FROM filtered) AS total_count
+    FROM filtered f
+    LIMIT p_limit OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_scheduled_audit_report_find(p_id INT)
+RETURNS SETOF scheduled_audit_reports AS $$
+BEGIN
+    RETURN QUERY SELECT * FROM scheduled_audit_reports WHERE id = p_id AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_scheduled_audit_report_delete(p_id INT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE scheduled_audit_reports SET deleted_at = NOW() WHERE id = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Idempotency Keys
+CREATE OR REPLACE FUNCTION sp_idempotency_check(p_key VARCHAR, p_user_id INT)
+RETURNS JSONB AS $$
+DECLARE
+    v_response JSONB;
+BEGIN
+    SELECT response_json INTO v_response
+    FROM idempotency_keys
+    WHERE key = p_key AND user_id = p_user_id;
+    RETURN v_response;
+END;
+$$ LANGUAGE plpgsql;
+
+-- L2 fix: reserve the key BEFORE executing the endpoint (single txn).
+-- Returns TRUE if this caller owns the key (inserted), FALSE if already
+-- reserved by a concurrent request — closing the check-then-act race.
+CREATE OR REPLACE FUNCTION sp_idempotency_reserve(p_key VARCHAR, p_user_id INT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_inserted INT;
+BEGIN
+    INSERT INTO idempotency_keys (key, user_id)
+    VALUES (p_key, p_user_id)
+    ON CONFLICT (key, user_id) DO NOTHING
+    RETURNING id INTO v_inserted;
+    RETURN v_inserted IS NOT NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_idempotency_record(p_key VARCHAR, p_user_id INT, p_response JSONB)
+RETURNS VOID AS $$
+BEGIN
+    INSERT INTO idempotency_keys (key, user_id, response_json)
+    VALUES (p_key, p_user_id, p_response)
+    ON CONFLICT (key, user_id) DO UPDATE SET response_json = EXCLUDED.response_json;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_idempotency_cleanup(p_older_than INTERVAL DEFAULT '30 days')
+RETURNS INTEGER AS $$
+DECLARE
+    v_deleted INT;
+BEGIN
+    DELETE FROM idempotency_keys
+    WHERE created_at < NOW() - p_older_than;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN v_deleted;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ─────────────────────────────────────────────────────────────────
+-- DB-044: Retention purges for audit/ops tables.
+-- forecast/anomaly/fact tables intentionally NOT purged — they hold
+-- business history. Ops tables only.
+-- ─────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION sp_retention_purge_audit_log(p_days INT DEFAULT 90)
+RETURNS INTEGER AS $$
+DECLARE
+    v_deleted INT;
+BEGIN
+    DELETE FROM audit_log
+    WHERE created_at < NOW() - (p_days || ' days')::interval;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN v_deleted;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_retention_purge_user_sessions(p_days INT DEFAULT 90)
+RETURNS INTEGER AS $$
+DECLARE
+    v_deleted INT;
+BEGIN
+    DELETE FROM user_sessions
+    WHERE is_active = FALSE
+      AND last_activity < NOW() - (p_days || ' days')::interval;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN v_deleted;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_retention_purge_idempotency_keys(p_days INT DEFAULT 30)
+RETURNS INTEGER AS $$
+DECLARE
+    v_deleted INT;
+BEGIN
+    DELETE FROM idempotency_keys
+    WHERE created_at < NOW() - (p_days || ' days')::interval;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN v_deleted;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_retention_purge_rate_limit_state()
+RETURNS INTEGER AS $$
+DECLARE
+    v_deleted INT;
+BEGIN
+    DELETE FROM rate_limit_state
+    WHERE expires_at < NOW();
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN v_deleted;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_retention_run_all()
+RETURNS TABLE(object_name TEXT, purged INTEGER) AS $$
+BEGIN
+    object_name := 'audit_log';
+    purged := sp_retention_purge_audit_log();
+    RETURN NEXT;
+    object_name := 'user_sessions';
+    purged := sp_retention_purge_user_sessions();
+    RETURN NEXT;
+    object_name := 'idempotency_keys';
+    purged := sp_retention_purge_idempotency_keys();
+    RETURN NEXT;
+    object_name := 'rate_limit_state';
+    purged := sp_retention_purge_rate_limit_state();
+    RETURN NEXT;
 END;
 $$ LANGUAGE plpgsql;

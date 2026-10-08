@@ -1,0 +1,11 @@
+sku,name,unit_price,current_stock,reorder_point,category,supplier_id
+SKU-DEMO-001,Demo Product 1,100.00,20,10,Electronics,73
+SKU-DEMO-002,Demo Product 2,150.00,21,11,Furniture,74
+SKU-DEMO-003,Demo Product 3,200.00,22,12,Stationery,75
+SKU-DEMO-004,Demo Product 4,250.00,23,13,Electronics,76
+SKU-DEMO-005,Demo Product 5,300.00,24,14,Furniture,77
+SKU-DEMO-006,Demo Product 6,350.00,25,15,Stationery,73
+SKU-DEMO-007,Demo Product 7,400.00,26,16,Electronics,74
+SKU-DEMO-008,Demo Product 8,450.00,27,17,Furniture,75
+SKU-DEMO-009,Demo Product 9,500.00,28,18,Stationery,76
+SKU-DEMO-010,Demo Product 10,550.00,29,19,Electronics,77

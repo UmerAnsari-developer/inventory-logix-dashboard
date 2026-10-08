@@ -56,7 +56,7 @@
   <div class="noise" aria-hidden="true"></div>
   {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-  <div class="flash-stack" role="status">
+  <div class="flash-stack" role="alert" aria-live="polite">
     {% for category, message in messages %}
     <div class="flash flash-{{ category }}">
       <span>{{ message }}</span>
@@ -64,6 +64,24 @@
     </div>
     {% endfor %}
   </div>
+  <script nonce="{{ csp_nonce }}">
+    (function () {
+      // ADM-023: auto-dismiss flashes after 6s; close button dismisses now.
+      function dismiss(el) {
+        if (!el) return;
+        el.style.transition = 'opacity .3s';
+        el.style.opacity = '0';
+        setTimeout(function () { el.remove(); }, 300);
+      }
+      document.querySelectorAll('.flash').forEach(function (el) {
+        setTimeout(function () { dismiss(el); }, 6000);
+      });
+      document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.flash-close');
+        if (btn) dismiss(btn.closest('.flash'));
+      });
+    })();
+  </script>
   {% endif %}
   {% endwith %}
   {% if current_user.is_authenticated %}
@@ -145,6 +163,24 @@
                 class="menu-item {{ 'active' if active_page == 'eoq' else '' }}">
                 <span class="nav-text">EOQ Calculator</span>
               </a>
+            </div>
+          </div>
+          <div class="nav-drop">
+            <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
+              <span class="nav-drop-label">Reporting</span><span class="nav-drop-caret"
+                aria-hidden="true">&#9662;</span>
+            </button>
+            <div class="nav-drop-menu">
+              <a href="{{ url_for('reports_workflow.submit_report') }}"
+                class="menu-item {{ 'active' if active_page == 'submit_report' else '' }}">
+                <span class="nav-text">Submit Report</span>
+              </a>
+              {% if current_user.get('job_role') in ['inventory_director', 'vp_operations', 'procurement_manager', 'warehouse_manager'] or current_user.role == 'admin' %}
+              <a href="{{ url_for('reports_workflow.my_team') }}"
+                class="menu-item {{ 'active' if active_page == 'my_team' else '' }}">
+                <span class="nav-text">My Team</span>
+              </a>
+              {% endif %}
             </div>
           </div>
           {% if current_user.role in ['admin', 'manager'] %}
@@ -270,11 +306,11 @@
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
   <script defer src="{{ url_for('static', filename='js/main.js') }}?v=53c0c019"></script>
-  <script defer src="{{ url_for('static', filename='js/ai-features.js') }}?v=37e5c03a"></script>
+  <script defer src="{{ url_for('static', filename='js/ai-features.js') }}?v=db6b7aaf"></script>
   <script defer src="{{ url_for('static', filename='js/http-client.js') }}?v=0a957d3f"></script>
   <script defer src="{{ url_for('static', filename='js/session-handler.js') }}?v=1d5a4033"></script>
   <script defer src="{{ url_for('static', filename='js/saas-animations.js') }}?v=eef298f3"></script>
-  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=13b2159a"></script>
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=db591da6"></script>
   {% if not current_user.is_authenticated %}
   <!-- Theme toggle for auth pages + localStorage sync -->
   <script nonce="{{ csp_nonce }}">

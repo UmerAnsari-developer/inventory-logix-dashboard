@@ -1,15 +1,18 @@
-"""Audit report generator routes."""
+"""Audit report generator routes with audit logging and async support."""
 from __future__ import annotations
 
 import json
 from datetime import date, datetime
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for, jsonify
 from flask_login import current_user, login_required
 
+from app.extensions import limiter
 from app.security import write_roles_required
-from app.services import audit_report_service
+from app.security.audit import audit_admin_action
+from app.services import AuditReportService
 from app.repositories import ScheduledAuditReportRepository
+from app.services.job_tracker import JobTracker
 
 admin_audit_report_bp = Blueprint("admin_audit_report", __name__, url_prefix="/admin/audit_reports")
 
@@ -17,19 +20,32 @@ admin_audit_report_bp = Blueprint("admin_audit_report", __name__, url_prefix="/a
 @admin_audit_report_bp.route("/")
 @login_required
 @write_roles_required
+@audit_admin_action("admin.audit_report.list", target_type="audit_report")
 def index():
-    """List scheduled audit reports."""
-    reports = ScheduledAuditReportRepository.list_all(active_only=False)
+    """List scheduled audit reports with pagination."""
+    page = request.args.get("page", default=1, type=int)
+    per_page = 20
+    offset = (page - 1) * per_page
+    
+    reports = ScheduledAuditReportRepository.list_all(active_only=False, limit=per_page, offset=offset)
+    total_count = ScheduledAuditReportRepository.count_all(active_only=False)
+    total_pages = (total_count + per_page - 1) // per_page
+    
     return render_template(
         "admin/audit_report/index.html",
         reports=reports,
-        active_page="audit_reports"
+        active_page="audit_reports",
+        report_page=page,
+        total_pages=total_pages,
+        total_count=total_count
     )
 
 
 @admin_audit_report_bp.route("/create", methods=["GET", "POST"])
 @login_required
 @write_roles_required
+@limiter.limit("10 per minute")
+@audit_admin_action("admin.audit_report.create", target_type="audit_report", detail_func=lambda r, *a, **kw: {"name": request.form.get("name")})
 def create():
     """Create a new scheduled audit report."""
     if request.method == "GET":
@@ -64,8 +80,9 @@ def create():
         return redirect(url_for("admin_audit_report.create"))
     
     try:
-        # Validate the next_run_time format
-        datetime.fromisoformat(next_run_time.replace("T", " "))
+        # ADM-026: fromisoformat handles the "T" separator natively (Py 3.11+);
+        # the .replace("T", " ") hack is no longer needed.
+        datetime.fromisoformat(next_run_time)
     except ValueError:
         flash("Invalid next run time format. Please use YYYY-MM-DD HH:MM:SS.", "error")
         return redirect(url_for("admin_audit_report.create"))
@@ -87,6 +104,8 @@ def create():
 @admin_audit_report_bp.route("/edit/<int:report_id>", methods=["GET", "POST"])
 @login_required
 @write_roles_required
+@limiter.limit("10 per minute")
+@audit_admin_action("admin.audit_report.update", target_type="audit_report", target_id_arg="report_id")
 def edit(report_id: int):
     """Edit a scheduled audit report."""
     report = ScheduledAuditReportRepository.get_by_id(report_id)
@@ -130,8 +149,8 @@ def edit(report_id: int):
         return redirect(url_for("admin_audit_report.edit", report_id=report_id))
     
     try:
-        # Validate the next_run_time format
-        datetime.fromisoformat(next_run_time.replace("T", " "))
+        # ADM-026: fromisoformat handles the "T" separator natively (Py 3.11+).
+        datetime.fromisoformat(next_run_time)
     except ValueError:
         flash("Invalid next run time format. Please use YYYY-MM-DD HH:MM:SS.", "error")
         return redirect(url_for("admin_audit_report.edit", report_id=report_id))
@@ -157,6 +176,8 @@ def edit(report_id: int):
 @admin_audit_report_bp.route("/delete/<int:report_id>", methods=["POST"])
 @login_required
 @write_roles_required
+@limiter.limit("5 per minute")
+@audit_admin_action("admin.audit_report.delete", target_type="audit_report", target_id_arg="report_id")
 def delete(report_id: int):
     """Delete a scheduled audit report."""
     report = ScheduledAuditReportRepository.get_by_id(report_id)
@@ -175,32 +196,47 @@ def delete(report_id: int):
 @admin_audit_report_bp.route("/run/<int:report_id>", methods=["POST"])
 @login_required
 @write_roles_required
+@limiter.limit("10 per minute")
+@audit_admin_action("admin.audit_report.run", target_type="audit_report", target_id_arg="report_id")
 def run_report(report_id: int):
-    """Run a scheduled audit report on demand."""
-    result = audit_report_service.generate_and_save_report(
+    """Run a scheduled audit report on demand (async)."""
+    job_id = AuditReportService.generate_report_async(
         report_id=report_id,
         generated_by=current_user.id
     )
     
-    if result["success"]:
-        flash(result["message"], "success")
-    else:
-        flash(result["message"], "error")
-    
+    flash(f"Report generation started. Job ID: {job_id}", "success")
     return redirect(url_for("admin_audit_report.index"))
 
 
 @admin_audit_report_bp.route("/run_due", methods=["POST"])
 @login_required
 @write_roles_required
+@limiter.limit("5 per minute")
+@audit_admin_action("admin.audit_report.run_due", target_type="audit_report")
 def run_due_reports():
     """Run all due scheduled audit reports."""
-    result = audit_report_service.run_due_reports()
+    result = AuditReportService.run_due_reports()
     
     if result["success"]:
         flash(result["message"], "success")
-        # Optionally, we could show the results in a flash message or redirect to a page showing results
     else:
         flash(f"Error running due reports: {result.get('message', 'Unknown error')}", "error")
     
     return redirect(url_for("admin_audit_report.index"))
+
+
+@admin_audit_report_bp.route("/job_status/<job_id>")
+@login_required
+@write_roles_required
+def job_status(job_id: str):
+    """Get job status for progress polling."""
+    job = JobTracker.get_job(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    
+    # Only allow users to see their own jobs (or admins can see all)
+    if job["user_id"] != current_user.id and current_user.role != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+    
+    return jsonify(job)

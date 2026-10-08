@@ -30,7 +30,7 @@ DEFAULTS: dict[str, str] = {
     "email_alerts": "on",
 }
 
-MODEL_CHOICES = {"prophet", "arima", "ensemble"}
+MODEL_CHOICES = {"prophet", "xgboost", "ensemble"}
 _BOOL_KEYS = {
     "dark_mode",
     "live_data",

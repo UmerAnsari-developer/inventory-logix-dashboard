@@ -4,13 +4,14 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from flask import Flask, render_template, request, g
+from flask import Flask, render_template, request, g, session, abort
 from flask_compress import Compress
 from flask_login import current_user
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -25,7 +26,7 @@ from .database.connection import (
 )
 from .extensions import csrf, limiter, login_manager
 from .repositories import UserRepository
-from .routes import ai_bp, api_bp, auth_bp, ui_bp
+from .routes import ai_bp, api_bp, auth_bp, ui_bp, reports_workflow_bp
 from .routes.admin.backup_routes import admin_backup_bp
 from .routes.admin.system_config_routes import admin_system_config_bp
 from .routes.admin.log_viewer_routes import admin_log_viewer_bp
@@ -93,6 +94,55 @@ def create_app(config_name: str | None = None) -> Flask:
     def _start_timer():
         g._start_time = time.time()
 
+    @app.before_request
+    def _set_current_user_id():
+        """Set g.user_id for audit attribution in database layer."""
+        if current_user.is_authenticated:
+            g.user_id = current_user.id
+        else:
+            g.user_id = None
+
+    @app.before_request
+    def _enforce_admin_session_timeout():
+        """Enforce admin session timeout for /admin/* routes.
+        
+        Admin sessions have a shorter timeout (default 30 minutes) than regular
+        sessions for security. This middleware runs before the route handler
+        and checks if the admin's last activity exceeds the timeout.
+        """
+        # Only apply to admin routes
+        if not request.path.startswith("/admin/"):
+            return None
+        
+        # Only apply to authenticated admin users
+        if not current_user.is_authenticated or current_user.role != "admin":
+            return None
+        
+        from .config.settings import Config
+        
+        last_activity_str = session.get("admin_last_activity")
+        if last_activity_str:
+            try:
+                last_activity = datetime.fromisoformat(last_activity_str)
+                # Handle both naive and aware datetimes
+                if last_activity.tzinfo is None:
+                    last_activity = last_activity.replace(tzinfo=timezone.utc)
+                
+                now = datetime.now(timezone.utc)
+                timeout_minutes = Config.ADMIN_SESSION_TIMEOUT_MINUTES
+                
+                if now - last_activity > timedelta(minutes=timeout_minutes):
+                    # Session expired - clear admin activity and abort
+                    session.pop("admin_last_activity", None)
+                    abort(403, description="Admin session expired. Please log in again.")
+            except (ValueError, TypeError):
+                # Invalid format - reset and continue
+                pass
+        
+        # Update last activity on every admin request (sliding window)
+        session["admin_last_activity"] = datetime.now(timezone.utc).isoformat()
+        return None
+
     @app.after_request
     def _log_slow(response):
         if hasattr(g, '_start_time'):
@@ -125,6 +175,10 @@ def create_app(config_name: str | None = None) -> Flask:
             try:
                 bootstrap_database()
             except Exception as exc:
+                # DB-086: fail fast in production, log warning in development
+                if app.config.get("ENV") == "production":
+                    LOGGER.error("Database bootstrap failed: %s", exc)
+                    raise
                 LOGGER.warning("Database bootstrap deferred: %s", exc)
 
     return app
@@ -173,6 +227,28 @@ def _ensure_database_configured(config_cls) -> None:
         )
 
 
+def _check_redis_connectivity(uri: str, timeout: float = 2.0) -> tuple[bool, str | None]:
+    """Check Redis connectivity with timeout.
+    
+    Args:
+        uri: Redis connection URI
+        timeout: Connection timeout in seconds
+        
+    Returns:
+        Tuple of (success: bool, error_message: str | None)
+    """
+    if not uri.startswith("redis://"):
+        return False, "URI must start with redis://"
+    
+    try:
+        import redis
+        client = redis.from_url(uri, socket_connect_timeout=timeout)
+        client.ping()
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
 def _init_extensions(app: Flask) -> None:
     csrf.init_app(app)
     limiter.init_app(app)
@@ -194,6 +270,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(ui_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(ai_bp)
+    app.register_blueprint(reports_workflow_bp)
     app.register_blueprint(admin_backup_bp)
     app.register_blueprint(admin_system_config_bp)
     app.register_blueprint(admin_user_activity_bp)
@@ -241,6 +318,7 @@ def _register_error_handlers(app: Flask) -> None:
         401: "Unauthorized",
         403: "Forbidden",
         404: "Not found",
+        413: "File too large",
         422: "Unprocessable request",
         429: "Too many requests",
         500: "Server error",
@@ -291,6 +369,19 @@ def _register_error_handlers(app: Flask) -> None:
     @app.errorhandler(422)
     def _unprocessable(err):
         return _render("errors/422.html", 422)
+
+    @app.errorhandler(413)
+    def _file_too_large(err):
+        # CSV import etc.: body exceeded MAX_CONTENT_LENGTH (default 5 MB).
+        if request.path.startswith("/api"):
+            from .utils import api_error
+
+            return api_error(
+                "FILE_TOO_LARGE",
+                "Uploaded file exceeds the 5 MB size limit. Split the CSV into smaller files.",
+                status=413,
+            )
+        return _render("errors/413.html", 413)
 
     @app.errorhandler(429)
     def _too_many(err):

@@ -6,13 +6,14 @@ from flask_login import current_user, login_required
 
 from ..extensions import limiter
 from ..repositories import (
-    AuditRepository,
     MovementRepository,
+    POError,
     ProductRepository,
+    PurchaseOrderRepository,
     SupplierRepository,
 )
 from ..security import write_roles_required
-from ..services import MovementService, ProductService, SupplierService
+from ..services import MovementService, ProductService, ProductError, SupplierService, POService, POServiceError
 from ..utils import api_error, api_response
 from ..utils.cache import (
     api_cache,
@@ -23,6 +24,7 @@ from ..utils.cache import (
     cache_bust_suppliers,
     make_key,
 )
+from ..utils.idempotency import idempotent
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -30,7 +32,19 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 # ----- Health -----
 @api_bp.route("/health")
 def health():
-    return api_response({"status": "healthy", "service": "inventory-api"})
+    from ..database import get_cursor
+    import psycopg2
+    
+    try:
+        with get_cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return api_response({"status": "healthy", "service": "inventory-api", "database": "connected"})
+    except Exception as e:
+        # L1: generic message — psycopg2 errors can embed host/port/dbname;
+        # log the detail server-side, never expose it to unauthenticated callers.
+        LOGGER.warning("Health check failed: %s", e)
+        return api_error("HEALTH_CHECK_FAILED", "Database connection failed.", status=503)
 
 
 # ----- User settings -----
@@ -136,7 +150,7 @@ def list_products():
     params = {
         "search": request.args.get("search", ""),
         "category": request.args.get("category", ""),
-        "warehouse": request.form.get("warehouse", ""),
+        "warehouse": request.args.get("warehouse", ""),
         "stock_status": request.args.get("stock_status", ""),
         "page": page,
         "per_page": per_page,
@@ -165,15 +179,18 @@ def get_product(product_id):
 @limiter.limit("30 per minute")
 @login_required
 @write_roles_required
+@idempotent()
 def create_product():
     payload = request.get_json(silent=True) or {}
     try:
         new_id = ProductService.create(payload)
+    except ProductError as exc:
+        # Check if it's a duplicate SKU error
+        if "already exists" in str(exc).lower():
+            return api_error("DUPLICATE_SKU", str(exc), status=409)
+        return api_error("VALIDATION_ERROR", str(exc), status=422)
     except Exception as exc:
         return api_error("VALIDATION_ERROR", str(exc), status=422)
-    AuditRepository.record(current_user.id, "api.product.create",
-                           target_type="product", target_id=new_id,
-                           detail={"sku": payload.get("sku")})
     cache_bust_products()
     return api_response({"id": new_id}, status=201, message="Product created.")
 
@@ -182,14 +199,17 @@ def create_product():
 @limiter.limit("30 per minute")
 @login_required
 @write_roles_required
+@idempotent()
 def update_product(product_id):
     payload = request.get_json(silent=True) or {}
+    # Check if product exists
+    product = ProductRepository.find(product_id)
+    if not product:
+        return api_error("PRODUCT_NOT_FOUND", "Product not found.", status=404)
     try:
         ProductService.update(product_id, payload)
     except Exception as exc:
         return api_error("VALIDATION_ERROR", str(exc), status=422)
-    AuditRepository.record(current_user.id, "api.product.update",
-                           target_type="product", target_id=product_id)
     cache_bust_products()
     return api_response({"id": product_id}, message="Product updated.")
 
@@ -198,10 +218,13 @@ def update_product(product_id):
 @limiter.limit("30 per minute")
 @login_required
 @write_roles_required
+@idempotent()
 def delete_product(product_id):
+    # Check if product exists
+    product = ProductRepository.find(product_id)
+    if not product:
+        return api_error("PRODUCT_NOT_FOUND", "Product not found.", status=404)
     ProductService.delete(product_id)
-    AuditRepository.record(current_user.id, "api.product.delete",
-                           target_type="product", target_id=product_id)
     cache_bust_products()
     return api_response(message="Product deleted.", status=204)
 
@@ -229,16 +252,37 @@ def get_supplier(supplier_id):
 @limiter.limit("30 per minute")
 @login_required
 @write_roles_required
+@idempotent()
 def create_supplier():
     payload = request.get_json(silent=True) or {}
     try:
         new_id = SupplierService.create(payload)
     except Exception as exc:
         return api_error("VALIDATION_ERROR", str(exc), status=422)
-    AuditRepository.record(current_user.id, "api.supplier.create",
-                           target_type="supplier", target_id=new_id)
     cache_bust_suppliers()
     return api_response({"id": new_id}, status=201, message="Supplier created.")
+
+
+# ----- Purchase Orders -----
+@api_bp.route("/purchase-orders", methods=["POST"])
+@limiter.limit("30 per minute")
+@login_required
+@write_roles_required
+@idempotent()
+def create_purchase_order():
+    payload = request.get_json(silent=True) or {}
+    try:
+        new_id = POService.create(payload)
+    except (POServiceError, POError) as exc:
+        # Check if it's a duplicate PO number
+        msg = str(exc)
+        if "already exists" in msg.lower():
+            return api_error("DUPLICATE_PO_NUMBER", msg, status=409)
+        return api_error("VALIDATION_ERROR", msg, status=422)
+    except Exception as exc:
+        return api_error("VALIDATION_ERROR", str(exc), status=422)
+    cache_bust_purchase_orders()
+    return api_response({"id": new_id}, status=201, message="Purchase order created.")
 
 
 # ----- Movements -----
@@ -246,6 +290,7 @@ def create_supplier():
 @limiter.limit("60 per minute")
 @login_required
 @write_roles_required
+@idempotent()
 def create_movement():
     payload = request.get_json(silent=True) or {}
     try:

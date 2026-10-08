@@ -8,7 +8,19 @@ from .validators import (
     sanitize_input,
 )
 from .headers import init_security_headers
-from .roles import WRITE_ROLES, roles_required, write_roles_required
+from .roles import (
+    WRITE_ROLES,
+    JOB_ROLES,
+    LEGACY_JOB_ROLE,
+    ROLE_PERMISSIONS,
+    has_permission,
+    permission_required,
+    roles_required,
+    user_job_role,
+    user_permissions,
+    write_roles_required,
+)
+from .dberrors import db_error_message, is_unique_violation, is_guard_error
 
 __all__ = [
     "validate_sku",
@@ -19,6 +31,16 @@ __all__ = [
     "sanitize_input",
     "init_security_headers",
     "WRITE_ROLES",
+    "JOB_ROLES",
+    "LEGACY_JOB_ROLE",
+    "ROLE_PERMISSIONS",
+    "has_permission",
+    "permission_required",
     "roles_required",
+    "user_job_role",
+    "user_permissions",
     "write_roles_required",
+    "db_error_message",
+    "is_unique_violation",
+    "is_guard_error",
 ]

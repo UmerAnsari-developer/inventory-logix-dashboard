@@ -30,6 +30,22 @@ class UserActivityService:
         )
 
     @staticmethod
+    def get_activities_count(user_id: int | None = None,
+                             action: str | None = None, start_date: str | None = None,
+                             end_date: str | None = None) -> int:
+        """Get total count of user activities with optional filtering."""
+        if not current_user.is_authenticated:
+            raise ValueError("Authentication required")
+        
+        if current_user.role not in ("admin", "manager"):
+            # Restrict to own activities
+            user_id = current_user.id
+        
+        return UserActivityRepository.get_activities_count(
+            user_id=user_id, action=action, start_date=start_date, end_date=end_date
+        )
+
+    @staticmethod
     def get_recent_activities(limit: int = 50) -> list[dict]:
         """Get recent user activities."""
         if not current_user.is_authenticated:

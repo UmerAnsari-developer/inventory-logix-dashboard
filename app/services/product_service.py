@@ -39,7 +39,7 @@ class ProductService:
         }
 
     @staticmethod
-    def validate_payload(payload: dict) -> dict:
+    def validate_payload(payload: dict, *, is_update: bool = False) -> dict:
         try:
             payload["sku"] = (
                 payload.get("sku", "").strip().upper()
@@ -58,12 +58,19 @@ class ProductService:
             payload["unit_price"] = validate_positive_number(
                 payload.get("unit_price"), "Unit price", allow_zero=False
             )
-            payload["current_stock"] = int(payload.get("current_stock") or 0)
-            payload["reorder_point"] = int(payload.get("reorder_point") or 0)
-            if payload["current_stock"] < 0:
-                raise ValidationError("Current stock cannot be negative.")
-            if payload["reorder_point"] < 0:
-                raise ValidationError("Reorder point cannot be negative.")
+            # DB-021: current_stock must NOT be included in update payloads.
+            # Stock changes ONLY via movement recording (sp_movement_record).
+            if "current_stock" in payload:
+                if is_update:
+                    raise ValidationError("current_stock cannot be updated directly. Use movement recording.")
+                payload["current_stock"] = int(payload.get("current_stock") or 0)
+                if payload["current_stock"] < 0:
+                    raise ValidationError("Current stock cannot be negative.")
+            # Only include reorder_point if explicitly provided
+            if "reorder_point" in payload:
+                payload["reorder_point"] = int(payload.get("reorder_point") or 0)
+                if payload["reorder_point"] < 0:
+                    raise ValidationError("Reorder point cannot be negative.")
             for key in ("demand_rate", "ordering_cost", "holding_cost"):
                 if payload.get(key) not in (None, ""):
                     payload[key] = validate_positive_number(payload.get(key), key.replace("_", " ").title(), allow_zero=True)
@@ -80,15 +87,23 @@ class ProductService:
 
     @classmethod
     def create(cls, payload: dict) -> int:
-        payload = cls.validate_payload(payload)
+        payload = cls.validate_payload(payload, is_update=False)
         existing = ProductRepository.find_by_sku(payload["sku"])
         if existing:
             raise ProductError("SKU already exists.")
-        return ProductRepository.create(payload)
+        try:
+            return ProductRepository.create(payload)
+        except Exception as exc:
+            # Race backstop: two requests passed the check above; the DB unique
+            # constraint (products_sku_key) is the arbiter (fix DB-001).
+            from ..security.dberrors import is_unique_violation
+            if is_unique_violation(exc):
+                raise ProductError("SKU already exists.") from exc
+            raise
 
     @classmethod
     def update(cls, product_id: int, payload: dict) -> None:
-        payload = cls.validate_payload(payload)
+        payload = cls.validate_payload(payload, is_update=True)
         ProductRepository.update(product_id, payload)
 
     @staticmethod

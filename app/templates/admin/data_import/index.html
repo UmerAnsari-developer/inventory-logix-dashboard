@@ -41,7 +41,7 @@
   <div class="panel-content">
     {% set descriptions = {
       'products': 'Import products with SKU, name, price, stock levels, category, and supplier. CSV must have columns: sku, product_name, unit_price, current_stock, reorder_point, category, supplier_id.',
-      'suppliers': 'Import suppliers with name, email, phone, and address. CSV must have columns: supplier_name, contact_email, phone, address.',
+      'suppliers': 'Import suppliers with name, location, and lead days. CSV must have columns: supplier_name, location, lead_days.',
       'warehouses': 'Import warehouse locations. CSV must have columns: warehouse_name, location.',
       'movements': 'Import inventory movements. CSV must have columns: product_id, quantity, movement_type (in/out/adjustment), reason.',
       'purchase_orders': 'Import purchase orders. CSV must have columns: supplier_id, product_id, quantity, status.'
@@ -49,22 +49,63 @@
 
     <p style="color:var(--muted);font-size:0.78rem;margin-bottom:16px;">{{ descriptions.get(active_tab, '') }}</p>
 
-    <form method="post" action="{{ url_for('admin_data_import.upload', entity=active_tab) }}"
-          enctype="multipart/form-data"
-          id="import_form_{{ active_tab }}"
-          data-confirm="Upload will overwrite existing records. Continue?"
-          style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-      <label class="btn btn-outline" style="cursor:pointer;margin:0;">
-        Choose CSV File
-        <input type="file" name="csv_file" accept=".csv"
-               style="display:none;" id="csv_file_{{ active_tab }}">
-      </label>
-      <span id="file_name_{{ active_tab }}"
-            role="status"
-            style="font-size:0.82rem;color:var(--text-secondary);min-width:120px;"></span>
-      <button type="submit" class="btn btn-primary">Import {{ stats[active_tab].label }}</button>
-    </form>
+    {# ── Size & rate instructions ────────────────────────────────────────── #}
+    <div class="alert-strip" style="margin-bottom:16px;">
+      <div class="alert-mark">info</div>
+      <div>
+        <div class="alert-title">Import limits</div>
+        <div class="alert-subtitle">
+          Max file size: <strong>5 MB</strong> (larger files are rejected with 413).
+          Preview shows the first <strong>50 rows</strong> — the full file is imported.
+          Limits: 30 previews/min, 10 imports/min.
+          Movements import runs one row at a time for stock safety — large files take longer.
+          Tip: split big CSVs at ~5,000 rows per file.
+        </div>
+      </div>
+    </div>
+
+    {# Step 1: File Selection & Preview #}
+    <div id="import-step-1" class="import-step">
+      <form method="post" action="{{ url_for('admin_data_import.upload', entity=active_tab) }}"
+            enctype="multipart/form-data"
+            id="import_form_{{ active_tab }}"
+            data-confirm="Upload will overwrite existing records. Continue?"
+            style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <label class="btn btn-outline" style="cursor:pointer;margin:0;">
+          Choose CSV File
+          <input type="file" name="csv_file" accept=".csv"
+                 style="display:none;" id="csv_file_{{ active_tab }}">
+        </label>
+        <span id="file_name_{{ active_tab }}"
+              role="status"
+              style="font-size:0.82rem;color:var(--text-secondary);min-width:120px;"></span>
+        <button type="button" class="btn btn-primary" id="preview_btn_{{ active_tab }}">Preview Import</button>
+      </form>
+    </div>
+
+    {# Step 2: Preview Results #}
+    <div id="import-step-2" class="import-step" style="display:none;margin-top:16px;">
+      <div class="panel-header" style="margin-bottom:8px;">
+        <h6 class="panel-title">Preview: <span id="preview_row_count">0</span> rows</h6>
+        <span id="preview_status" class="status"></span>
+      </div>
+      <div id="preview_errors" class="alert-strip" style="display:none;">
+        <div class="alert-mark">error</div>
+        <div><div class="alert-title" id="preview_error_msg"></div></div>
+      </div>
+      <div id="preview_table_container" class="table-scroll" style="max-height:300px;overflow:auto;">
+        <table id="preview_table">
+          <thead><tr id="preview_headers"></tr></thead>
+          <tbody id="preview_rows"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button type="button" class="btn btn-outline" id="back_btn_{{ active_tab }}">Back</button>
+        <button type="button" class="btn btn-primary" id="confirm_btn_{{ active_tab }}">Confirm & Import</button>
+      </div>
+      <input type="hidden" id="csv_content_{{ active_tab }}" name="csv_content" />
+    </div>
   </div>
 </div>
 
@@ -96,7 +137,22 @@
     var form = document.getElementById('import_form_' + activeTab);
     var input = document.getElementById('csv_file_' + activeTab);
     var span = document.getElementById('file_name_' + activeTab);
-    if (!form || !input || !span) return;
+    var previewBtn = document.getElementById('preview_btn_' + activeTab);
+    var backBtn = document.getElementById('back_btn_' + activeTab);
+    var confirmBtn = document.getElementById('confirm_btn_' + activeTab);
+    var step1 = document.getElementById('import-step-1');
+    var step2 = document.getElementById('import-step-2');
+    var csvContentInput = document.getElementById('csv_content_' + activeTab);
+    var previewTable = document.getElementById('preview_table');
+    var previewHeaders = document.getElementById('preview_headers');
+    var previewRows = document.getElementById('preview_rows');
+    var previewRowCount = document.getElementById('preview_row_count');
+    var previewStatus = document.getElementById('preview_status');
+    var previewErrors = document.getElementById('preview_errors');
+    var previewErrorMsg = document.getElementById('preview_error_msg');
+    var previewTableContainer = document.getElementById('preview_table_container');
+
+    if (!form || !input || !span || !previewBtn || !backBtn || !confirmBtn) return;
 
     // 1.1 show selected file name
     input.addEventListener('change', function() {
@@ -108,9 +164,7 @@
       }
     });
 
-    // 1.2 block submit with no file (native bubbles are invisible on display:none inputs).
-    // Runs before main.js data-confirm (inline script registers first); stopImmediatePropagation
-    // keeps the overwrite confirm from firing when there is no file yet.
+    // 1.2 block submit with no file
     form.addEventListener('submit', function(e) {
       if (!input.files || !input.files.length) {
         e.preventDefault();
@@ -118,6 +172,158 @@
         span.textContent = 'Please select a file';
         span.style.color = 'var(--danger)';
       }
+    });
+
+    // Step 1: Preview button - read file and call preview endpoint
+    previewBtn.addEventListener('click', function() {
+      if (!input.files || !input.files.length) {
+        span.textContent = 'Please select a file';
+        span.style.color = 'var(--danger)';
+        return;
+      }
+
+      var file = input.files[0];
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var csvContent = e.target.result;
+        csvContentInput.value = csvContent;
+
+        // Call preview endpoint
+        fetch('{{ url_for("admin_data_import.preview", entity=active_tab) }}', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': '{{ csrf_token() }}'
+          },
+          body: 'csv_content=' + encodeURIComponent(csvContent)
+        })
+        .then(function(response) {
+          // Session expired (admin timeout) or CSRF token stale: the server
+          // returns an HTML error page — surface a clear message instead of
+          // the cryptic JSON parse failure, and send the user to login.
+          if (response.status === 401 || response.status === 403) {
+            previewErrorMsg.textContent = 'Your session has expired. Redirecting to login…';
+            previewErrors.style.display = 'flex';
+            previewTableContainer.style.display = 'none';
+            step1.style.display = 'none';
+            step2.style.display = 'block';
+            setTimeout(function () { window.location.href = window.LOGIN_URL || '/auth/login'; }, 1500);
+            throw new Error('session expired');
+          }
+          var ct = response.headers.get('Content-Type') || '';
+          if (ct.indexOf('application/json') === -1) {
+            throw new Error('Server error — please refresh the page and try again.');
+          }
+          return response.json();
+        })
+        .then(function(data) {
+          if (data.success) {
+            var preview = data.preview;
+            previewRowCount.textContent = preview.row_count;
+            previewStatus.textContent = preview.valid ? 'Valid' : 'Invalid';
+            previewStatus.className = 'status ' + (preview.valid ? 'good' : 'danger');
+
+            if (preview.errors && preview.errors.length > 0) {
+              previewErrors.style.display = 'flex';
+              previewErrorMsg.textContent = preview.errors.join('; ');
+              previewTableContainer.style.display = 'none';
+            } else {
+              previewErrors.style.display = 'none';
+              previewTableContainer.style.display = 'block';
+
+              // Render headers
+              previewHeaders.innerHTML = '';
+              preview.headers.forEach(function(header) {
+                var th = document.createElement('th');
+                th.textContent = header;
+                previewHeaders.appendChild(th);
+              });
+
+              // Render rows (max 50)
+              previewRows.innerHTML = '';
+              var SENSITIVE = ['email', 'phone', 'address', 'password', 'token'];
+              preview.rows.forEach(function(row) {
+                var tr = document.createElement('tr');
+                preview.headers.forEach(function(header) {
+                  var td = document.createElement('td');
+                  var val = row[header.toLowerCase()] || '';
+                  // ADM-024: mask PII columns in the preview table.
+                  var h = header.toLowerCase();
+                  for (var s = 0; s < SENSITIVE.length; s++) {
+                    if (h.indexOf(SENSITIVE[s]) !== -1 && val) {
+                      var keep = val.substring(0, 2);
+                      var dots = '';
+                      for (var d = 0; d < Math.min(val.length - 2, 6); d++) dots += '\u2022';
+                      val = keep + (dots || '\u2022\u2022\u2022\u2022');
+                      break;
+                    }
+                  }
+                  td.textContent = val;
+                  tr.appendChild(td);
+                });
+                previewRows.appendChild(tr);
+              });
+            }
+
+            // Show step 2, hide step 1
+            step1.style.display = 'none';
+            step2.style.display = 'block';
+          } else {
+            previewErrors.style.display = 'flex';
+            previewErrorMsg.textContent = data.error || 'Preview failed';
+            previewTableContainer.style.display = 'none';
+            step1.style.display = 'none';
+            step2.style.display = 'block';
+          }
+        })
+        .catch(function(err) {
+          // Session-expired already set its own message + redirect — don't overwrite.
+          if (err && err.message === 'session expired') return;
+          previewErrors.style.display = 'flex';
+          previewErrorMsg.textContent = 'Preview request failed: ' + err.message;
+          previewTableContainer.style.display = 'none';
+          step1.style.display = 'none';
+          step2.style.display = 'block';
+        });
+      };
+      reader.readAsText(file);
+    });
+
+    // Step 2: Back button
+    backBtn.addEventListener('click', function() {
+      step2.style.display = 'none';
+      step1.style.display = 'block';
+    });
+
+    // Step 2: Confirm & Import - submit the form with CSV content
+    confirmBtn.addEventListener('click', function() {
+      // Create a form with the CSV content and submit
+      var submitForm = document.createElement('form');
+      submitForm.method = 'POST';
+      submitForm.action = '{{ url_for("admin_data_import.upload", entity=active_tab) }}';
+      submitForm.enctype = 'multipart/form-data';
+      submitForm.style.display = 'none';
+
+      var csrfInput = document.createElement('input');
+      csrfInput.type = 'hidden';
+      csrfInput.name = 'csrf_token';
+      csrfInput.value = '{{ csrf_token() }}';
+      submitForm.appendChild(csrfInput);
+
+      var csvInput = document.createElement('input');
+      csvInput.type = 'hidden';
+      csvInput.name = 'csv_content';
+      csvInput.value = csvContentInput.value;
+      submitForm.appendChild(csvInput);
+
+      var confirmInput = document.createElement('input');
+      confirmInput.type = 'hidden';
+      confirmInput.name = 'confirm';
+      confirmInput.value = 'true';
+      submitForm.appendChild(confirmInput);
+
+      document.body.appendChild(submitForm);
+      submitForm.submit();
     });
   });
 </script>

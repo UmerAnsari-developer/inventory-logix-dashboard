@@ -1,34 +1,12 @@
-/* Dashboard 3D animations — panels, charts, tables */
+/* Dashboard animations — 3D hover/tilt effects REMOVED per spec §20.
+   Kept: non-3D entrance fades (opacity/translate), SVG stroke draw.
+   Tooltips, hover highlighting, click, zoom are CSS/Chart.js native — untouched. */
 (function () {
   if (document.body.classList.contains('landing')) return;
-  /* Skip 3D effects on mobile — no hover, saves GPU */
+  /* Skip on mobile — no hover, saves GPU */
   if (window.innerWidth < 768 || matchMedia('(hover: none)').matches) return;
 
-  /* ── 3D Panel Tilt on Hover ──────────────────────────────────── */
-  document.querySelectorAll('.panel').forEach(function (panel) {
-    panel.style.transformStyle = 'preserve-3d';
-    panel.style.transition = 'transform 0.35s cubic-bezier(.22,1,.36,1), box-shadow 0.35s ease';
-
-    panel.addEventListener('mousemove', function (e) {
-      if (panel._tilting) return;
-      panel._tilting = true;
-      requestAnimationFrame(function () {
-        var rect = panel.getBoundingClientRect();
-        var x = (e.clientX - rect.left) / rect.width - 0.5;
-        var y = (e.clientY - rect.top) / rect.height - 0.5;
-        panel.style.transform = 'perspective(800px) rotateY(' + (x * 6) + 'deg) rotateX(' + (-y * 6) + 'deg) scale(1.008)';
-        panel.style.boxShadow = '0 ' + (12 + Math.abs(y) * 8) + 'px ' + (28 + Math.abs(x) * 12) + 'px rgba(0,0,0,0.25)';
-        panel._tilting = false;
-      });
-    });
-
-    panel.addEventListener('mouseleave', function () {
-      panel.style.transform = 'perspective(800px) rotateY(0) rotateX(0) scale(1)';
-      panel.style.boxShadow = '';
-    });
-  });
-
-  /* ── SVG Chart 3D entrance (Stock movement) ──────────────────── */
+  /* ── SVG Chart entrance (Stock movement) — stroke draw, no 3D ── */
   var chartLine = document.querySelector('.chart-line');
   var chartArea = document.querySelector('.chart-area');
   var chartPoints = document.querySelectorAll('.chart-point');
@@ -61,33 +39,31 @@
     });
   });
 
-  /* ── Inventory Mix bars 3D pop ───────────────────────────────── */
+  /* ── Inventory Mix bars — scaleX fade only (rotateX removed) ── */
   document.querySelectorAll('.cat-fill').forEach(function (bar, i) {
-    bar.style.transform = 'scaleX(0) rotateX(40deg)';
+    bar.style.transform = 'scaleX(0)';
     bar.style.transformOrigin = 'left center';
     bar.style.transition = 'transform 0.6s cubic-bezier(.22,1,.36,1) ' + (0.15 + i * 0.08) + 's';
   });
   var catObs = new IntersectionObserver(function (entries) {
     entries.forEach(function (e) {
       if (e.isIntersecting) {
-        e.target.style.transform = 'scaleX(1) rotateX(0)';
+        e.target.style.transform = 'scaleX(1)';
         catObs.unobserve(e.target);
       }
     });
   }, { threshold: 0.2 });
   document.querySelectorAll('.cat-fill').forEach(function (bar) { catObs.observe(bar); });
 
-  /* ── Chart.js bars 3D entrance (Warehouse profile) ──────────── */
+  /* ── Warehouse chart canvas — opacity fade only (perspective/rotateX removed) ── */
   var whCanvas = document.getElementById('warehouseProfileChart');
   if (whCanvas) {
     whCanvas.style.opacity = '0';
-    whCanvas.style.transform = 'perspective(600px) rotateX(15deg) translateY(20px)';
-    whCanvas.style.transition = 'opacity 0.7s ease 0.3s, transform 0.7s cubic-bezier(.22,1,.36,1) 0.3s';
+    whCanvas.style.transition = 'opacity 0.7s ease 0.3s';
     var whObs = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
         if (e.isIntersecting) {
           e.target.style.opacity = '1';
-          e.target.style.transform = 'perspective(600px) rotateX(0) translateY(0)';
           whObs.unobserve(e.target);
         }
       });
@@ -95,12 +71,12 @@
     whObs.observe(whCanvas);
   }
 
-  /* ── Table rows 3D stagger ──────────────────────────────────── */
+  /* ── Table rows — translateX fade only (rotateY removed) ── */
   function animateTableRows(container) {
     var rows = container.querySelectorAll('tbody tr');
     rows.forEach(function (row, i) {
       row.style.opacity = '0';
-      row.style.transform = 'translateX(-12px) rotateY(4deg)';
+      row.style.transform = 'translateX(-12px)';
       row.style.transition = 'opacity 0.3s ease ' + (i * 0.04) + 's, transform 0.4s cubic-bezier(.22,1,.36,1) ' + (i * 0.04) + 's';
     });
     var tObs = new IntersectionObserver(function (entries) {
@@ -108,7 +84,7 @@
         if (e.isIntersecting) {
           e.target.querySelectorAll('tbody tr').forEach(function (row) {
             row.style.opacity = '1';
-            row.style.transform = 'translateX(0) rotateY(0)';
+            row.style.transform = 'translateX(0)';
           });
           tObs.unobserve(e.target);
         }

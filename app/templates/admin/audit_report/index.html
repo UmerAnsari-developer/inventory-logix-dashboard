@@ -70,6 +70,50 @@
     </tbody>
   </table>
 </div>
+
+{# ── Pagination ───────────────────────────────────────────────────────────── #}
+{% set current_page = report_page %}
+{% set total_pages = total_pages %}
+{% if total_pages > 1 %}
+<nav class="pagination" aria-label="Audit reports pagination">
+  <ul class="pagination-list">
+    {% if current_page > 1 %}
+    <li>
+      <a href="{{ url_for('admin_audit_report.index', page=1) }}"
+         class="pagination-link" aria-label="First page">&laquo;&laquo;</a>
+    </li>
+    <li>
+      <a href="{{ url_for('admin_audit_report.index', page=current_page - 1) }}"
+         class="pagination-link" aria-label="Previous page">&laquo;</a>
+    </li>
+    {% endif %}
+
+    {% set start_page = 1 if current_page <= 2 else current_page - 2 %}
+    {% set end_page = total_pages if current_page >= total_pages - 1 else current_page + 2 %}
+    {% for page_num in range(start_page, end_page + 1) %}
+    <li>
+      {% if page_num == current_page %}
+      <span class="pagination-link current" aria-current="page">{{ page_num }}</span>
+      {% else %}
+      <a href="{{ url_for('admin_audit_report.index', page=page_num) }}"
+         class="pagination-link">{{ page_num }}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+
+    {% if current_page < total_pages %}
+    <li>
+      <a href="{{ url_for('admin_audit_report.index', page=current_page + 1) }}"
+         class="pagination-link" aria-label="Next page">&raquo;</a>
+    </li>
+    <li>
+      <a href="{{ url_for('admin_audit_report.index', page=total_pages) }}"
+         class="pagination-link" aria-label="Last page">&raquo;&raquo;</a>
+    </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
 {% else %}
 <div class="alert-strip">
   <div class="alert-mark">info</div>

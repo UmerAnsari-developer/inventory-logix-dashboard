@@ -31,16 +31,16 @@ def _read_state(cur, key: str):
 
 
 def _insert_test_movement(cur, reference: str, qty: int = 10) -> None:
-    """Insert one movement so a follow-up incremental run is not skipped."""
-    cur.execute("SELECT id, sku FROM products ORDER BY id LIMIT 1")
-    row = cur.fetchone()
-    cur.execute(
-        """
-        INSERT INTO movements (product_id, sku, type, quantity, reference, notes, created_at)
-        VALUES (%s, %s, 'IN', %s, %s, 'issue03 regression', NOW())
-        """,
-        (row["id"], row["sku"], qty, reference),
-    )
+      """Insert one movement so a follow-up incremental run is not skipped."""
+      cur.execute("SELECT id FROM products ORDER BY id LIMIT 1")
+      row = cur.fetchone()
+      cur.execute(
+          """
+          INSERT INTO movements (product_id, type, quantity, reference, notes, created_at)
+          VALUES (%s, 'IN', %s, %s, 'issue03 regression', NOW())
+          """,
+          (row["id"], qty, reference),
+      )
 
 
 def _warehouse_etl_fails(conn=None):

@@ -1,12 +1,12 @@
-"""User activity analytics service."""
+"""User activity analytics service with N+1 query fix."""
 from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Any, Dict, List
 
 from ..repositories import UserActivityRepository
-
 from ..database import get_cursor
+
 
 class UserActivityAnalyticsService:
     """Service for analyzing user activity data."""
@@ -26,7 +26,7 @@ class UserActivityAnalyticsService:
                 GROUP BY DATE(created_at)
                 ORDER BY day
                 """,
-                (start_date, end_date + timedelta(days=1)),  # end_date is inclusive
+                (start_date, end_date + timedelta(days=1)),
             )
             rows = cur.fetchall()
             # Fill in missing days with zero counts
@@ -43,30 +43,27 @@ class UserActivityAnalyticsService:
 
     @staticmethod
     def get_top_users(limit: int = 10) -> List[Dict[str, Any]]:
-        """Get top users by activity count."""
+        """Get top users by activity count - single query with JOIN."""
         with get_cursor() as cur:
+            # Single query with JOIN to avoid N+1
             cur.execute(
                 """
-                SELECT user_id, COUNT(*) AS count
-                FROM audit_log
-                WHERE user_id IS NOT NULL
-                GROUP BY user_id
+                SELECT al.user_id, COUNT(*) AS count, u.username
+                FROM audit_log al
+                LEFT JOIN users u ON u.id = al.user_id
+                WHERE al.user_id IS NOT NULL
+                GROUP BY al.user_id, u.username
                 ORDER BY count DESC
                 LIMIT %s
                 """,
                 (limit,),
             )
             rows = cur.fetchall()
-            # Get usernames for the user IDs
-            from ..repositories import UserRepository
-            user_ids = [row["user_id"] for row in rows]
-            users = UserRepository.find_by_ids(user_ids) if user_ids else []
-            user_map = {user["id"]: user["username"] for user in users}
             result = []
             for row in rows:
                 result.append({
                     "user_id": row["user_id"],
-                    "username": user_map.get(row["user_id"], f"User {row['user_id']}"),
+                    "username": row["username"] or f"User {row['user_id']}",
                     "count": row["count"]
                 })
             return result
@@ -104,12 +101,28 @@ class UserActivityAnalyticsService:
                 """,
                 (start_date, end_date + timedelta(days=1)),
             )
-            rows = cur.fetchall()
-            # We'll return a list of dicts, but for simplicity, we'll just return the raw rows
-            # The caller can process them as needed.
-            return [dict(row) for row in rows]
+            return [dict(row) for row in cur.fetchall()]
 
     @staticmethod
-    def get_recent_activities(limit: int = 50) -> List[Dict[str, Any]]:
-        """Get recent user activities."""
-        return UserActivityRepository.get_recent_activities(limit=limit)
+    def get_recent_activities(limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """Get recent user activities with pagination."""
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, user_id, action, target_type, target_id, detail,
+                       ip_address, created_at
+                FROM audit_log
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                (limit, offset),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    @staticmethod
+    def get_recent_activities_count() -> int:
+        """Get total count of recent activities."""
+        with get_cursor() as cur:
+            cur.execute("SELECT COUNT(*) as cnt FROM audit_log")
+            row = cur.fetchone()
+            return row["cnt"] if row else 0

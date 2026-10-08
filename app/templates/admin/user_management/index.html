@@ -43,18 +43,7 @@
 </td>
 <td>{{ user.email }}</td>
 <td>
-  {% if current_user.role == 'admin' and user.username != current_user.username %}
-  <form method="post" action="{{ url_for('admin_user_management.change_role', user_id=user.id) }}" class="d-inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <select name="role" onchange="if(confirm('Change this user\u2019s role to '+this.value+'?')){this.form.submit();}" style="padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface);font-size:0.75rem;color:var(--ink-2);">
-      <option value="viewer" {% if user.role == 'viewer' %}selected{% endif %}>Viewer</option>
-      <option value="manager" {% if user.role == 'manager' %}selected{% endif %}>Manager</option>
-      <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
-    </select>
-  </form>
-  {% else %}
-    <span class="status good">{{ user.role }}</span>
-  {% endif %}
+  <span class="status good">{{ user.role }}</span>
 </td>
         <td>
           {% if user.is_active %}

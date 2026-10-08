@@ -17,7 +17,8 @@ SCHEMA_DIR = Path(__file__).resolve().parents[1] / "app" / "database"
 
 
 def upgrade() -> None:
-    # Fix #1: Add movement validation trigger (auto-populate SKU, prevent negative stock)
+# Fix #1: Add movement validation trigger (auto-populate SKU, prevent negative stock)
+    # DB-050: removed NEW.sku := v_sku (sku column dropped from movements)
     op.execute("""
         CREATE OR REPLACE FUNCTION trg_validate_movement()
         RETURNS TRIGGER AS $$
@@ -29,7 +30,6 @@ def upgrade() -> None:
             IF v_sku IS NULL THEN
                 RAISE EXCEPTION 'Invalid product_id %: product does not exist', NEW.product_id;
             END IF;
-            NEW.sku := v_sku;
             IF NEW.type = 'OUT' AND v_stock - NEW.quantity < 0 THEN
                 RAISE EXCEPTION 'Insufficient stock: have %, need %', v_stock, NEW.quantity;
             END IF;
@@ -50,15 +50,15 @@ def upgrade() -> None:
     """)
 
     # Fix #4: Fix timezone in etl_state
+    # DB-067: removed double AT TIME ZONE 'UTC' conversion (was shifting values on re-run)
     op.execute("""
         ALTER TABLE etl_state
-        ALTER COLUMN updated_at SET DATA TYPE TIMESTAMP
-        USING updated_at AT TIME ZONE 'UTC';
+        ALTER COLUMN updated_at SET DATA TYPE TIMESTAMP;
     """)
 
     op.execute("""
         ALTER TABLE etl_state
-        ALTER COLUMN updated_at SET DEFAULT (NOW() AT TIME ZONE 'UTC');
+        ALTER COLUMN updated_at SET DEFAULT NOW();
     """)
 
     # Fix #4: Fix timezone in etl_warehouse_state (if exists)
@@ -67,10 +67,9 @@ def upgrade() -> None:
         BEGIN
             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'etl_warehouse_state') THEN
                 ALTER TABLE etl_warehouse_state
-                ALTER COLUMN updated_at SET DATA TYPE TIMESTAMP
-                USING updated_at AT TIME ZONE 'UTC';
+                ALTER COLUMN updated_at SET DATA TYPE TIMESTAMP;
                 ALTER TABLE etl_warehouse_state
-                ALTER COLUMN updated_at SET DEFAULT (NOW() AT TIME ZONE 'UTC');
+                ALTER COLUMN updated_at SET DEFAULT NOW();
             END IF;
         END $$;
     """)
@@ -81,12 +80,20 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Remove movement validation trigger
-    op.execute("DROP TRIGGER IF EXISTS trg_validate_movement ON movements CASCADE")
-    op.execute("DROP FUNCTION IF EXISTS trg_validate_movement() CASCADE")
+    op.execute("DROP TRIGGER IF EXISTS trg_validate_movement ON movements")
+    op.execute("DROP FUNCTION IF EXISTS trg_validate_movement()")
 
-    # Revert timezone changes
+    # Revert timezone changes (DB-066: guarded with IF EXISTS)
     op.execute("""
-        ALTER TABLE etl_state
-        ALTER COLUMN updated_at SET DATA TYPE TIMESTAMPTZ
-        USING updated_at AT TIME ZONE 'UTC';
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'etl_state' AND column_name = 'updated_at'
+                AND data_type = 'timestamp without time zone'
+            ) THEN
+                ALTER TABLE etl_state
+                ALTER COLUMN updated_at SET DATA TYPE TIMESTAMPTZ;
+            END IF;
+        END $$;
     """)

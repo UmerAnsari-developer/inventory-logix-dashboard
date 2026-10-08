@@ -13,3 +13,7 @@ prophet>=1.1
 plotly>=5.0
 sendgrid>=6.0
 gunicorn>=21.2
+cryptography>=41.0
+redis>=5.0
+
+xgboost>=3.0

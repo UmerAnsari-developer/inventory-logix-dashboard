@@ -102,6 +102,9 @@ landing_cache = TTLCache(ttl=600, max_entries=10)        # public landing stats 
 monitoring_cache = TTLCache(ttl=60, max_entries=10)      # monitoring DB stats (1 min)
 
 
+# DB-014: busts are intentionally broad (whole-cache invalidates) —
+# correctness-safe (cold reads) at the cost of a cold cache after writes.
+# Narrow to per-key invalidation only if cold-read latency measurably matters.
 def cache_bust_products() -> int:
     """Invalidate everything derived from product data."""
     n = products_cache.invalidate("")
@@ -122,12 +125,13 @@ def cache_bust_suppliers() -> int:
 
 
 def cache_bust_movements() -> int:
-    """Movements change stock → only bust product/dashboard/reports caches."""
+    """Movements change stock → bust product/dashboard/reports/global caches."""
     n = products_cache.invalidate("")
     n += dashboard_cache.invalidate("dashboard:")
     n += reports_cache.invalidate("reports:")
+    n += global_cache.invalidate("")          # reorder_count changes with stock
     n += api_cache.invalidate("movements")
-    # DON'T bust: global_cache, landing_cache, suppliers_cache
+    # DON'T bust: landing_cache, suppliers_cache
     return n
 
 
@@ -135,6 +139,7 @@ def cache_bust_purchase_orders() -> int:
     n = products_cache.invalidate("")          # PO delivery updates stock
     n += dashboard_cache.invalidate("dashboard:")
     n += reports_cache.invalidate("reports:")
+    n += global_cache.invalidate("")          # reorder_count changes with stock
     n += api_cache.invalidate("purchase_orders")
     return n
 

@@ -37,6 +37,7 @@ def forecast_page():
 @ai_bp.route("/forecast/run", methods=["POST"])
 @limiter.limit("30 per minute")
 @login_required
+@write_roles_required
 def forecast_run():
     payload = request.get_json(silent=True) or request.form
     try:
@@ -45,6 +46,11 @@ def forecast_run():
         horizon = int(payload.get("horizon", 90))
     except (TypeError, ValueError):
         return api_error("INVALID_INPUT", "product_id, model and horizon are required.", status=422)
+    # Horizon must be one of the supported horizons (or capped to max)
+    if model not in ForecastService.MODELS:
+        return api_error("INVALID_INPUT", f"model must be one of {sorted(ForecastService.MODELS)}.", status=422)
+    if horizon not in ForecastService.HORIZONS and horizon != ForecastService.MAX_HORIZON_DAYS:
+        horizon = min((h for h in ForecastService.HORIZONS if h >= horizon), default=ForecastService.HORIZONS[-1])
     try:
         result = ForecastService.run(product_id, model=model, horizon=horizon)
     except ValueError as exc:
@@ -53,6 +59,60 @@ def forecast_run():
         LOGGER.exception("Forecast failed")
         return api_error("FORECAST_FAILED", str(exc), status=500)
     return api_response(result)
+
+
+@ai_bp.route("/forecast/backtest", methods=["POST"])
+@limiter.limit("10 per minute")
+@login_required
+@write_roles_required
+def forecast_backtest():
+    """Run rolling-origin backtest for a product/model/horizon."""
+    payload = request.get_json(silent=True) or request.form
+    try:
+        product_id = int(payload.get("product_id"))
+        model = payload.get("model") or SettingsService.forecast_model()
+        horizon = int(payload.get("horizon", 30))
+        # Optional config
+        config = None
+        if payload.get("config"):
+            from ..ml.backtest import BacktestConfig
+            config = BacktestConfig(
+                horizon=horizon,
+                step_days=payload["config"].get("step_days", 7),
+                min_train_days=payload["config"].get("min_train_days", 60),
+                max_origins=payload["config"].get("max_origins", 10),
+            )
+    except (TypeError, ValueError):
+        return api_error("INVALID_INPUT", "product_id, model and horizon are required.", status=422)
+    try:
+        result = ForecastService.backtest(product_id, model=model, horizon=horizon, config=config)
+    except ValueError as exc:
+        return api_error("PRODUCT_NOT_FOUND", str(exc), status=404)
+    except Exception as exc:
+        LOGGER.exception("Backtest failed")
+        return api_error("BACKTEST_FAILED", str(exc), status=500)
+    return api_response(result)
+
+
+@ai_bp.route("/forecast/backtest", methods=["GET"])
+@login_required
+def forecast_backtest_results():
+    """Retrieve backtest results with filters."""
+    product_id = request.args.get("product_id", type=int)
+    sku = request.args.get("sku")
+    model = request.args.get("model")
+    horizon = request.args.get("horizon", type=int)
+    date_from = request.args.get("date_from")
+    date_to = request.args.get("date_to")
+    limit = min(int(request.args.get("limit", 100)), 500)
+    offset = max(int(request.args.get("offset", 0)), 0)
+    
+    rows, total = ForecastRepository.get_backtest_results(
+        product_id=product_id, sku=sku, model_name=model,
+        horizon=horizon, date_from=date_from, date_to=date_to,
+        limit=limit, offset=offset,
+    )
+    return api_response({"results": rows, "total": total, "limit": limit, "offset": offset})
 
 
 @ai_bp.route("/forecast/portfolio")
@@ -85,6 +145,7 @@ def anomaly_page():
 @ai_bp.route("/anomaly/run", methods=["POST"])
 @limiter.limit("30 per minute")
 @login_required
+@write_roles_required
 def anomaly_run():
     if not SettingsService.is_on("anomaly_detection"):
         return api_error(
@@ -118,6 +179,55 @@ def anomaly_portfolio():
     result = _portfolio_cache.get_or_set(
         cache_key, lambda: AnomalyService.portfolio(contamination=contamination)
     )
+    return api_response(result)
+
+
+# ---------------------------------------------------------------------------
+# Anomaly Benchmark & Validation Endpoints
+# ---------------------------------------------------------------------------
+
+@ai_bp.route("/anomaly/benchmark", methods=["GET"])
+@limiter.limit("6 per minute")
+@login_required
+def anomaly_benchmark():
+    """Run synthetic anomaly benchmark across the catalogue."""
+    try:
+        contamination = float(request.args.get("contamination", 0.05))
+    except ValueError:
+        contamination = 0.05
+    try:
+        result = AnomalyService.benchmark(contamination=contamination)
+    except Exception as exc:
+        LOGGER.exception("Anomaly benchmark failed")
+        return api_error("BENCHMARK_FAILED", str(exc), status=500)
+    return api_response(result)
+
+
+@ai_bp.route("/anomaly/precision-recall", methods=["GET"])
+@login_required
+def anomaly_precision_recall():
+    """Get empirical precision/recall from labeled alerts."""
+    try:
+        result = AnomalyService.get_precision_recall()
+    except Exception as exc:
+        LOGGER.exception("Precision/recall computation failed")
+        return api_error("PRECISION_RECALL_FAILED", str(exc), status=500)
+    return api_response(result)
+
+
+@ai_bp.route("/anomaly/fatigue", methods=["GET"])
+@login_required
+def anomaly_fatigue():
+    """Get alert fatigue metrics."""
+    try:
+        days = int(request.args.get("days", 30))
+    except ValueError:
+        days = 30
+    try:
+        result = AnomalyService.compute_fatigue_metrics(days=days)
+    except Exception as exc:
+        LOGGER.exception("Fatigue metrics computation failed")
+        return api_error("FATIGUE_FAILED", str(exc), status=500)
     return api_response(result)
 
 
@@ -183,6 +293,27 @@ def anomaly_alert_status(alert_id: int):
         LOGGER.exception("Failed to update alert status")
         return api_error("UPDATE_FAILED", str(exc), status=500)
     return api_response({"id": alert_id, "status": status})
+
+
+@ai_bp.route("/anomaly/alerts/<int:alert_id>/label", methods=["POST"])
+@limiter.limit("30 per minute")
+@login_required
+@write_roles_required
+def anomaly_alert_label(alert_id: int):
+    """Label an alert as true_positive or false_positive for precision/recall tracking."""
+    payload = request.get_json(silent=True) or {}
+    label = payload.get("label")
+    if not label:
+        return api_error("INVALID_INPUT", "label is required (true_positive or false_positive).", status=422)
+    try:
+        user_id = current_user.id if current_user.is_authenticated else None
+        result = AnomalyService.label_alert(alert_id, label, user_id)
+    except ValueError as exc:
+        return api_error("INVALID_LABEL", str(exc), status=422)
+    except Exception as exc:
+        LOGGER.exception("Failed to label alert")
+        return api_error("LABEL_FAILED", str(exc), status=500)
+    return api_response(result)
 
 
 @ai_bp.route("/eoq/sensitivity")

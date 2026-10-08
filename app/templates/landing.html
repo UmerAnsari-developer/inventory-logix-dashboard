@@ -77,7 +77,7 @@
         <div class="hero-copy">
           <span class="badge glass" data-anim>
             <i class="dot ok"></i> Live Production Dataset &middot; {{ '{:,}'.format(stats.movements) }} stock movements
-            &middot; Prophet &middot; ARIMA &middot; Isolation Forest
+            &middot; Prophet &middot; XGBoost &middot; Isolation Forest
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M5 12h14m-6-6 6 6-6 6" />
             </svg>
@@ -140,7 +140,7 @@
                 <path d="M12 12 18.5 5.5" opacity=".7" />
               </svg></div>
             <h3>Demand Forecasting</h3>
-            <p>Prophet & ARIMA models project demand up to 90 days ahead with confidence bands so you order before
+            <p>Prophet & XGBoost models project demand up to 90 days ahead with confidence bands so you order before
               stockouts happen.</p>
           </div>
           <div class="card feature reveal" style="--d:.08s">
@@ -298,7 +298,7 @@
             <div class="m-lab">Suppliers</div>
           </div>
         </div>
-        <p class="m-note reveal">Averages across production dataset · Prophet · ARIMA · Isolation Forest</p>
+        <p class="m-note reveal">Averages across production dataset · Prophet · XGBoost · Isolation Forest</p>
       </div>
     </section>
 
@@ -384,7 +384,7 @@
   </div>
 
   <!-- Shared Three.js background -->
-  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=13b2159a"></script>
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=db591da6"></script>
 
   <!-- Landing page interactions -->
   <script nonce="{{ csp_nonce }}">

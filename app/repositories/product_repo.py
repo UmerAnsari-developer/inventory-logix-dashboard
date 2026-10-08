@@ -90,13 +90,12 @@ class ProductRepository:
     def update(cls, product_id: int, payload: dict) -> None:
         with get_cursor(commit=True) as cur:
             cur.execute(
-                "SELECT sp_product_update(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "SELECT sp_product_update(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
                     product_id,
                     payload["name"], payload.get("category"),
                     payload.get("warehouse"), payload.get("unit_price"),
-                    payload.get("supplier_id"), int(payload.get("current_stock") or 0),
-                    int(payload.get("reorder_point") or 0),
+                    payload.get("supplier_id"), int(payload.get("reorder_point") or 0),
                     payload.get("demand_rate"), payload.get("ordering_cost"),
                     payload.get("holding_cost"),
                 ),

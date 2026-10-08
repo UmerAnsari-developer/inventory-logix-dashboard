@@ -24,6 +24,7 @@ from ..repositories import (
     MovementRepository,
     ProductRepository,
     PurchaseOrderRepository,
+    POError,
     SupplierRepository,
     WarehouseRepository,
 )
@@ -466,7 +467,6 @@ def product_form(product_id: int | None = None):
             "name": request.form.get("name"),
             "category": request.form.get("category"),
             "warehouse": request.form.get("warehouse"),
-            "current_stock": request.form.get("current_stock") or 0,
             "reorder_point": request.form.get("reorder_point") or 0,
             "unit_price": request.form.get("unit_price"),
             "demand_rate": request.form.get("demand_rate"),
@@ -474,6 +474,9 @@ def product_form(product_id: int | None = None):
             "holding_cost": request.form.get("holding_cost"),
             "supplier_id": request.form.get("supplier_id"),
         }
+        # Only include current_stock for CREATE (initial stock), not for UPDATE
+        if not product_id:
+            payload["current_stock"] = request.form.get("current_stock") or 0
         try:
             if product_id:
                 ProductService.update(product_id, payload)
@@ -501,8 +504,8 @@ def product_form(product_id: int | None = None):
 @write_roles_required
 def delete_product(product_id: int):
     ProductService.delete(product_id)
-    AuditRepository.record(current_user.id, "product.delete",
-                           target_type="product", target_id=product_id)
+    # DB-068: trigger logs product_deleted (soft delete) with GUC attribution —
+    # no explicit audit call (parity with api.py, no double rows).
     cache_bust_products()
     flash("Product deleted", "success")
     return redirect(url_for("ui.inventory"))
@@ -549,6 +552,7 @@ def auto_draft_pos():
     from ..utils import calculate_eoq
 
     created = 0
+    skipped = 0
     for product in alerts:
         if int(product.get("on_order") or 0) > 0:
             continue
@@ -562,21 +566,26 @@ def auto_draft_pos():
             demand_cap = int(round(demand / 2))
             qty = min(qty, demand_cap)
         po_number = f"AUTO-{date.today():%Y%m%d}-{product['sku']}"
-        PurchaseOrderRepository.create({
-            "po_number": po_number,
-            "supplier_id": product.get("supplier_id"),
-            "product_id": product["id"],
-            "quantity": qty,
-            "unit_cost": product.get("unit_price") or 0,
-            "status": "draft",
-        })
-        ProductRepository.set_on_order(product["id"], qty)
-        AuditRepository.record(current_user.id, "po.auto_draft",
-                               target_type="product", target_id=product["id"],
-                               detail={"quantity": qty, "po_number": po_number})
-        created += 1
+        # DB-027: wrap all three statements in one transaction per SKU; catch POError
+        try:
+            with get_cursor(commit=True) as cur:
+                cur.execute(
+                    "SELECT sp_po_create(%s,%s,%s,%s,%s,%s,%s)",
+                    (po_number, product.get("supplier_id"), product["id"], qty,
+                     product.get("unit_price") or 0, "draft", None),
+                )
+                cur.execute("SELECT sp_product_set_on_order(%s, %s)", (product["id"], qty))
+                # DB-068: trg_po_audit logs po_created with GUC attribution — no explicit call.
+            created += 1
+        except POError as exc:
+            # Duplicate po_number on same-day re-run — skip this SKU
+            skipped += 1
+            continue
     cache_bust_purchase_orders()
-    flash(f"Auto-reorder drafted {created} purchase order(s) for critical stock", "success")
+    if created:
+        flash(f"Auto-reorder drafted {created} purchase order(s) for critical stock", "success")
+    if skipped:
+        flash(f"Skipped {skipped} item(s) (PO already exists for today)", "warning")
     return redirect(url_for("ui.reorder_alerts"))
 
 
@@ -592,12 +601,22 @@ def mark_ordered(product_id: int):
     eoq = calculate_eoq(product.get("demand_rate"), product.get("ordering_cost"), product.get("holding_cost"))
     deficit = max(int(product["reorder_point"] or 0) - int(product["current_stock"] or 0), 1)
     qty = max(int(round(eoq)) if eoq else deficit, deficit)
-    ProductRepository.set_on_order(product_id, qty)
-    AuditRepository.record(current_user.id, "po.create",
-                           target_type="product", target_id=product_id,
-                           detail={"quantity": qty})
+    # DB-025: create real draft PO in one transaction (was: set_on_order + fake audit)
+    po_number = f"AUTO-{date.today():%Y%m%d}-{product['sku']}"
+    try:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "SELECT sp_po_create(%s,%s,%s,%s,%s,%s,%s)",
+                (po_number, product.get("supplier_id"), product["id"], qty,
+                 product.get("unit_price") or 0, "draft", None),
+            )
+            cur.execute("SELECT sp_product_set_on_order(%s, %s)", (product_id, qty))
+            # DB-068: trg_po_audit logs po_created with GUC attribution — no explicit call.
+    except POError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("ui.reorder_alerts"))
     cache_bust_purchase_orders()
-    flash(f"PO recorded for {product['sku']}: {qty} units on order", "success")
+    flash(f"PO {po_number} created for {product['sku']}: {qty} units on order", "success")
     return redirect(url_for("ui.reorder_alerts"))
 
 
@@ -717,13 +736,17 @@ def purchase_orders_create():
     po_number = request.form.get("po_number") or "PO-{0:%Y%m%d}-{1:04d}".format(
         date.today(), random.randint(0, 9999)
     )
+    # DB-026: whitelist status at create — only draft/approved allowed
+    raw_status = request.form.get("status")
+    if raw_status not in ("draft", "approved"):
+        raw_status = "draft"
     payload = {
         "po_number": po_number,
         "supplier_id": request.form.get("supplier_id") or None,
         "product_id": request.form.get("product_id") or None,
         "quantity": request.form.get("quantity") or 0,
         "unit_cost": request.form.get("unit_cost") or 0,
-        "status": request.form.get("status") or "draft",
+        "status": raw_status,
         "eta_date": request.form.get("eta_date") or None,
     }
     if not payload["supplier_id"]:
@@ -743,7 +766,11 @@ def purchase_orders_create():
     if payload["eta_date"] and payload["eta_date"] < date.today().isoformat():
         flash("ETA date cannot be in the past.", "error")
         return redirect(url_for("ui.purchase_orders"))
-    PurchaseOrderRepository.create(payload)
+    try:
+        PurchaseOrderRepository.create(payload)
+    except POError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("ui.purchase_orders"))
     cache_bust_purchase_orders()
     flash("Purchase order %s created" % po_number, "success")
     return redirect(url_for("ui.purchase_orders"))
@@ -766,7 +793,13 @@ def update_po_status(po_id: int):
             )
             po_row = cur.fetchone()
 
-        PurchaseOrderRepository.update_status(po_id, status)
+        # State machine + stock/on_order effects enforced in sp_po_transition
+        # (fix DB-003/DB-004); invalid transitions surface as POError flashes.
+        try:
+            PurchaseOrderRepository.transition(po_id, status)
+        except POError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("ui.purchase_orders"))
         cache_bust_purchase_orders()
         flash("Purchase order status updated to " + status, "success")
 
@@ -2280,34 +2313,45 @@ def monitoring():
     from ..database import get_cursor
 
     def _load():
-        active_sessions = []
-        login_history = []
-        signup_history = []
-        user_summary = []
-        daily_logins = []
-        etl_status = {}
-        try:
-            with get_cursor() as cur:
-                cur.execute("SELECT * FROM sp_monitor_active_sessions()")
-                active_sessions = list(cur.fetchall())
+        def _fetch_all(sql, params=(), timeout_ms=None):
+            """One query per transaction with isolated errors — one slow or
+            failing monitor query (sp_monitor_user_activity_summary hits the
+            60s statement_timeout on the dev DB) must not hide the other
+            sections, least of all the etl_warehouse_state read that F4
+            depends on. commit=True ends each transaction so a per-query
+            set_config timeout cannot leak into the next query.
+            # ponytail: 5s per-query cap masks a slow sp_monitor_* — optimize
+            # the procedure in procedures.sql when the cap starts biting.
+            """
+            try:
+                with get_cursor(commit=True) as cur:
+                    if timeout_ms is not None:
+                        cur.execute(
+                            "SELECT set_config('statement_timeout', %s, true)",
+                            (str(timeout_ms),),
+                        )
+                    cur.execute(sql, params)
+                    return list(cur.fetchall())
+            except Exception:
+                return []
 
-                cur.execute("SELECT * FROM sp_monitor_login_history(30)")
-                login_history = list(cur.fetchall())
-
-                cur.execute("SELECT * FROM sp_monitor_signup_history(30)")
-                signup_history = list(cur.fetchall())
-
-                cur.execute("SELECT * FROM sp_monitor_user_activity_summary()")
-                user_summary = list(cur.fetchall())
-
-                cur.execute("SELECT * FROM sp_monitor_daily_logins(30)")
-                daily_logins = list(cur.fetchall())
-
-                cur.execute("SELECT state_key, value, updated_at FROM etl_warehouse_state ORDER BY updated_at DESC")
-                etl_status = {row["state_key"]: {"value": row["value"], "updated_at": row["updated_at"]}
-                              for row in cur.fetchall()}
-        except Exception:
-            pass
+        active_sessions = _fetch_all(
+            "SELECT * FROM sp_monitor_active_sessions()", timeout_ms=5000
+        )
+        login_history = _fetch_all("SELECT * FROM sp_monitor_login_history(30)", timeout_ms=5000)
+        signup_history = _fetch_all("SELECT * FROM sp_monitor_signup_history(30)", timeout_ms=5000)
+        user_summary = _fetch_all(
+            "SELECT * FROM sp_monitor_user_activity_summary()", timeout_ms=5000
+        )
+        daily_logins = _fetch_all("SELECT * FROM sp_monitor_daily_logins(30)", timeout_ms=5000)
+        # No timeout cap here: this tiny read must always run so a dead
+        # 'running' row surfaces as 'interrupted' (F4).
+        etl_rows = _fetch_all(
+            "SELECT state_key, value, updated_at FROM etl_warehouse_state "
+            "ORDER BY updated_at DESC"
+        )
+        etl_status = {row["state_key"]: {"value": row["value"], "updated_at": row["updated_at"]}
+                      for row in etl_rows}
         # F4: persisted 'running' with no live lock = owning process died.
         # Surface interrupted at READ time only; the row stays 'running'.
         job = etl_status.get("etl_job_status")
@@ -2395,38 +2439,115 @@ def monitoring_run_etl():
         finally:
             _ETL_RUN_LOCK.release()
 
-    threading.Thread(target=_run, daemon=True).start()
+    # DB-087: honest status + try/finally around Thread.start()
+    thread = threading.Thread(target=_run, daemon=True)
+    try:
+        thread.start()
+    except Exception as e:
+        _ETL_RUN_LOCK.release()
+        LOGGER.error("Failed to start ETL thread: %s", _safe_error(e))
+        flash("Failed to start ETL: %s" % _safe_error(e), "error")
+        return redirect(url_for("ui.monitoring"))
+
     monitoring_cache.invalidate("")  # bust so the page shows fresh ETL state
     flash("ETL rebuild started in background", "success")
     return redirect(url_for("ui.monitoring"))
 
 
 def _landing_stats():
-    """Public landing page stats — hardcoded demo values only (no real DB queries)."""
-    return {
-        "total_skus": 500,
-        "inventory_value": 4_280_000.0,
-        "reorder_count": 12,
-        "suppliers": 48,
-        "warehouses": 6,
-        "units_today": 1240,
-        "stock_health": 94,
-        "categories": [
-            {"category": "Electronics", "count": 120},
-            {"category": "Clothing", "count": 95},
-            {"category": "Home & Garden", "count": 80},
-            {"category": "Sports", "count": 65},
-            {"category": "Automotive", "count": 55},
-            {"category": "Books", "count": 45},
-            {"category": "Other", "count": 40},
-        ],
-        "series": [1200, 1350, 1100, 1400, 1550, 1300, 1600, 1450, 1700, 1850, 1600, 1900],
-        "dates": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-        "movements": 24800,
-        "first_movement": "2025-01-01",
-        "last_movement": "2026-08-29",
-        "open_pos": 3,
+    """Public landing page stats — real DB aggregates (no hardcoded demo values)."""
+    from ..database import get_cursor
+    today = date.today()
+    stats = {
+        "total_skus": 0,
+        "inventory_value": 0.0,
+        "reorder_count": 0,
+        "suppliers": 0,
+        "warehouses": 0,
+        "units_today": 0,
+        "stock_health": 0,
+        "categories": [],
+        "series": [],
+        "dates": [],
+        "movements": 0,
+        "first_movement": "",
+        "last_movement": "",
+        "open_pos": 0,
     }
+    try:
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total_skus,
+                       COALESCE(SUM(current_stock * unit_price), 0) AS inventory_value,
+                       COUNT(*) FILTER (WHERE current_stock <= reorder_point) AS reorder_count,
+                       COUNT(*) FILTER (WHERE current_stock > reorder_point) AS healthy
+                FROM products WHERE deleted_at IS NULL
+                """
+            )
+            agg = cur.fetchone()
+            stats["total_skus"] = int(agg["total_skus"] or 0)
+            stats["inventory_value"] = float(agg["inventory_value"] or 0)
+            stats["reorder_count"] = int(agg["reorder_count"] or 0)
+            total = stats["total_skus"]
+            stats["stock_health"] = round((agg["healthy"] or 0) / total * 100) if total else 0
+
+            cur.execute("SELECT COUNT(*) AS c FROM suppliers WHERE deleted_at IS NULL")
+            stats["suppliers"] = int(cur.fetchone()["c"] or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM warehouses")
+            stats["warehouses"] = int(cur.fetchone()["c"] or 0)
+            cur.execute(
+                "SELECT COALESCE(SUM(quantity), 0) AS units FROM movements "
+                "WHERE created_at::date = %s", (today,)
+            )
+            stats["units_today"] = int(cur.fetchone()["units"] or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM movements")
+            stats["movements"] = int(cur.fetchone()["c"] or 0)
+            cur.execute(
+                "SELECT MIN(created_at)::date AS first_d, MAX(created_at)::date AS last_d "
+                "FROM movements"
+            )
+            span = cur.fetchone()
+            stats["first_movement"] = span["first_d"].isoformat() if span and span["first_d"] else ""
+            stats["last_movement"] = span["last_d"].isoformat() if span and span["last_d"] else ""
+            cur.execute(
+                "SELECT COUNT(*) AS c FROM purchase_orders "
+                "WHERE status IN ('approved', 'in_transit')"
+            )
+            stats["open_pos"] = int(cur.fetchone()["c"] or 0)
+
+            # Real category mix (top 7)
+            cur.execute(
+                "SELECT category, COUNT(*) AS cnt FROM products "
+                "WHERE deleted_at IS NULL AND category IS NOT NULL "
+                "GROUP BY category ORDER BY cnt DESC LIMIT 7"
+            )
+            stats["categories"] = [
+                {"category": r["category"], "count": int(r["cnt"])}
+                for r in cur.fetchall()
+            ]
+
+            # Real 12-month movement series (monthly OUT totals)
+            cur.execute(
+                """
+                SELECT date_trunc('month', created_at)::date AS month,
+                       COALESCE(SUM(quantity), 0) AS total
+                FROM movements
+                WHERE created_at >= (CURRENT_DATE - INTERVAL '11 months')
+                GROUP BY month ORDER BY month
+                """
+            )
+            by_month = {r["month"].strftime("%b"): int(r["total"]) for r in cur.fetchall()}
+            months = []
+            d = today.replace(day=1) - timedelta(days=330)
+            for _ in range(12):
+                d = (d.replace(day=28) + timedelta(days=4)).replace(day=1)
+                months.append(d.strftime("%b"))
+            stats["dates"] = months
+            stats["series"] = [by_month.get(m, 0) for m in months]
+    except Exception:
+        LOGGER.exception("Landing stats query failed — serving zeros")
+    return stats
 
 
 def _inout_series(rows, days):

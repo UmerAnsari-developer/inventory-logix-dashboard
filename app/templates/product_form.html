@@ -32,7 +32,7 @@
 {% endfor %}
       </select>
     </label>
-      <label><span>Current stock</span><input type="number" name="current_stock" min="0" value="{{ product.current_stock if product else 0 }}"></label>
+      <label><span>Current stock</span><input type="number" name="current_stock" min="0" value="{{ product.current_stock if product else 0 }}" readonly></label>
       <label><span>Reorder point</span><input type="number" name="reorder_point" min="0" value="{{ product.reorder_point if product else 0 }}"></label>
       <label><span>Unit price *</span><input type="number" step="0.01" min="0.01" name="unit_price" value="{{ product.unit_price or '' }}" required></label>
       <label><span>Demand rate / yr</span><input type="number" step="0.01" min="0" name="demand_rate" value="{{ product.demand_rate or '' }}"></label>

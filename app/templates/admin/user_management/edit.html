@@ -12,64 +12,82 @@
   </div>
 </div>
 
-<form method="post" action="{{ url_for('admin_user_management.edit', user_id=user.id) }}"
+<form method="post" class="form-card" action="{{ url_for('admin_user_management.edit', user_id=user.id) }}"
       data-confirm="Save changes to this user?">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-
-  <div class="mb-3">
-    <label><span>Username</span>
-      <div class="input-wrapper">
-        <input type="text" value="{{ user.username }}" readonly
-               style="opacity:0.6;cursor:not-allowed;">
-      </div>
+  <div class="form-grid">
+    <label class="full"><span>Username</span>
+      <input type="text" value="{{ user.username }}" readonly
+             style="opacity:0.6;cursor:not-allowed;">
+      <small class="form-text">Username cannot be changed.</small>
     </label>
-    <div class="form-text">Username cannot be changed.</div>
-  </div>
-
-  <div class="mb-3">
-    <label><span>Email</span>
-      <div class="input-wrapper">
-        <input type="text" value="{{ user.email }}" readonly
-               style="opacity:0.6;cursor:not-allowed;">
-      </div>
+    <label class="full"><span>Email</span>
+      <input type="text" value="{{ user.email }}" readonly
+             style="opacity:0.6;cursor:not-allowed;">
+      <small class="form-text">Email cannot be changed from here.</small>
     </label>
-    <div class="form-text">Email cannot be changed from here.</div>
-  </div>
-
-  <div class="mb-3">
-    <label><span>Role</span>
-      <div class="input-wrapper">
-        <select name="role">
-          <option value="viewer" {% if user.role == 'viewer' %}selected{% endif %}>Viewer (read-only)</option>
-          <option value="manager" {% if user.role == 'manager' %}selected{% endif %}>Manager (read-write)</option>
-          <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin (full access)</option>
-        </select>
-      </div>
+    <label><span>Role *</span>
+      <select name="role">
+        <option value="viewer" {% if user.role == 'viewer' %}selected{% endif %}>Viewer (read-only)</option>
+        <option value="manager" {% if user.role == 'manager' %}selected{% endif %}>Manager (read-write)</option>
+        <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin (full access)</option>
+      </select>
+      <small class="form-text">Controls what the user can access.</small>
     </label>
-    <div class="form-text">Controls what the user can access.</div>
-  </div>
-
-  <div class="mb-3">
-    <label>
-      <input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}
-             style="margin-right:6px;">
-      <span>Active</span>
-    </label>
-    <div class="form-text">Inactive users cannot log in.</div>
-  </div>
-
-  <div class="mb-3">
     <label><span>New Password (optional)</span>
-      <div class="input-wrapper">
-        <input type="password" name="password" minlength="6"
-               placeholder="Leave blank to keep current password">
-      </div>
+      <input type="password" name="password" minlength="6"
+             placeholder="Leave blank to keep current password" autocomplete="new-password">
+      <small class="form-text">Only fill in to reset the user's password.</small>
     </label>
-    <div class="form-text">Only fill in to reset the user's password.</div>
+    <label><span>Full Name</span>
+      <input type="text" name="full_name" maxlength="150" value="{{ user.full_name or '' }}"
+             placeholder="e.g. John Smith">
+    </label>
+    <label><span>Department</span>
+      <select name="department">
+        <option value="">—</option>
+        <option value="Leadership" {% if user.department == 'Leadership' %}selected{% endif %}>Leadership</option>
+        <option value="Procurement" {% if user.department == 'Procurement' %}selected{% endif %}>Procurement</option>
+        <option value="Warehouse" {% if user.department == 'Warehouse' %}selected{% endif %}>Warehouse</option>
+        <option value="Analytics" {% if user.department == 'Analytics' %}selected{% endif %}>Analytics</option>
+      </select>
+    </label>
+    <label><span>Hierarchy Role</span>
+      <select name="job_role">
+        <option value="">Auto (from Role)</option>
+        <option value="inventory_director" {% if user.job_role == 'inventory_director' %}selected{% endif %}>Inventory & Supply Chain Director</option>
+        <option value="vp_operations" {% if user.job_role == 'vp_operations' %}selected{% endif %}>VP of Operations</option>
+        <option value="procurement_manager" {% if user.job_role == 'procurement_manager' %}selected{% endif %}>Procurement Manager</option>
+        <option value="procurement_buyer" {% if user.job_role == 'procurement_buyer' %}selected{% endif %}>Procurement Buyer</option>
+        <option value="procurement_coordinator" {% if user.job_role == 'procurement_coordinator' %}selected{% endif %}>Procurement Coordinator</option>
+        <option value="supplier_coordinator" {% if user.job_role == 'supplier_coordinator' %}selected{% endif %}>Supplier Relationship Coordinator</option>
+        <option value="warehouse_manager" {% if user.job_role == 'warehouse_manager' %}selected{% endif %}>Warehouse Operations Manager</option>
+        <option value="receiving_associate" {% if user.job_role == 'receiving_associate' %}selected{% endif %}>Receiving Associate</option>
+        <option value="inventory_analyst" {% if user.job_role == 'inventory_analyst' %}selected{% endif %}>Inventory Control Analyst</option>
+        <option value="demand_planning_analyst" {% if user.job_role == 'demand_planning_analyst' %}selected{% endif %}>Demand Planning Analyst</option>
+      </select>
+      <small class="form-text">Organizational hierarchy role (permissions come from Role).</small>
+    </label>
+    <label><span>Reporting Manager</span>
+      <select name="reporting_manager_id">
+        <option value="">— None —</option>
+        {% for m in managers %}
+        {% if m.id != user.id %}
+        <option value="{{ m.id }}" {% if user.reporting_manager_id == m.id %}selected{% endif %}>{{ m.full_name or m.username }} — {{ (m.job_role or m.role) | replace('_', ' ') | title }}</option>
+        {% endif %}
+        {% endfor %}
+      </select>
+      <small class="form-text">Who this user reports to (visibility into their submissions).</small>
+    </label>
+    <label class="full" style="flex-direction:row;align-items:center;gap:8px;">
+      <input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}
+             style="width:auto;">
+      <span>Active — inactive users cannot log in.</span>
+    </label>
   </div>
-
-  <div class="d-grid">
+  <div class="form-actions">
     <button type="submit" class="btn btn-primary">Update User</button>
+    <a class="btn btn-secondary" href="{{ url_for('admin_user_management.index') }}">Cancel</a>
   </div>
 </form>
 {% endblock %}

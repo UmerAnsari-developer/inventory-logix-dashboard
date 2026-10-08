@@ -1,4 +1,4 @@
-"""Audit report generator service."""
+"""Audit report generator service with async support."""
 from __future__ import annotations
 
 import csv
@@ -14,11 +14,12 @@ from ..repositories import (
     ScheduledAuditReportRepository,
     UserActivityRepository,
 )
+from ..services.job_tracker import JobTracker
 from app.services.nnotification_center_service import NotificationCenterService
 
 
 class AuditReportService:
-    """Service for generating audit reports."""
+    """Service for generating audit reports with async support."""
 
     @staticmethod
     def generate_report_data(
@@ -36,7 +37,6 @@ class AuditReportService:
             params.append(start_date)
         
         if end_date is not None:
-            # We want to include the entire end date, so we add one day and use <
             where_clauses.append("created_at < %s")
             params.append(end_date + timedelta(days=1))
         
@@ -67,7 +67,6 @@ class AuditReportService:
     def generate_csv_report(data: List[Dict[str, Any]]) -> Response:
         """Generate a CSV report from the data."""
         if not data:
-            # Create a CSV with just a header
             buf = io.StringIO()
             writer = csv.writer(buf)
             writer.writerow(["ID", "User ID", "Action", "Target Type", "Target ID", "Detail", "IP Address", "Created At"])
@@ -80,9 +79,7 @@ class AuditReportService:
         
         buf = io.StringIO()
         writer = csv.writer(buf)
-        # Write header
         writer.writerow(["ID", "User ID", "Action", "Target Type", "Target ID", "Detail", "IP Address", "Created At"])
-        # Write rows
         for row in data:
             writer.writerow([
                 row["id"],
@@ -103,49 +100,134 @@ class AuditReportService:
 
     @staticmethod
     def generate_pdf_report(data: List[Dict[str, Any]]) -> Response:
-        """Generate a PDF report from the data.
-        
-        For simplicity, we'll return a CSV for now. In a real implementation,
-        we would use a PDF library like ReportLab or WeasyPrint.
-        """
-        # For now, we'll just generate a CSV and change the filename and content type.
-        # In a real implementation, we would generate a proper PDF.
+        """Generate a PDF report from the data (placeholder - returns CSV)."""
         response = AuditReportService.generate_csv_report(data)
-        # Change the filename and content type
         response.headers["Content-Disposition"] = "attachment; filename=audit_report.pdf"
         response.headers["Content-Type"] = "application/pdf"
         return response
+
+    @staticmethod
+    def generate_report_async(
+        report_id: int,
+        generated_by: int
+    ) -> str:
+        """Start async report generation and return job ID."""
+        # Threads do not inherit the caller's app context — without this the
+        # background thread dies on `current_app` at its first DB touch and
+        # the job flips straight to 'failed'.
+        try:
+            _app = current_app._get_current_object()
+        except RuntimeError:
+            _app = None  # no ambient context (CLI caller) — thread fails as before
+
+        # Create job tracker entry
+        job_id = JobTracker.create_job(
+            job_type="audit_report",
+            user_id=generated_by,
+            total_steps=4,  # fetch, generate, save, notify
+            metadata={"report_id": report_id}
+        )
+
+        # Start background thread
+        import threading
+        thread = threading.Thread(
+            target=AuditReportService._generate_report_background,
+            args=(job_id, report_id, generated_by, _app),
+            daemon=True
+        )
+        thread.start()
+
+        return job_id
+
+    @staticmethod
+    def _generate_report_background(job_id: str, report_id: int, generated_by: int, _app=None) -> None:
+        """Background task for report generation."""
+        from contextlib import nullcontext
+
+        try:
+            with (_app.app_context() if _app is not None else nullcontext()):
+                # Step 1: Fetch report config
+                JobTracker.update_progress(job_id, current_step=1, message="Fetching report configuration")
+
+                report = ScheduledAuditReportRepository.get_by_id(report_id)
+                if not report:
+                    JobTracker.fail_job(job_id, "Scheduled report not found")
+                    return
+
+                # Step 2: Generate report data
+                JobTracker.update_progress(job_id, current_step=2, message="Generating report data")
+
+                parameters = json.loads(report["parameters"]) if report["parameters"] else {}
+                start_date = parameters.get("start_date")
+                end_date = parameters.get("end_date")
+                user_id = parameters.get("user_id")
+                action = parameters.get("action")
+
+                if start_date:
+                    start_date = date.fromisoformat(start_date)
+                if end_date:
+                    end_date = date.fromisoformat(end_date)
+
+                data = AuditReportService.generate_report_data(
+                    start_date=start_date,
+                    end_date=end_date,
+                    user_id=user_id,
+                    action=action
+                )
+
+                # Step 3: Generate report file
+                JobTracker.update_progress(job_id, current_step=3, message="Generating report file")
+
+                if report["format"] == "CSV":
+                    report_response = AuditReportService.generate_csv_report(data)
+                else:
+                    report_response = AuditReportService.generate_pdf_report(data)
+
+                # In a real implementation, save file to storage
+                # For now, just update last run time
+                ScheduledAuditReportRepository.update_last_run(report_id)
+
+                # Step 4: Send notification
+                JobTracker.update_progress(job_id, current_step=4, message="Sending notification")
+
+                try:
+                    NotificationCenterService.create_notification(
+                        user_id=generated_by,
+                        title=f"Audit Report Generated: {report['name']}",
+                        message=f"The audit report '{report['name']}' has been generated successfully.",
+                        icon="&#9675;",
+                        link="/admin/audit_reports"
+                    )
+                except Exception:
+                    pass  # Don't fail if notification fails
+
+                JobTracker.complete_job(job_id, result={"rows": len(data), "format": report["format"]})
+
+        except Exception as e:
+            JobTracker.fail_job(job_id, str(e))
 
     @staticmethod
     def generate_and_save_report(
         report_id: int,
         generated_by: int
     ) -> Dict[str, Any]:
-        """Generate a report based on a scheduled audit report and save it.
-        
-        Returns a dictionary with keys: success, message, report_data (if needed).
-        """
-        # Get the scheduled report
+        """Generate a report synchronously (for backward compatibility)."""
         report = ScheduledAuditReportRepository.get_by_id(report_id)
         if not report:
             return {"success": False, "message": "Scheduled report not found"}
         
-        # Parse parameters
         parameters = json.loads(report["parameters"]) if report["parameters"] else {}
         
-        # Extract parameters
         start_date = parameters.get("start_date")
         end_date = parameters.get("end_date")
         user_id = parameters.get("user_id")
         action = parameters.get("action")
         
-        # Convert string dates to date objects if needed
         if start_date:
             start_date = date.fromisoformat(start_date)
         if end_date:
             end_date = date.fromisoformat(end_date)
         
-        # Generate the report data
         data = AuditReportService.generate_report_data(
             start_date=start_date,
             end_date=end_date,
@@ -153,20 +235,13 @@ class AuditReportService:
             action=action
         )
         
-        # Generate the report file (CSV for now)
         if report["format"] == "CSV":
             report_response = AuditReportService.generate_csv_report(data)
-        else:  # PDF
+        else:
             report_response = AuditReportService.generate_pdf_report(data)
         
-        # In a real implementation, we would save the file to a storage location
-        # and update the report record with the file path.
-        # For now, we'll just update the last run time and return success.
-        
-        # Update the last run time (this will also calculate the next run time)
         ScheduledAuditReportRepository.update_last_run(report_id)
         
-        # Optionally, we could send a notification
         try:
             NotificationCenterService.create_notification(
                 user_id=generated_by,
@@ -176,29 +251,28 @@ class AuditReportService:
                 link="/admin/audit_reports"
             )
         except Exception:
-            # Don't fail if notification fails
             pass
         
         return {
             "success": True,
             "message": f"Report '{report['name']}' generated successfully.",
-            # We could return the report data here, but for now we just return success
         }
 
     @staticmethod
     def run_due_reports() -> Dict[str, Any]:
-        """Run all due scheduled audit reports.
-        
-        This method would typically be called by a scheduler or background thread.
-        """
+        """Run all due scheduled audit reports."""
         due_reports = ScheduledAuditReportRepository.get_due_reports()
         results = []
         for report in due_reports:
-            # We'll generate the report as if it was run by the system user
-            # We'll use the first admin user we find as the system user
+            # ADM-015: attribute to the triggering user when available; fall
+            # back to the admin account only as a last resort.
             from ..repositories import UserRepository
-            admin_user = UserRepository.find_by_username("admin")
-            system_user_id = admin_user["id"] if admin_user else 1
+            from flask_login import current_user
+            if current_user.is_authenticated:
+                system_user_id = current_user.id
+            else:
+                admin_user = UserRepository.find_by_username("admin")
+                system_user_id = admin_user["id"] if admin_user else 1
             
             result = AuditReportService.generate_and_save_report(
                 report_id=report["id"],

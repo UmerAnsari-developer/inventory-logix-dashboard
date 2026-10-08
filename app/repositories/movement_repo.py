@@ -36,12 +36,12 @@ class MovementRepository:
             return int(cur.fetchone()["sp_movement_units_today"] or 0)
 
     @staticmethod
-    def record(product_id: int, sku: str, mtype: str, quantity: int,
+    def record(product_id: int, mtype: str, quantity: int,
                reference: str | None = None, notes: str | None = None,
                user_id: int | None = None) -> int:
         with get_cursor(commit=True) as cur:
             cur.execute(
-                "SELECT sp_movement_record(%s, %s, %s, %s, %s, %s, %s)",
-                (product_id, sku, mtype, quantity, reference, notes, user_id),
+                "SELECT sp_movement_record(%s, %s, %s, %s, %s, %s)",
+                (product_id, mtype, quantity, reference, notes, user_id),
             )
             return cur.fetchone()["sp_movement_record"]

@@ -27,6 +27,14 @@ from .cache import (
     cache_bust_all,
     make_key,
 )
+from .idempotency import (
+    idempotent,
+    IdempotencyError,
+    check_idempotency,
+    reserve_idempotency,
+    record_idempotency,
+    cleanup_idempotency_keys,
+)
 
 __all__ = [
     "api_response",
@@ -53,4 +61,10 @@ __all__ = [
     "cache_bust_settings",
     "cache_bust_all",
     "make_key",
+    "idempotent",
+    "IdempotencyError",
+    "check_idempotency",
+    "reserve_idempotency",
+    "record_idempotency",
+    "cleanup_idempotency_keys",
 ]
