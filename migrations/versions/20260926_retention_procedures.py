@@ -7,7 +7,7 @@ Create Date: 2026-09-26
 from alembic import op
 
 revision = "20260926_retention_procedures"
-down_revision = "20260926_drop_sp_product_update_legacy"
+down_revision = "20260926_drop_sp_update_legacy"
 branch_labels = None
 depends_on = None
 
