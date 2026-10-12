@@ -6,6 +6,7 @@
   <div class="page-heading"><div><div class="eyebrow">Inventory</div><h1>Stock Movement</h1></div></div>
   <form method="post" class="form-card">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="hidden" name="idempotency_key" value="" />
     <div class="form-grid">
       <label><span>Product *</span>
         <select name="product_id" required>

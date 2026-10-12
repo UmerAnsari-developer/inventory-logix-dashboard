@@ -7,7 +7,7 @@ from flask import Blueprint, render_template, request
 from flask_login import current_user, login_required
 
 from ..extensions import limiter
-from ..repositories import ProductRepository
+from ..repositories import ForecastRepository, ProductRepository
 from ..security import write_roles_required
 from ..services import AnomalyService, ForecastService, MonitoringService, SettingsService
 from ..utils import api_error, api_response
@@ -446,3 +446,72 @@ def monitoring_predictions():
         limit=limit, offset=offset,
     )
     return api_response({"predictions": rows, "total": total})
+
+
+@ai_bp.route("/monitoring/pool-status")
+@login_required
+@write_roles_required
+def monitoring_pool_status():
+    """Live DB connection-pool utilization (GAP-008)."""
+    from ..database.connection import get_pool_utilization
+    return api_response(get_pool_utilization())
+
+
+@ai_bp.route("/monitoring/etl-health")
+@login_required
+@write_roles_required
+def monitoring_etl_health():
+    """Warehouse ETL health snapshot (GAP-007)."""
+    return api_response(MonitoringService.etl_health())
+
+
+@ai_bp.route("/monitoring/cache-status")
+@login_required
+@write_roles_required
+def monitoring_cache_status():
+    """Per-cache backend, size, and hit/miss stats (GAP-003)."""
+    from ..utils.cache import (
+        api_cache,
+        dashboard_cache,
+        global_cache,
+        landing_cache,
+        monitoring_cache,
+        products_cache,
+        reports_cache,
+        suppliers_cache,
+    )
+    caches = {
+        "products": products_cache,
+        "suppliers": suppliers_cache,
+        "dashboard": dashboard_cache,
+        "reports": reports_cache,
+        "global": global_cache,
+        "api": api_cache,
+        "landing": landing_cache,
+        "monitoring": monitoring_cache,
+    }
+    return api_response({name: c.stats() for name, c in caches.items()})
+
+
+@ai_bp.route("/monitoring/promote-baseline", methods=["POST"])
+@login_required
+@write_roles_required
+@limiter.limit("10 per minute")
+def monitoring_promote_baseline():
+    """Pin the latest metrics for a SKU+Model as its baseline (GAP-016)."""
+    payload = request.get_json(silent=True) or request.form
+    sku = str(payload.get("sku") or "").strip()[:64]
+    model_name = (payload.get("model_name") or "").strip() or None
+    if not sku:
+        return api_error("INVALID_INPUT", "sku is required.", status=422)
+    try:
+        result = MonitoringService.promote_baseline(
+            sku, model_name=model_name,
+            promoted_by=getattr(current_user, "username", None),
+        )
+    except ValueError as exc:
+        return api_error("NO_METRICS", str(exc), status=404)
+    except Exception:
+        LOGGER.exception("Baseline promotion failed")
+        return api_error("PROMOTION_FAILED", "Baseline promotion failed.", status=500)
+    return api_response(result, message="Baseline promoted.")

@@ -72,7 +72,7 @@
   <div class="table-scroll">
     <table class="data-table">
       <thead>
-        <tr><th>SKU</th><th>Product</th><th>Warehouse</th><th>Stock</th><th>ROP</th><th>EOQ</th><th>Price</th><th>Status</th>{% if current_user.role in ['admin', 'manager'] %}<th></th>{% endif %}</tr>
+        <tr><th scope="col">SKU</th><th scope="col">Product</th><th scope="col">Warehouse</th><th scope="col">Stock</th><th scope="col">ROP</th><th scope="col">EOQ</th><th scope="col">Price</th><th scope="col">Status</th>{% if current_user.role in ['admin', 'manager'] %}<th scope="col"></th>{% endif %}</tr>
       </thead>
       <tbody>
         {% for product in products %}

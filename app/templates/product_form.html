@@ -13,6 +13,7 @@
 </div>
   <form method="post" class="form-card" novalidate>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="hidden" name="idempotency_key" value="" />
     <div class="form-grid">
       <label><span>SKU *</span><input type="text" name="sku" value="{{ product.sku or '' }}" required minlength="2" maxlength="50" pattern="[A-Za-z0-9_-]+" readonly></label>
       <label><span>Name *</span><input type="text" name="name" value="{{ product.name or '' }}" required minlength="2" maxlength="150"></label>

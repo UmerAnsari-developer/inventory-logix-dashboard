@@ -290,3 +290,23 @@ class AuditReportService:
             "message": f"Processed {len(results)} due reports",
             "results": results
         }
+
+
+# Register handlers with JobQueueService (GAP-012)
+try:
+    from app.services.job_queue_service import JobQueueService
+
+    def _generate_report_handler(payload: dict) -> dict:
+        report_id = payload["report_id"]
+        generated_by = payload.get("generated_by")
+        # Use the existing synchronous method
+        return AuditReportService.generate_and_save_report(report_id, generated_by)
+
+    def _check_due_reports_handler(payload: dict) -> dict:
+        return AuditReportService.run_due_reports()
+
+    JobQueueService.register_handler("generate_report", _generate_report_handler)
+    JobQueueService.register_handler("check_due_reports", _check_due_reports_handler)
+except ImportError:
+    # JobQueueService not available (e.g., during migration)
+    pass

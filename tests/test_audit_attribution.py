@@ -205,13 +205,28 @@ def _mk_movement(cur, admin_user_id) -> int:
 
 def _mk_po(cur, product_id: int, *, qty: int) -> str:
     po_number = f"PO-AT-{RUN}-{uuid.uuid4().hex[:6].upper()}"
+    # supplier_id is NOT NULL (db_integrity d548499a4a0d) — pick an existing
+    # supplier, creating one only if the table is empty.
+    cur.execute("SELECT id FROM suppliers ORDER BY id LIMIT 1")
+    row = cur.fetchone()
+    if row:
+        supplier_id = row["id"]
+    else:
+        cur.execute(
+            """
+            INSERT INTO suppliers (name, initials, location, lead_days)
+            VALUES ('Audit Supplier', 'AS', 'Test', 3)
+            RETURNING id
+            """
+        )
+        supplier_id = cur.fetchone()["id"]
     cur.execute(
         """
-        INSERT INTO purchase_orders (po_number, product_id, quantity, unit_cost, status)
-        VALUES (%s, %s, %s, 5.0, 'draft')
+        INSERT INTO purchase_orders (po_number, product_id, supplier_id, quantity, unit_cost, status)
+        VALUES (%s, %s, %s, %s, 5.0, 'draft')
         RETURNING id
         """,
-        (po_number, product_id, qty),
+        (po_number, product_id, supplier_id, qty),
     )
     return cur.fetchone()["id"]
 

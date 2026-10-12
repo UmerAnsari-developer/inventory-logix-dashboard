@@ -6,6 +6,7 @@ from flask_login import current_user, login_required
 
 from app.extensions import limiter
 from app.security import write_roles_required, roles_required
+from app.security.audit import audit_admin_action
 from app.services import SystemConfigService
 from app.repositories import system_config_repo
 
@@ -25,6 +26,7 @@ def index():
 @login_required
 @roles_required("admin")
 @limiter.limit("10 per minute")
+@audit_admin_action("admin.config.create", target_type="system_config", detail_func=lambda r, *a, **kw: {"key": request.form.get("key")})
 def create():
     """Create a new system configuration override."""
     if request.method == "GET":
@@ -70,6 +72,7 @@ def create():
 @login_required
 @roles_required("admin")
 @limiter.limit("10 per minute")
+@audit_admin_action("admin.config.update", target_type="system_config", target_id_arg="key")
 def edit(key: str):
     """Edit an existing system configuration override."""
     override = SystemConfigService.get_by_key(key)
@@ -114,6 +117,7 @@ def edit(key: str):
 @login_required
 @roles_required("admin")
 @limiter.limit("5 per minute")
+@audit_admin_action("admin.config.delete", target_type="system_config", target_id_arg="key")
 def delete(key: str):
     """Delete a system configuration override."""
     try:

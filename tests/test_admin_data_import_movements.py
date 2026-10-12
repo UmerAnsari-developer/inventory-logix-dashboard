@@ -87,12 +87,12 @@ class TestImportMovementsUnit:
         """Set up test database."""
         with app.app_context():
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
             yield
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
 
     def test_import_movements_calls_movement_repository_record(self, app):
         """Test _import_movements calls MovementRepository.record with correct parameters."""
@@ -256,13 +256,13 @@ class TestImportMovementsIntegration:
         """Set up test database."""
         with app.app_context():
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM audit_log WHERE detail->>'product_id' LIKE 'ADM001-%'")
             yield
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM audit_log WHERE detail->>'product_id' LIKE 'ADM001-%'")
 
     def test_successful_import_creates_movement_row(self, app, auth_client):
@@ -444,12 +444,12 @@ class TestImportMovementsRegression:
         """Set up test database."""
         with app.app_context():
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
             yield
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
 
     def test_existing_test_import_movements_happy_path(self, app, auth_client):
         """Existing test: test_import_movements (happy path) still passes."""
@@ -576,12 +576,12 @@ class TestImportMovementsEdgeCases:
         """Set up test database."""
         with app.app_context():
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
             yield
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
 
     def test_empty_csv_returns_zero(self, app, auth_client):
         """Empty CSV (no rows) returns 0."""
@@ -689,12 +689,12 @@ class TestImportMovementsDBIntegrity:
         """Set up test database."""
         with app.app_context():
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
             yield
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
 
     def test_products_current_stock_never_negative_after_import(self, app, auth_client):
         """Verify products.current_stock never negative after import."""
@@ -820,12 +820,12 @@ class TestImportMovementsTypeSpecific:
         """Set up test database."""
         with app.app_context():
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
             yield
             with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
                 cur.execute("DELETE FROM movements WHERE product_id IN (SELECT id FROM products WHERE sku LIKE 'ADM001-%')")
+                cur.execute("DELETE FROM products WHERE sku LIKE 'ADM001-%'")
 
     def test_in_movement_type_creates_correct_movement_row(self, app, auth_client):
         """IN movement creates correct movement row with type='IN'."""

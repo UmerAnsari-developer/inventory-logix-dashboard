@@ -17,7 +17,9 @@ class TestNotificationPagination:
         """Set up test database with notifications."""
         with app.app_context():
             with get_cursor(commit=True) as cur:
-                # Clean up
+                # Clean up — audit_log first (FK RESTRICT: pollution rows for
+                # user 9999 from other suites block the users delete otherwise)
+                cur.execute("DELETE FROM audit_log WHERE user_id = 9999")
                 cur.execute("DELETE FROM notifications WHERE user_id = 9999")
                 cur.execute("DELETE FROM users WHERE id = 9999")
                 
@@ -35,6 +37,7 @@ class TestNotificationPagination:
                     """, (f"Notification {i}", f"Message {i}", "&#9675;", "/test", i % 2 == 0))
             yield
             with get_cursor(commit=True) as cur:
+                cur.execute("DELETE FROM audit_log WHERE user_id = 9999")
                 cur.execute("DELETE FROM notifications WHERE user_id = 9999")
                 cur.execute("DELETE FROM users WHERE id = 9999")
 

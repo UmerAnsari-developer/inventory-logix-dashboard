@@ -234,9 +234,42 @@ def job_status(job_id: str):
     job = JobTracker.get_job(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
-    
+
     # Only allow users to see their own jobs (or admins can see all)
     if job["user_id"] != current_user.id and current_user.role != "admin":
         return jsonify({"error": "Unauthorized"}), 403
-    
+
     return jsonify(job)
+
+
+@admin_audit_report_bp.route("/verify-integrity")
+@login_required
+@write_roles_required
+@limiter.limit("10 per minute")
+def verify_audit_integrity():
+    """Verify the audit-log hash chain (GAP-011 tamper evidence).
+
+    Recomputes SHA-256 row hashes and checks linkage over the most recent
+    ``limit`` rows. Empty broken counts == chain intact.
+    """
+    from app.database import get_cursor
+
+    limit = min(max(request.args.get("limit", default=5000, type=int), 1), 50000)
+    try:
+        with get_cursor() as cur:
+            cur.execute("SELECT * FROM sp_audit_verify_integrity(%s)", (limit,))
+            row = cur.fetchone()
+    except Exception:
+        current_app.logger.exception("Audit integrity verification failed")
+        return jsonify({"success": False, "error": "Verification failed"}), 500
+
+    intact = (row["broken_links"] or 0) == 0 and (row["bad_hashes"] or 0) == 0
+    return jsonify({
+        "success": True,
+        "intact": intact,
+        "rows_checked": row["rows_checked"],
+        "broken_links": row["broken_links"],
+        "bad_hashes": row["bad_hashes"],
+        "first_broken_id": row["first_broken_id"],
+        "limit": limit,
+    })

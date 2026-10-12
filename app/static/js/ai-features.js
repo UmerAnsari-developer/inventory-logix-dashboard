@@ -145,9 +145,16 @@
                 cfg.metrics.band.textContent = '+/- ' +
                     ((data.upper[data.upper.length - 1] - data.lower[data.lower.length - 1]) / 2).toFixed(0) + ' units';
                 cfg.metrics.runtime.textContent = elapsed + ' s';
-                // Show data sufficiency warning if present
+                // Show data sufficiency warning if present (toast + persistent banner)
+                const banner = document.getElementById('forecast-warning');
                 if (data.warning) {
                     showToast(data.warning, 'warning');
+                    if (banner) {
+                        banner.textContent = data.warning;
+                        banner.hidden = false;
+                    }
+                } else if (banner) {
+                    banner.hidden = true; // clear a stale warning from a previous run
                 }
                 showToast('Forecast completed', 'success');
                 loadPortfolio();

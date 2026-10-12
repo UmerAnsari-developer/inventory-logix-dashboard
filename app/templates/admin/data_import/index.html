@@ -235,6 +235,7 @@
               previewHeaders.innerHTML = '';
               preview.headers.forEach(function(header) {
                 var th = document.createElement('th');
+                th.scope = 'col';
                 th.textContent = header;
                 previewHeaders.appendChild(th);
               });

@@ -11,6 +11,7 @@
     <div class="panel-content">
       <form method="post" class="supplier-add-form" novalidate>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="idempotency_key" value="" />
         <div class="form-grid">
           <label><span>Supplier *</span>
             <select name="supplier_id" required>
@@ -58,6 +59,7 @@
           {% if current_user.role in ['admin', 'manager'] %}
           <form method="post" action="{{ url_for('ui.update_po_status', po_id=po.id) }}" class="po-status-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <input type="hidden" name="idempotency_key" value="" />
             <select name="status" data-confirm-value="cancelled" data-confirm="Cancel this purchase order?">
               {% for st in ['draft','approved','in_transit','received','cancelled'] %}
               <option value="{{ st }}" {{ 'selected' if po.status == st }}>{{ st|replace('_',' ')|title }}</option>

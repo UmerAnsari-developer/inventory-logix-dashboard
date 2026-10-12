@@ -26,7 +26,7 @@
     <div class="panel-header"><div class="panel-title">Recent movements</div></div>
     <div class="table-scroll">
       <table class="data-table">
-        <thead><tr><th>When</th><th>Type</th><th>Quantity</th><th>Reference</th><th>Notes</th></tr></thead>
+        <thead><tr><th scope="col">When</th><th scope="col">Type</th><th scope="col">Quantity</th><th scope="col">Reference</th><th scope="col">Notes</th></tr></thead>
         <tbody>
 {% for m in movements %}
           <tr><td>{{ m.created_at }}</td><td>{{ m.type }}</td><td>{{ m.quantity }}</td><td>{{ m.reference or '' }}</td><td>{{ m.notes or '' }}</td></tr>

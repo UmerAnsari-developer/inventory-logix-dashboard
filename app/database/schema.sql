@@ -145,6 +145,12 @@ CREATE INDEX IF NOT EXISTS idx_movements_type_created ON movements(type, created
 CREATE INDEX IF NOT EXISTS idx_movements_product_created ON movements(product_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_movements_product_type_created ON movements(product_id, type, created_at);
 
+-- GAP-020 phase 1: soft delete for movements (mirrors migrations/20261012_soft_delete_ops
+-- so bootstrap_database() matches the alembic path on fresh installs).
+ALTER TABLE movements ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_movements_active
+    ON movements (product_id, created_at) WHERE deleted_at IS NULL;
+
 -- Products indexes for dashboard/reports queries
 CREATE INDEX IF NOT EXISTS idx_products_stock_rop ON products(current_stock, reorder_point, on_order);
 CREATE INDEX IF NOT EXISTS idx_products_warehouse_category ON products(warehouse, category);
@@ -203,6 +209,12 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
 
 CREATE INDEX IF NOT EXISTS idx_po_created_at ON purchase_orders(created_at);
 CREATE INDEX IF NOT EXISTS idx_po_product ON purchase_orders(product_id);
+
+-- GAP-020 phase 1: soft delete for purchase orders (mirrors
+-- migrations/20261012_soft_delete_ops — fresh-install parity).
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+CREATE INDEX IF NOT EXISTS idx_po_active
+    ON purchase_orders (status, created_at) WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS user_settings (
     id              SERIAL PRIMARY KEY,
@@ -469,6 +481,22 @@ ALTER TABLE forecast_monitoring_metrics ADD COLUMN IF NOT EXISTS wape NUMERIC(7,
 
 CREATE INDEX IF NOT EXISTS idx_fmm_sku_model_date
     ON forecast_monitoring_metrics(sku, model_name, monitoring_date);
+
+-- GAP-016: pinned per-model baselines (mirrors migrations/20261012_model_baselines
+-- — fresh-install parity). baseline_metrics() reads this first, falling back to
+-- the oldest evaluation window when a model has no pinned row.
+CREATE TABLE IF NOT EXISTS model_baselines (
+    id              SERIAL PRIMARY KEY,
+    sku             VARCHAR NOT NULL,
+    model_name      VARCHAR NOT NULL,
+    mae             FLOAT,
+    mape            FLOAT,
+    source          VARCHAR NOT NULL DEFAULT 'promotion'
+                    CHECK (source IN ('promotion','first_eval')),
+    promoted_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+    promoted_by     VARCHAR,
+    CONSTRAINT model_baselines_sku_model UNIQUE (sku, model_name)
+);
 
 CREATE TABLE IF NOT EXISTS model_monitoring_alerts (
     id                  SERIAL PRIMARY KEY,

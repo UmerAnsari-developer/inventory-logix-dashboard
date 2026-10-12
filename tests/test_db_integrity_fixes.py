@@ -38,13 +38,28 @@ def _mk_product(cur, *, stock: int = 0, on_order: int = 0) -> int:
 
 def _mk_po(cur, product_id: int, *, qty: int, status: str = "draft") -> str:
     po_number = f"PO-D-{RUN}-{uuid.uuid4().hex[:6].upper()}"
+    # supplier_id is NOT NULL (db_integrity d548499a4a0d) — pick an existing
+    # supplier, creating one only if the table is empty.
+    cur.execute("SELECT id FROM suppliers ORDER BY id LIMIT 1")
+    row = cur.fetchone()
+    if row:
+        supplier_id = row["id"]
+    else:
+        cur.execute(
+            """
+            INSERT INTO suppliers (name, initials, location, lead_days)
+            VALUES ('Integrity Supplier', 'IS', 'Test', 3)
+            RETURNING id
+            """
+        )
+        supplier_id = cur.fetchone()["id"]
     cur.execute(
         """
-        INSERT INTO purchase_orders (po_number, product_id, quantity, unit_cost, status)
-        VALUES (%s, %s, %s, 5.0, %s)
+        INSERT INTO purchase_orders (po_number, product_id, supplier_id, quantity, unit_cost, status)
+        VALUES (%s, %s, %s, %s, 5.0, %s)
         RETURNING po_number
         """,
-        (po_number, product_id, qty, status),
+        (po_number, product_id, supplier_id, qty, status),
     )
     return cur.fetchone()["po_number"]
 
@@ -54,6 +69,9 @@ def _cleanup_product(product_id: int, po_numbers: tuple = ()) -> None:
         if po_numbers:
             cur.execute("DELETE FROM purchase_orders WHERE po_number = ANY(%s)",
                         (list(po_numbers),))
+        # Movements first (FK RESTRICT: PO-receive creates movements that
+        # reference the product), then the product.
+        cur.execute("DELETE FROM movements WHERE product_id = %s", (product_id,))
         cur.execute("DELETE FROM products WHERE id = %s", (product_id,))
 
 

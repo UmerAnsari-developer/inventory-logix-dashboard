@@ -161,7 +161,7 @@
         <div class="panel-header"><div class="panel-title">Top products by value</div><div class="panel-caption">Highest inventory investment</div></div>
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>SKU</th><th>Product</th><th>Stock</th><th>Value</th></tr></thead>
+            <thead><tr><th scope="col">SKU</th><th scope="col">Product</th><th scope="col">Stock</th><th scope="col">Value</th></tr></thead>
             <tbody>
               {% for r in product_rows[:6] %}
               <tr>
@@ -267,7 +267,7 @@
         <div class="panel-header"><div class="panel-title">Warehouse snapshot</div><div class="panel-caption">Stock position per location</div></div>
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>Warehouse</th><th>City</th><th>SKUs</th><th>Units</th><th>Value</th><th>Low stock</th><th>Critical</th></tr></thead>
+            <thead><tr><th scope="col">Warehouse</th><th scope="col">City</th><th scope="col">SKUs</th><th scope="col">Units</th><th scope="col">Value</th><th scope="col">Low stock</th><th scope="col">Critical</th></tr></thead>
             <tbody>
               {% for w in warehouse_analytics %}
               <tr>
@@ -290,7 +290,7 @@
         <div class="panel-header"><div class="panel-title">Movement activity by warehouse</div><div class="panel-caption">In / out / net units, last 30 days</div></div>
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>Warehouse</th><th>Units in</th><th>Units out</th><th>Net</th><th>In value</th><th>Out value</th></tr></thead>
+            <thead><tr><th scope="col">Warehouse</th><th scope="col">Units in</th><th scope="col">Units out</th><th scope="col">Net</th><th scope="col">In value</th><th scope="col">Out value</th></tr></thead>
             <tbody>
               {% for m in warehouse_movement %}
               <tr>
@@ -353,7 +353,7 @@
         <div class="panel-header"><div class="panel-title">Supplier analytics</div><div class="panel-caption">Procurement performance by vendor</div></div>
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>Supplier</th><th>Location</th><th>Reliability</th><th>Lead time</th><th>YTD spend</th><th>Products</th></tr></thead>
+            <thead><tr><th scope="col">Supplier</th><th scope="col">Location</th><th scope="col">Reliability</th><th scope="col">Lead time</th><th scope="col">YTD spend</th><th scope="col">Products</th></tr></thead>
             <tbody>
               {% for s in supplier_stats %}
               <tr>
@@ -375,7 +375,7 @@
         <div class="panel-header"><div class="panel-title">Open purchase orders</div><div class="panel-caption">Pending procurement lines by earliest ETA</div></div>
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>PO</th><th>Supplier</th><th>Product</th><th>Status</th><th>Qty</th><th>ETA</th><th>Value</th></tr></thead>
+            <thead><tr><th scope="col">PO</th><th scope="col">Supplier</th><th scope="col">Product</th><th scope="col">Status</th><th scope="col">Qty</th><th scope="col">ETA</th><th scope="col">Value</th></tr></thead>
             <tbody>
               {% for po in open_pos %}
               <tr>
@@ -538,7 +538,7 @@
         <div class="panel-header"><div class="panel-title">Reorder pressure</div><div class="panel-caption">SKUs at or below reorder point — thinnest: {{ thinnest.sku if thinnest else 'n/a' }} ({{ thinnest.current_stock if thinnest else 0 }} / ROP {{ thinnest.reorder_point if thinnest else 0 }})</div></div>
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>SKU</th><th>Product</th><th>Category</th><th>Warehouse</th><th>Stock</th><th>ROP</th><th>Coverage</th></tr></thead>
+            <thead><tr><th scope="col">SKU</th><th scope="col">Product</th><th scope="col">Category</th><th scope="col">Warehouse</th><th scope="col">Stock</th><th scope="col">ROP</th><th scope="col">Coverage</th></tr></thead>
             <tbody>
               {% for r in reorder_pressure %}
               <tr>

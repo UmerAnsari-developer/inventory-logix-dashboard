@@ -26,7 +26,7 @@
     <div class="table-scroll">
       <table class="data-table">
         <thead>
-          <tr><th>Employee</th><th>Role</th><th>Department</th><th>Email</th><th>Status</th><th>Last Activity</th></tr>
+          <tr><th scope="col">Employee</th><th scope="col">Role</th><th scope="col">Department</th><th scope="col">Email</th><th scope="col">Status</th><th scope="col">Last Activity</th></tr>
         </thead>
         <tbody>
           {% for u in direct_reports %}
@@ -75,7 +75,7 @@
     <div class="table-scroll">
       <table class="data-table">
         <thead>
-          <tr><th>Employee</th><th>Report Title</th><th>Type</th><th>Priority</th><th>Submitted</th><th>Due</th><th>Status</th><th>Action</th></tr>
+          <tr><th scope="col">Employee</th><th scope="col">Report Title</th><th scope="col">Type</th><th scope="col">Priority</th><th scope="col">Submitted</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col">Action</th></tr>
         </thead>
         <tbody>
           {% for r in reports %}

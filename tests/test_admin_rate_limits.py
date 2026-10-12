@@ -9,19 +9,27 @@ class TestAdminRateLimits:
 
     def test_backup_create_rate_limited(self, auth_client):
         """Backup create endpoint should be rate limited."""
-        # Make multiple rapid requests
-        for i in range(35):  # Exceed typical 30/min limit
-            response = auth_client.post(
-                "/admin/backup/create",
-                data={"backup_name": f"test{i}", "backup_type": "full", "csrf_token": "test"},
-                follow_redirects=True
-            )
-            if response.status_code == 429:
-                # Rate limited - good
-                break
-        else:
-            # If we didn't hit rate limit, that's a test failure
-            pytest.fail("Backup create endpoint not rate limited")
+        # Mock pg_dump: the 429 comes from the limiter BEFORE the view runs,
+        # so the rate-limit assertion is unaffected — but without the mock
+        # this test executes ~10 REAL database dumps (~250 MB each) and can
+        # fill the disk mid-suite (observed: OSError No space left on device).
+        from unittest.mock import MagicMock, patch
+
+        with patch("app.services.backup_service.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+            # Make multiple rapid requests
+            for i in range(35):  # Exceed typical 30/min limit
+                response = auth_client.post(
+                    "/admin/backup/create",
+                    data={"backup_name": f"test{i}", "backup_type": "full", "csrf_token": "test"},
+                    follow_redirects=True
+                )
+                if response.status_code == 429:
+                    # Rate limited - good
+                    break
+            else:
+                # If we didn't hit rate limit, that's a test failure
+                pytest.fail("Backup create endpoint not rate limited")
 
     def test_backup_restore_rate_limited(self, auth_client):
         """Backup restore endpoint should be rate limited."""

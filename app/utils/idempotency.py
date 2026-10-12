@@ -5,7 +5,7 @@ import json
 from functools import wraps
 from typing import Callable
 
-from flask import request, g
+from flask import redirect, request, g
 from flask_login import current_user
 
 from ..database import get_cursor
@@ -18,8 +18,14 @@ class IdempotencyError(ValueError):
 
 
 def _get_idempotency_key() -> str | None:
-    """Extract idempotency key from request headers."""
-    return request.headers.get("Idempotency-Key") or request.headers.get("X-Idempotency-Key")
+    """Extract idempotency key from headers, falling back to form field.
+
+    UI form POSTs can't set headers, so the hidden ``idempotency_key`` input
+    (set by main.js) is the fallback source.
+    """
+    return (request.headers.get("Idempotency-Key")
+            or request.headers.get("X-Idempotency-Key")
+            or request.form.get("idempotency_key"))
 
 
 def _get_user_id() -> int | None:
@@ -56,6 +62,21 @@ def record_idempotency(key: str, user_id: int, response: dict) -> None:
     """Record idempotency key with response."""
     with get_cursor(commit=True) as cur:
         cur.execute("SELECT sp_idempotency_record(%s, %s, %s)", (key, user_id, json.dumps(response)))
+
+
+def release_idempotency(key: str, user_id: int) -> None:
+    """Release an unrecorded reservation so the client can retry.
+
+    Responses that can't be safely replayed (HTML re-renders, 4xx/5xx) must
+    not poison the key — delete the reservation row if no response was stored.
+    Concurrent in-progress requests are unaffected (their row also has a NULL
+    response, but they hold it only for the execution window).
+    """
+    with get_cursor(commit=True) as cur:
+        cur.execute(
+            "DELETE FROM idempotency_keys WHERE key = %s AND user_id = %s AND response_json IS NULL",
+            (key, user_id),
+        )
 
 
 def idempotent(*, required: bool = False):
@@ -100,6 +121,12 @@ def idempotent(*, required: bool = False):
                 # committed, otherwise reject as in-progress.
                 cached = check_idempotency(key, user_id)
                 if cached is not None:
+                    if "redirect" in cached:
+                        # UI form POST replay: re-issue the stored redirect
+                        # without executing the view a second time.
+                        resp = redirect(cached["redirect"])
+                        resp.headers["Idempotency-Replayed"] = "true"
+                        return resp
                     resp = api_response(cached.get("data"), status=cached.get("status", 200),
                                         message=cached.get("message"))
                     resp.headers["Idempotency-Replayed"] = "true"
@@ -107,21 +134,48 @@ def idempotent(*, required: bool = False):
                 return api_error("DUPLICATE_REQUEST_IN_PROGRESS",
                                  "An identical request is already being processed.", status=409)
 
-            # Execute the endpoint
-            result = f(*args, **kwargs)
+            # Execute the endpoint. On an unhandled view exception, release
+            # the reservation — otherwise the key stays reserved with no
+            # recorded response and every retry 409s forever (H2).
+            try:
+                result = f(*args, **kwargs)
+            except Exception:
+                release_idempotency(key, user_id)
+                raise
 
-            # Cache successful responses (2xx)
-            if hasattr(result, 'status_code') and 200 <= result.status_code < 300:
+            recorded = False
+            if hasattr(result, "status_code"):
+                # Cache successful responses (2xx)
+                if 200 <= result.status_code < 300:
+                    try:
+                        data = result.get_json()
+                        if data and data.get("success"):
+                            record_idempotency(key, user_id, {
+                                "data": data.get("data"),
+                                "status": result.status_code,
+                                "message": data.get("message")
+                            })
+                            recorded = True
+                    except Exception:
+                        pass  # Don't fail the request if caching fails
+                # UI form POSTs answer with redirects — record the Location so
+                # a replay re-issues it without executing the view (no second
+                # row). (render_template returns a bare str — not recordable.)
+                elif result.status_code in (301, 302, 303, 307, 308) and result.headers.get("Location"):
+                    try:
+                        record_idempotency(key, user_id, {"redirect": result.headers["Location"]})
+                        recorded = True
+                    except Exception:
+                        pass  # Don't fail the request if caching fails
+
+            if not recorded:
+                # Unrecordable response (200 HTML re-render, 4xx/5xx): release
+                # the reservation so the client can fix input and retry —
+                # otherwise the key would 409 on every retry.
                 try:
-                    data = result.get_json()
-                    if data and data.get("success"):
-                        record_idempotency(key, user_id, {
-                            "data": data.get("data"),
-                            "status": result.status_code,
-                            "message": data.get("message")
-                        })
+                    release_idempotency(key, user_id)
                 except Exception:
-                    pass  # Don't fail the request if caching fails
+                    pass
 
             return result
         return wrapped

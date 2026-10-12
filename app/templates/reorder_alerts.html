@@ -16,6 +16,7 @@
   {% if auto_reorder and current_user.role in ['admin', 'manager'] %}
   <form method="post" action="{{ url_for('ui.auto_draft_pos') }}" class="alert-strip" style="margin-top:12px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <input type="hidden" name="idempotency_key" value="" />
     <div class="alert-copy">
       <div class="alert-title">Auto-reorder is enabled</div>
       <div class="alert-subtitle">Draft purchase orders for all {{ critical_count }} critical items in one click</div>
@@ -41,6 +42,7 @@
       {% if current_user.role in ['admin', 'manager'] %}
       <form method="post" action="{{ url_for('ui.mark_ordered', product_id=a.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <input type="hidden" name="idempotency_key" value="" />
         <button class="btn btn-primary btn-sm" type="submit">Mark ordered</button>
       </form>
       {% endif %}

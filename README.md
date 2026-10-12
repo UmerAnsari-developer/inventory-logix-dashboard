@@ -415,6 +415,9 @@ execution, and dimension-table joins when filters are applied).
 - **Immutable SKUs (DB-020):** SKU is the warehouse key for `dim_product` and
   has no update path; add `product_id` to `dim_product` if SKUs ever become
   mutable.
+- **Soft delete (GAP-020 phase 1):** soft-deleted movements/POs are hidden from
+  list views but still counted in analytics/dashboard/reports/ETL until
+  phase 2 (GAP-020 phase 2).
 
 ### Changelog
 - **2026-09-25 — DB integrity fixes (D-1…D-8):** atomic `sp_movement_record`

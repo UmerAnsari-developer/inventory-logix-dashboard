@@ -32,6 +32,18 @@ LOGGER = logging.getLogger(__name__)
 _RESTORE_LOCK_KEY = 774002
 
 
+def _alert_backup_failure(error_msg: str, backup_name: str | None = None) -> None:
+    """Best-effort backup failure alert (GAP-010). Never masks the original error."""
+    try:
+        from .monitoring_service import _maybe_create_backup_failure_alert
+        _maybe_create_backup_failure_alert(
+            error_message=_safe_error(Exception(error_msg)),
+            backup_name=backup_name,
+        )
+    except Exception as alert_err:  # noqa: BLE001 — alerting must not break backup flow
+        LOGGER.warning("Failed to create backup failure alert: %s", _safe_error(alert_err))
+
+
 def _acquire_restore_lock(conn) -> bool:
     """
     Acquire PostgreSQL advisory lock for restore operation.
@@ -328,6 +340,7 @@ def create_backup(backup_name: str, backup_type: str = "full", user_id: int | No
                 current_app.logger.error(error_msg)
             else:
                 print(error_msg)
+            _alert_backup_failure(error_msg, backup_name)
             return {
                 "success": False,
                 "message": error_msg,
@@ -383,6 +396,7 @@ def create_backup(backup_name: str, backup_type: str = "full", user_id: int | No
             current_app.logger.error(error_msg)
         else:
             print(error_msg)
+        _alert_backup_failure(error_msg, backup_name)
         return {
             "success": False,
             "message": error_msg,
@@ -625,3 +639,103 @@ def restore_backup(backup_id: int, user_id: int | None = None) -> dict:
         "message": "Restore started in background. Check monitoring page for status.",
         "started": True
     }
+
+
+# Register restore handler with JobQueueService (GAP-012)
+try:
+    from app.services.job_queue_service import JobQueueService
+
+    def _restore_handler(payload: dict) -> dict:
+        backup_id = payload["backup_id"]
+        user_id = payload.get("user_id")
+        # The actual restore logic is in restore_backup, but we need to adapt it
+        # to work with the job queue. We'll call the existing restore logic.
+        from .backup_service import restore_backup
+        return restore_backup(backup_id, user_id)
+
+    JobQueueService.register_handler("restore_backup", _restore_handler)
+except ImportError:
+    # JobQueueService not available (e.g., during migration)
+    pass
+
+
+# ── GAP-010: scheduled backup / verification / retention handlers ───────────
+
+def verify_latest_backup() -> dict:
+    """Integrity-verify the most recent backup without touching the live DB.
+
+    Decrypts the latest backup file and re-computes its SHA256 checksum,
+    comparing against the stored checksum. Raises ValueError when no backup
+    exists or verification fails (so the job queue records the failure).
+    """
+    backups = SystemBackupRepository.list_all()
+    if not backups:
+        raise ValueError("No backups available to verify")
+    latest = backups[0]  # list_all orders by created_at DESC
+    backup_id = latest["id"]
+    file_path = Path(latest["file_path"])
+    if not file_path.exists():
+        raise ValueError(f"Backup file missing on disk: {file_path}")
+
+    if latest.get("encrypted"):
+        key_id = latest.get("encryption_key_id")
+        if not key_id:
+            raise ValueError("Backup encryption key ID missing")
+        decrypted = _decrypt_file(file_path, key_id)
+        try:
+            ok = _verify_checksum(decrypted, latest["checksum"])
+        finally:
+            try:
+                decrypted.unlink(missing_ok=True)
+            except TypeError:
+                if decrypted.exists():
+                    decrypted.unlink()
+    else:
+        ok = _verify_checksum(file_path, latest["checksum"])
+
+    if not ok:
+        raise ValueError(f"Backup {backup_id} checksum mismatch — backup is corrupt")
+    LOGGER.info("Backup %s verified OK (checksum match)", backup_id)
+    return {"success": True, "backup_id": backup_id, "verified": True}
+
+
+def cleanup_old_backups(retention_days: int = 30) -> dict:
+    """Soft-delete backup records older than the retention window (GAP-010)."""
+    from datetime import datetime, timedelta, timezone
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=retention_days)
+    removed = 0
+    for b in SystemBackupRepository.list_all(include_deleted=True):
+        created = b.get("created_at")
+        if created is None:
+            continue
+        if getattr(created, "tzinfo", None) is not None:
+            created = created.replace(tzinfo=None)
+        if created < cutoff and not b.get("deleted_at"):
+            SystemBackupRepository.delete_by_id(b["id"])
+            removed += 1
+    LOGGER.info("Backup retention: soft-deleted %d backups older than %dd", removed, retention_days)
+    return {"success": True, "removed": removed}
+
+
+try:
+    from app.services.job_queue_service import JobQueueService as _JQS
+
+    def _create_backup_handler(payload: dict) -> dict:
+        return create_backup(
+            backup_name=payload.get("backup_name", f"scheduled_{time.strftime('%Y%m%d')}"),
+            backup_type=payload.get("backup_type", "full"),
+            user_id=payload.get("user_id"),
+        )
+
+    def _verify_backup_handler(payload: dict) -> dict:
+        return verify_latest_backup()
+
+    def _cleanup_backups_handler(payload: dict) -> dict:
+        return cleanup_old_backups(retention_days=int(payload.get("retention_days", 30)))
+
+    _JQS.register_handler("create_backup", _create_backup_handler)
+    _JQS.register_handler("verify_latest_backup", _verify_backup_handler)
+    _JQS.register_handler("cleanup_old_backups", _cleanup_backups_handler)
+except (ImportError, ValueError):
+    # JobQueueService unavailable or handler name collision on re-import
+    pass

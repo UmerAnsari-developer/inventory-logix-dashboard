@@ -317,6 +317,27 @@
   });
 });
 
+// ── GAP-018: UI idempotency keys ──
+// Set-once-if-empty: a fresh UUID per submit event would give a double-click
+// two different keys → two rows → defeats the purpose. Both submits of the
+// same form instance carry the same key → the server replays the first
+// response instead of executing twice.
+// crypto.randomUUID needs a secure context (HTTPS/localhost) — on plain-HTTP
+// LAN demos fall back to manual hex so idempotency still engages.
+function _idempotencyUuid() {
+  if (window.crypto && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+document.addEventListener('submit', e => {
+  const k = e.target.querySelector('input[name="idempotency_key"]');
+  if (k && !k.value) k.value = _idempotencyUuid();
+});
+
 function toast(title, message) {
   const region = document.getElementById("toastRegion");
   if (!region) return;

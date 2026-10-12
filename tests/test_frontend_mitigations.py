@@ -20,7 +20,7 @@ import hashlib
 import re
 from pathlib import Path
 
-import bump_versions  # repo root — discover()/asset_hash() shared with the script
+from tests import bump_versions  # shared discover()/asset_hash() helpers
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "app" / "templates"
 MAIN_JS = Path(__file__).resolve().parent.parent / "app" / "static" / "js" / "main.js"

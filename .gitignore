@@ -69,3 +69,25 @@ package.json
 package-lock.json
 PLAN.md
 DB_CONNECTION_FIX_SUMMARY.md
+
+# Untracked from repo (kept locally only) — repo slim-down
+DataCo_Supply_Chain_Dataset/
+synthetic_dataset_output/
+Fix/
+Roles/
+Models/
+Issues/
+.archify/
+.superpowers/
+scripts/
+sample_*.csv
+skills-lock.json
+research_findings.md
+mitigation_plan.md
+architecture_design.md
+ADM-*_IMPLEMENTATION_PLAN.md
+IMPLEMENTATION_PLAN_*.md
+SUPABASE_SETUP.md
+*.bak
+/bump_js_versions.py
+/bump_versions.py

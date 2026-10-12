@@ -1,4 +1,4 @@
-﻿"""ETL â€” build the star-schema data warehouse from the operational tables.
+﻿"""ETL — build the star-schema data warehouse from the operational tables.
 
 The warehouse dimensions (``dim_warehouse``) are read from the distinct
 ``products.warehouse`` values so the analytical layer always mirrors what the
@@ -138,6 +138,7 @@ def _build_dims(cur, summary: dict, product_range: tuple[date, date]) -> None:
         "ORDER BY warehouse"
     )
     warehouse_names = [r["warehouse"].strip() for r in cur.fetchall()]
+
     cur.execute("SELECT warehouse_name, warehouse_key FROM dim_warehouse")
     existing_wh = {r["warehouse_name"]: r["warehouse_key"] for r in cur.fetchall()}
     used_codes: set[str] = set()
@@ -241,14 +242,14 @@ def _build_movement_facts(cur, start: date, end: date) -> int:
             (date_key, warehouse_key, product_key, in_qty, out_qty,
              net_qty, in_value, out_value)
         SELECT m.created_at::date AS day,
-                dw.warehouse_key,
-                dp.product_key,
-                COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0) AS in_qty,
-                COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS out_qty,
-                COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
-                                  WHEN m.type = 'OUT' THEN -m.quantity ELSE 0 END), 0) AS net_qty,
-                COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS in_value,
-                COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS out_value
+               dw.warehouse_key,
+               dp.product_key,
+               COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity ELSE 0 END), 0) AS in_qty,
+               COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0) AS out_qty,
+               COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity
+                                 WHEN m.type = 'OUT' THEN -m.quantity ELSE 0 END), 0) AS net_qty,
+               COALESCE(SUM(CASE WHEN m.type = 'IN' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS in_value,
+               COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * dp.unit_price ELSE 0 END), 0) AS out_value
         FROM movements m
         JOIN products p ON p.id = m.product_id
         JOIN dim_product dp ON dp.sku = p.sku
@@ -266,7 +267,7 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
     """Reconstruct stock history for days in ``[start_day, end_day]``.
 
     Uses a SQL window function to do the backward stock walk in one query
-    instead of a Python loop over products Ã— days.
+    instead of a Python loop over products × days.
     """
     if start_day is None:
         start_day = end_day - timedelta(days=INVENTORY_HISTORY_DAYS - 1)
@@ -287,8 +288,8 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
         """
         WITH daily_net AS (
             SELECT m.product_id, m.created_at::date AS day,
-                    SUM(CASE WHEN m.type='IN' THEN m.quantity
-                             WHEN m.type='OUT' THEN -m.quantity ELSE 0 END) AS net
+                    SUM(CASE WHEN m.type = 'IN' THEN m.quantity
+                             WHEN m.type = 'OUT' THEN -m.quantity ELSE 0 END) AS net
             FROM movements m
             WHERE m.created_at::date BETWEEN %s AND %s
             GROUP BY m.product_id, m.created_at::date
@@ -301,13 +302,13 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
             WHERE p.id = ANY(%s)
         )
         SELECT pd.day, pd.warehouse, pd.id,
-                pd.current_stock - COALESCE(
-                    SUM(dn.net) OVER (
-                        PARTITION BY pd.id ORDER BY pd.day DESC
-                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                    ), 0
-                ) AS stock_on_hand,
-                pd.reorder_point, pd.unit_price
+               pd.current_stock - COALESCE(
+                   SUM(dn.net) OVER (
+                       PARTITION BY pd.id ORDER BY pd.day DESC
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                   ), 0
+               ) AS stock_on_hand,
+               pd.reorder_point, pd.unit_price
         FROM product_days pd
         LEFT JOIN daily_net dn ON dn.product_id = pd.id AND dn.day = pd.day
         ORDER BY pd.id, pd.day
@@ -427,15 +428,13 @@ def _validate_warehouse_consistency(cur) -> bool:
             LEFT JOIN dim_warehouse dw ON dw.warehouse_name = p.warehouse
             WHERE p.warehouse IS NOT NULL AND TRIM(p.warehouse) <> '' 
             AND dw.warehouse_key IS NULL
-            """)
+        """)
         orphaned_products = cur.fetchone()["count"]
-
         if orphaned_products > 0:
             LOGGER.warning(
                 f"Found {orphaned_products} products with invalid warehouse mappings"
             )
             return False
-
         return True
     except Exception as e:
         LOGGER.error(f"Error during warehouse consistency validation: {_safe_error(e)}")
@@ -451,15 +450,13 @@ def _validate_product_consistency(cur) -> bool:
             FROM movements m 
             LEFT JOIN dim_product dp ON dp.sku = (SELECT sku FROM products WHERE id = m.product_id)
             WHERE dp.product_key IS NULL
-            """)
+        """)
         orphaned_movements = cur.fetchone()["count"]
-
         if orphaned_movements > 0:
             LOGGER.warning(
                 f"Found {orphaned_movements} movements with invalid product mappings"
             )
             return False
-
         return True
     except Exception as e:
         LOGGER.error(f"Error during product consistency validation: {_safe_error(e)}")
@@ -488,14 +485,10 @@ def run_etl(force: bool = False) -> dict:
             cur.execute("SELECT pg_advisory_unlock(%s)", (_ETL_LOCK_KEY,))
 
             # DB-003: single-run guard. Session-level advisory lock.
-            # Must be explicitly released before returning connection to pool
-            # (advisory locks are session-level and persist across pooled connections).
             cur.execute("SELECT pg_try_advisory_lock(%s) AS locked", (_ETL_LOCK_KEY,))
             if not cur.fetchone()["locked"]:
                 summary["skipped"] = True
-                LOGGER.info(
-                    "ETL skipped: another ETL run is already in progress."
-                )
+                LOGGER.info("ETL skipped: another ETL run is already in progress.")
                 # Release lock before early return
                 cur.execute("SELECT pg_advisory_unlock(%s)", (_ETL_LOCK_KEY,))
                 return summary
@@ -684,9 +677,7 @@ def run_etl(force: bool = False) -> dict:
                 product_valid = _validate_product_consistency(cur)
 
                 if not warehouse_valid or not product_valid:
-                    LOGGER.warning(
-                        "ETL completed but consistency validation failed"
-                    )
+                    LOGGER.warning("ETL completed but consistency validation failed")
                     # Don't fail the ETL, but log the issue
                 else:
                     LOGGER.info(
@@ -698,31 +689,43 @@ def run_etl(force: bool = False) -> dict:
 
             _write_state(cur, "last_run_at", date.today().isoformat())
 
-        # F5: commit bookkeeping before warehouse ETL so its rollback cannot
-        # discard last_run_at.
-        conn.commit()
+            # F5: commit bookkeeping before warehouse ETL so its rollback cannot
+            # discard last_run_at.
+            conn.commit()
 
-        # Run warehouse layer ETL (SCD merges + event fact loads) - same connection
-        try:
-            _run_warehouse_etl(conn)
-        except Exception as e:
-            summary["warehouse_etl_ok"] = False  # F6
-            LOGGER.error(
-                "Warehouse ETL failed (non-fatal): %s", _safe_error(e)
-            )
+            # Run warehouse layer ETL (SCD merges + event fact loads) - same connection
+            try:
+                _run_warehouse_etl(conn)
+            except Exception as e:
+                summary["warehouse_etl_ok"] = False  # F6
+                LOGGER.error("Warehouse ETL failed (non-fatal): %s", _safe_error(e))
 
-        # Release advisory lock before returning connection to pool
-        # (advisory locks are session-level and persist across pooled connections)
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT pg_advisory_unlock(%s)", (_ETL_LOCK_KEY,))
-            cur.close()
-        except Exception:
-            pass  # Best effort
+            # Release advisory lock before returning connection to pool
+            # (advisory locks are session-level and persist across pooled connections)
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT pg_advisory_unlock(%s)", (_ETL_LOCK_KEY,))
+                cur.close()
+            except Exception:
+                pass  # Best effort
 
-        return summary
+            return summary
     except Exception as e:
-        LOGGER.error(f"ETL failed: {_safe_error(e)}")
+        error_msg = _safe_error(e)
+        LOGGER.error(f"ETL failed: {error_msg}")
+        # Create ETL failure alert
+        try:
+            from app.services.monitoring_service import _maybe_create_etl_failure_alert
+
+            _maybe_create_etl_failure_alert(
+                error_message=error_msg,
+                stage="etl_pipeline",
+                duration_seconds=None,  # Duration tracking can be added later
+            )
+        except Exception as alert_err:
+            LOGGER.warning(
+                f"Failed to create ETL failure alert: {_safe_error(alert_err)}"
+            )
         # Release advisory lock on error too
         try:
             if conn and not conn.closed:
@@ -762,3 +765,17 @@ def _run_warehouse_etl(conn=None):
     finally:
         if own_conn:
             conn.close()
+
+
+# Register ETL handler with JobQueueService (GAP-012)
+try:
+    from app.services.job_queue_service import JobQueueService
+
+    def _etl_handler(payload: dict) -> dict:
+        """Run ETL pipeline."""
+        return run_etl(force=payload.get("force", False))
+
+    JobQueueService.register_handler("run_etl", _etl_handler)
+except ImportError:
+    # JobQueueService not available (e.g., during migration)
+    pass

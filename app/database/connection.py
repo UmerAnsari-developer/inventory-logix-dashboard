@@ -199,17 +199,92 @@ def get_connection():
     if "db" not in g:
         params = current_app.config["psycopg2_params"]()
         pool = _get_pool(params)
-        conn = pool.getconn()
-        
+        try:
+            conn = pool.getconn()
+        except psycopg2.pool.PoolError:
+            # GAP-008: pool exhausted — fire a best-effort system alert
+            # (dedup-aware) before surfacing the error to the caller.
+            _alert_pool_exhausted()
+            raise
+
         # Record connection checkout for leak detection
         _record_connection_checkout(conn)
-        
+
         # Validate and potentially recycle connection
         conn = _validate_and_recycle_connection(conn, pool)
-        
+
         g.db = conn
         g.db_pool = pool
     return g.db
+
+
+def _alert_pool_exhausted() -> None:
+    """Best-effort pool-exhaustion alert (GAP-008). Never masks the PoolError.
+
+    Persists via a DEDICATED direct connection: the pool is exhausted, so the
+    normal pooled path (get_cursor) would fail with the same PoolError.
+    """
+    try:
+        from app.monitoring.alerts import generate_pool_exhaustion_alert
+
+        alert = generate_pool_exhaustion_alert(
+            active=len(_CHECKOUT_TIMES), pool_size=_POOL_SIZE
+        )
+        conn = _open_conn()
+        try:
+            with conn.cursor() as cur:
+                # Dedup: skip when an unresolved alert of this type exists.
+                cur.execute(
+                    "SELECT 1 FROM model_monitoring_alerts "
+                    "WHERE sku = %s AND model_name = %s AND alert_type = %s "
+                    "AND status IN ('new', 'acknowledged') LIMIT 1",
+                    (alert["sku"], alert["model_name"], alert["alert_type"]),
+                )
+                if cur.fetchone() is None:
+                    cur.execute(
+                        """
+                        INSERT INTO model_monitoring_alerts
+                            (sku, model_name, alert_date, alert_type, severity,
+                             metric, baseline_value, current_value, change_percent,
+                             message, recommended_action, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (alert["sku"], alert["model_name"], alert["alert_date"],
+                         alert["alert_type"], alert["severity"], alert["metric"],
+                         alert["baseline_value"], alert["current_value"],
+                         alert["change_percent"], alert["message"],
+                         alert["recommended_action"], alert["status"]),
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as alert_err:  # noqa: BLE001 — alerting must not break checkout
+        LOGGER.warning("Failed to create pool exhaustion alert: %s", alert_err)
+
+
+def get_pool_utilization() -> dict:
+    """Live connection-pool utilization snapshot (GAP-008).
+
+    Distinct from get_pool_stats() (per-pool ordinal view, existing contract).
+    Reads only in-process tracking state — no DB round-trip, safe to call
+    from a monitoring endpoint under load.
+    """
+    now = time.time()
+    with _CHECKOUT_LOCK:
+        active = len(_CHECKOUT_TIMES)
+        oldest_checkout = max(_CHECKOUT_TIMES.values(), default=None)
+    with _CONN_BORN_LOCK:
+        oldest_born = min(_CONN_BORN.values(), default=None)
+    return {
+        "pool_size": _POOL_SIZE,
+        "active_connections": active,
+        "usage_percent": round(active / max(_POOL_SIZE, 1) * 100, 1),
+        "oldest_checkout_seconds": round(now - oldest_checkout, 1) if oldest_checkout else 0,
+        "oldest_connection_age_seconds": round(now - oldest_born, 1) if oldest_born else 0,
+        "pools": len(_POOLS),
+        "statement_timeout_ms": int(os.environ.get("DB_STATEMENT_TIMEOUT_MS", "60000")),
+        "lock_timeout_ms": int(os.environ.get("DB_LOCK_TIMEOUT_MS", "5000")),
+    }
 
 
 def _validate_connection(conn):

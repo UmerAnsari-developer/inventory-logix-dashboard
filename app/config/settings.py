@@ -65,6 +65,18 @@ class Config:
     # SendGrid API (HTTPS) — works on platforms that block outbound SMTP (e.g. Render free tier)
     SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 
+    # GAP-009: alert routing channels — all optional; DB-only when unset.
+    ALERT_EMAIL_ENABLED = _bool(os.environ.get("ALERT_EMAIL_ENABLED"), False)
+    ALERT_EMAIL_RECIPIENTS = os.environ.get("ALERT_EMAIL_RECIPIENTS", "")  # comma-separated
+    SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+    ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "")
+
+    # GAP-003: shared Redis cache (multi-worker). Opt-in; every cache
+    # silently falls back to in-memory when the flag is off or Redis is
+    # unreachable. Use a different Redis DB than the rate limiter (/0).
+    USE_REDIS_CACHE = _bool(os.environ.get("USE_REDIS_CACHE"), False)
+    REDIS_CACHE_URL = os.environ.get("REDIS_CACHE_URL", "redis://localhost:6379/1")
+
     # Rate limiting (flask-limiter) storage backend — memory:// default;
     # For multi-worker deployments, set RATELIMIT_STORAGE_URI to redis://... or postgresql://...
     # (requires flask-limiter-postgres package for PostgreSQL).
@@ -133,6 +145,8 @@ class TestingConfig(Config):
     # Tests stay hermetic: in-memory rate limiting regardless of .env so the
     # suite never depends on a running Redis container.
     RATELIMIT_STORAGE_URI = "memory://"
+    # Hermetic caches too — never touch Redis from the test suite.
+    USE_REDIS_CACHE = False
     # Default to a test-specific DB name to avoid hitting production data
     DB_NAME = os.environ.get("TEST_DB_NAME", "inventory_db_test")
 

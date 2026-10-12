@@ -19,6 +19,7 @@ from ..extensions import limiter
 from ..security import WRITE_ROLES, write_roles_required
 
 from ..database import get_cursor
+from ..utils.idempotency import idempotent
 from ..repositories import (
     AuditRepository,
     MovementRepository,
@@ -452,6 +453,7 @@ def inventory_export():
 @ui_bp.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
 @login_required
 @write_roles_required
+@idempotent()
 def product_form(product_id: int | None = None):
     product = ProductRepository.find(product_id) if product_id else None
     if product_id and not product:
@@ -502,6 +504,7 @@ def product_form(product_id: int | None = None):
 @ui_bp.route("/products/<int:product_id>/delete", methods=["POST"])
 @login_required
 @write_roles_required
+@idempotent()
 def delete_product(product_id: int):
     ProductService.delete(product_id)
     # DB-068: trigger logs product_deleted (soft delete) with GUC attribution —
@@ -541,6 +544,7 @@ def reorder_alerts():
 @ui_bp.route("/reorder-alerts/auto-draft", methods=["POST"])
 @login_required
 @write_roles_required
+@idempotent()
 def auto_draft_pos():
     if not SettingsService.is_on("auto_reorder"):
         flash("Auto-reorder is disabled in Settings", "warning")
@@ -592,6 +596,7 @@ def auto_draft_pos():
 @ui_bp.route("/reorder-alerts/<int:product_id>/mark-ordered", methods=["POST"])
 @login_required
 @write_roles_required
+@idempotent()
 def mark_ordered(product_id: int):
     product = ProductRepository.find(product_id)
     if not product:
@@ -623,6 +628,7 @@ def mark_ordered(product_id: int):
 @ui_bp.route("/movements/new", methods=["GET", "POST"])
 @login_required
 @write_roles_required
+@idempotent()
 def movement_form():
     preselect = request.args.get("product_id", type=int)
     with get_cursor() as cur:
@@ -660,6 +666,7 @@ def suppliers():
 @ui_bp.route("/suppliers", methods=["POST"])
 @login_required
 @write_roles_required
+@idempotent()
 def suppliers_create():
     try:
         SupplierService.create({
@@ -680,6 +687,7 @@ def suppliers_create():
 @ui_bp.route("/suppliers/<int:supplier_id>/delete", methods=["POST"])
 @login_required
 @write_roles_required
+@idempotent()
 def delete_supplier(supplier_id: int):
     SupplierService.delete(supplier_id)
     cache_bust_suppliers()
@@ -730,6 +738,7 @@ def purchase_orders():
 @ui_bp.route("/purchase-orders", methods=["POST"])
 @login_required
 @write_roles_required
+@idempotent()
 def purchase_orders_create():
     import random
 
@@ -779,6 +788,7 @@ def purchase_orders_create():
 @ui_bp.route("/purchase-orders/<int:po_id>/status", methods=["POST"])
 @login_required
 @write_roles_required
+@idempotent()
 def update_po_status(po_id: int):
     status = request.form.get("status")
     if status in ("draft", "approved", "in_transit", "received", "cancelled"):

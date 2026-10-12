@@ -281,6 +281,7 @@ BEGIN
            to_char(m.created_at, 'YYYY-MM-DD HH24:MI') AS created_at
     FROM movements m
     WHERE m.product_id = p_product_id
+      AND m.deleted_at IS NULL
     ORDER BY m.created_at DESC
     LIMIT p_limit;
 END;
@@ -628,11 +629,15 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT po.*, s.name AS supplier_name, p.name AS product_name, p.sku
+    SELECT po.id, po.po_number, po.supplier_id, po.product_id,
+           po.quantity, po.unit_cost, po.status, po.eta_date,
+           po.created_at, po.updated_at,
+           s.name AS supplier_name, p.name AS product_name, p.sku
     FROM purchase_orders po
     LEFT JOIN suppliers s ON s.id = po.supplier_id
     LEFT JOIN products p ON p.id = po.product_id
-    WHERE (p_status IS NULL OR p_status = 'all' OR po.status = p_status)
+    WHERE po.deleted_at IS NULL
+      AND (p_status IS NULL OR p_status = 'all' OR po.status = p_status)
     ORDER BY po.created_at DESC;
 END;
 $$ LANGUAGE plpgsql;
@@ -643,6 +648,7 @@ BEGIN
     RETURN QUERY
     SELECT po.status, COUNT(*) AS cnt
     FROM purchase_orders po
+    WHERE po.deleted_at IS NULL
     GROUP BY po.status;
 END;
 $$ LANGUAGE plpgsql;
@@ -676,7 +682,9 @@ RETURNS VOID AS $$
 DECLARE
     po purchase_orders%ROWTYPE;
 BEGIN
-    SELECT * INTO po FROM purchase_orders WHERE id = p_id FOR UPDATE;
+    SELECT * INTO po FROM purchase_orders
+    WHERE id = p_id AND deleted_at IS NULL
+    FOR UPDATE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Purchase order % not found', p_id;
     END IF;
@@ -786,6 +794,22 @@ CREATE FUNCTION sp_product_delete(p_id INT)
 RETURNS VOID AS $$
 BEGIN
     UPDATE products SET deleted_at = NOW() WHERE id = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Movements / purchase orders soft delete (GAP-020 phase 1) — mirrors
+-- sp_product_delete. Analytics/ETL stay unfiltered until phase 2 (documented).
+CREATE OR REPLACE FUNCTION sp_movement_soft_delete(p_id INT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE movements SET deleted_at = NOW() WHERE id = p_id AND deleted_at IS NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_po_soft_delete(p_id INT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE purchase_orders SET deleted_at = NOW() WHERE id = p_id AND deleted_at IS NULL;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -1114,3 +1138,86 @@ BEGIN
     RETURN NEXT;
 END;
 $$ LANGUAGE plpgsql;
+
+-- =============================================================================
+-- JOB QUEUE (GAP-012) — Persistent job queue with pg_cron scheduling
+-- =============================================================================
+
+-- Process up to batch_size pending jobs
+-- Returns number of jobs dispatched
+CREATE OR REPLACE FUNCTION job_queue_process_batch(batch_size INT DEFAULT 100)
+RETURNS INT LANGUAGE plpgsql AS $$
+DECLARE
+    j RECORD;
+    processed INT := 0;
+BEGIN
+    FOR j IN
+        SELECT * FROM job_queue
+        WHERE status = 'pending' AND next_run <= now()
+        ORDER BY priority DESC, created_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT batch_size
+    LOOP
+        -- Try to acquire advisory lock for this job.
+        -- hashtext returns int4; j.id is BIGINT — cast to int so the
+        -- two-key overload pg_try_advisory_xact_lock(int4, int4) resolves.
+        IF pg_try_advisory_xact_lock(hashtext(j.task_name || ':' || j.id)) THEN
+            UPDATE job_queue
+            SET status = 'running', locked_by = inet_server_addr()||':'||pg_backend_pid(), started_at = now()
+            WHERE id = j.id AND status = 'pending';
+            
+            -- Notify external worker via pg_notify
+            PERFORM pg_notify('job_queue', json_build_object(
+                'job_id', j.id, 'task', j.task_name, 'payload', j.payload
+            )::text);
+            
+            processed := processed + 1;
+        END IF;
+    END LOOP;
+    RETURN processed;
+END $$;
+
+-- Cleanup old completed/failed jobs
+CREATE OR REPLACE FUNCTION job_queue_cleanup(retention INTERVAL DEFAULT '30 days')
+RETURNS INT LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM job_queue
+    WHERE status IN ('completed', 'failed', 'dead')
+      AND completed_at < now() - retention;
+    RETURN ROW_COUNT;
+END $$;
+
+-- Get job status
+CREATE OR REPLACE FUNCTION job_queue_get_status(p_job_id BIGINT)
+RETURNS TABLE (
+    id BIGINT, task_name TEXT, status TEXT, attempts INT, max_attempts INT,
+    created_at TIMESTAMPTZ, started_at TIMESTAMPTZ, completed_at TIMESTAMPTZ,
+    error TEXT, result JSONB
+) LANGUAGE sql AS $$
+    SELECT id, task_name, status, attempts, max_attempts,
+           created_at, started_at, completed_at, error, result
+    FROM job_queue WHERE id = p_job_id;
+$$;
+
+-- Enqueue a job (helper function)
+CREATE OR REPLACE FUNCTION job_queue_enqueue(
+    p_task_name TEXT,
+    p_payload JSONB DEFAULT '{}',
+    p_priority INT DEFAULT 0,
+    p_max_attempts INT DEFAULT 3,
+    p_delay_seconds INT DEFAULT 0
+)
+RETURNS TABLE (id BIGINT) LANGUAGE plpgsql AS $$
+DECLARE
+    v_next_run TIMESTAMPTZ;
+BEGIN
+    v_next_run := now();
+    IF p_delay_seconds > 0 THEN
+        v_next_run := now() + (p_delay_seconds || ' seconds')::interval;
+    END IF;
+    
+    RETURN QUERY
+    INSERT INTO job_queue (task_name, payload, priority, max_attempts, next_run)
+    VALUES (p_task_name, p_payload, p_priority, p_max_attempts, v_next_run)
+    RETURNING job_queue.id;
+END $$;

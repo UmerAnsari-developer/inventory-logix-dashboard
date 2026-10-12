@@ -1,6 +1,0 @@
-po_number,supplier_id,product_id,quantity,status
-PO-DEMO-001,73,123,60,draft
-PO-DEMO-002,74,124,60,approved
-PO-DEMO-003,75,125,60,in_transit
-PO-DEMO-004,76,126,60,received
-PO-DEMO-005,77,127,60,draft

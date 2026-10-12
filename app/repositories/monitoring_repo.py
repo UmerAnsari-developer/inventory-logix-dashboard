@@ -179,7 +179,16 @@ class MonitoringRepository:
 
     @staticmethod
     def baseline_metrics(sku: str, model_name: str) -> dict | None:
-        """Get the oldest metrics entry as baseline (first evaluation period)."""
+        """Baseline for drift detection: pinned row first (GAP-016), else the
+        oldest metrics entry (first evaluation period) — the pre-pinning
+        behavior, preserved as fallback.
+
+        Callers (monitoring_service.compute_metrics, forecast_service) only
+        read ``mae``/``mape`` via .get(), so both shapes are compatible.
+        """
+        pinned = MonitoringRepository.get_pinned_baseline(sku, model_name)
+        if pinned:
+            return pinned
         with get_cursor() as cur:
             cur.execute(
                 """SELECT * FROM forecast_monitoring_metrics
@@ -188,6 +197,55 @@ class MonitoringRepository:
                 (sku, model_name),
             )
             return cur.fetchone()
+
+    @staticmethod
+    def get_pinned_baseline(sku: str, model_name: str) -> dict | None:
+        """Fetch the pinned baseline row for a SKU+Model, if any."""
+        with get_cursor() as cur:
+            cur.execute(
+                """SELECT * FROM model_baselines
+                   WHERE sku = %s AND model_name = %s""",
+                (sku, model_name),
+            )
+            return cur.fetchone()
+
+    @staticmethod
+    def promote_baseline(sku: str, model_name: str, mae, mape,
+                         promoted_by: str | None = None) -> dict:
+        """Upsert the pinned baseline for a SKU+Model (re-promotion overwrites)."""
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                """INSERT INTO model_baselines
+                   (sku, model_name, mae, mape, source, promoted_by)
+                   VALUES (%s, %s, %s, %s, 'promotion', %s)
+                   ON CONFLICT (sku, model_name) DO UPDATE SET
+                       mae = EXCLUDED.mae,
+                       mape = EXCLUDED.mape,
+                       source = 'promotion',
+                       promoted_at = NOW(),
+                       promoted_by = EXCLUDED.promoted_by
+                   RETURNING *""",
+                (sku, model_name, mae, mape, promoted_by),
+            )
+            return cur.fetchone()
+
+    @staticmethod
+    def latest_metrics(sku: str, model_name: str | None = None) -> list[dict]:
+        """Latest metrics row(s) for a SKU — per model when model_name is None."""
+        where = "WHERE sku = %s"
+        params: list = [sku]
+        if model_name:
+            where += " AND model_name = %s"
+            params.append(model_name)
+        with get_cursor() as cur:
+            cur.execute(
+                f"""SELECT DISTINCT ON (model_name) *
+                    FROM forecast_monitoring_metrics
+                    {where}
+                    ORDER BY model_name, monitoring_date DESC, id DESC""",
+                params,
+            )
+            return list(cur.fetchall())
 
     @staticmethod
     def recent_statuses(sku: str, model_name: str, limit: int = 30) -> list[str]:

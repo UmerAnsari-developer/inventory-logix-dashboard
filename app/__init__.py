@@ -27,6 +27,7 @@ from .database.connection import (
 from .extensions import csrf, limiter, login_manager
 from .repositories import UserRepository
 from .routes import ai_bp, api_bp, auth_bp, ui_bp, reports_workflow_bp
+from .routes.openapi import openapi_bp
 from .routes.admin.backup_routes import admin_backup_bp
 from .routes.admin.system_config_routes import admin_system_config_bp
 from .routes.admin.log_viewer_routes import admin_log_viewer_bp
@@ -271,6 +272,12 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(api_bp)
     app.register_blueprint(ai_bp)
     app.register_blueprint(reports_workflow_bp)
+    # GAP-013: versioned aliases — same blueprint objects, distinct names
+    # (Flask ≥2.0.1). /api and /ai remain the unversioned canonical prefixes.
+    app.register_blueprint(api_bp, name="api_v1", url_prefix="/api/v1")
+    app.register_blueprint(ai_bp, name="ai_v1", url_prefix="/ai/v1")
+    # GAP-013: OpenAPI 3.0 spec (GET /api/openapi.json)
+    app.register_blueprint(openapi_bp)
     app.register_blueprint(admin_backup_bp)
     app.register_blueprint(admin_system_config_bp)
     app.register_blueprint(admin_user_activity_bp)

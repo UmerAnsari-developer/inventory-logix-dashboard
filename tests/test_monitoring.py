@@ -325,3 +325,141 @@ class TestMonitoringAPI:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["success"] is True
+
+
+# ── GAP-016: Pinned Model Baselines ──────────────────────────────────────
+
+import uuid
+from datetime import date
+
+from app.database import get_cursor
+from app.repositories import UserRepository
+from app.repositories.monitoring_repo import MonitoringRepository
+from app.services import MonitoringService
+
+
+def _session_client(app, username: str):
+    """Authenticated client without hitting the /auth/login rate limiter.
+
+    Mirrors the proven pattern from tests/test_batch3_phase2.py.
+    """
+    from flask_login.utils import _create_identifier
+
+    with app.app_context():
+        user = UserRepository.find_by_username(username)
+        assert user is not None, f"missing user {username}"
+        uid = user.id
+
+    c = app.test_client()
+    ident_box: dict = {}
+
+    def _capture():
+        ident_box["id"] = _create_identifier()
+
+    app.before_request_funcs.setdefault(None, []).append(_capture)
+    try:
+        resp = c.get("/static/img/favicon.svg")
+        assert resp.status_code == 200
+    finally:
+        app.before_request_funcs[None].remove(_capture)
+
+    with c.session_transaction() as sess:
+        sess["_user_id"] = str(uid)
+        sess["_fresh"] = True
+        sess["_id"] = ident_box["id"]
+    return c
+
+
+@pytest.fixture()
+def _baseline_sku(app):
+    """Unique SKU with two metrics windows (Jan old, Feb new); cleans up after."""
+    sku = f"BL-{uuid.uuid4().hex[:8].upper()}"
+    with app.app_context():
+        MonitoringRepository.save_metrics(
+            sku=sku, model_name="prophet",
+            monitoring_date=date(2026, 1, 1), aggregation_period="daily",
+            observation_count=10, mae=10.0, mape=10.0, rmse=12.0,
+            mean_error=0.0, error_std=1.0, zero_demand_count=0,
+            baseline_mae=None, baseline_mape=None,
+            mae_change_percent=0.0, mape_change_percent=0.0,
+            model_status="healthy",
+        )
+        MonitoringRepository.save_metrics(
+            sku=sku, model_name="prophet",
+            monitoring_date=date(2026, 2, 1), aggregation_period="daily",
+            observation_count=10, mae=20.0, mape=20.0, rmse=22.0,
+            mean_error=0.0, error_std=1.0, zero_demand_count=0,
+            baseline_mae=10.0, baseline_mape=10.0,
+            mae_change_percent=100.0, mape_change_percent=100.0,
+            model_status="degraded",
+        )
+    yield sku
+    with app.app_context():
+        with get_cursor(commit=True) as cur:
+            cur.execute("DELETE FROM model_baselines WHERE sku = %s", (sku,))
+            cur.execute("DELETE FROM forecast_monitoring_metrics WHERE sku = %s", (sku,))
+
+
+class TestPinnedBaselines:
+    def test_baseline_fallback_without_promotion(self, app, _baseline_sku):
+        """No pinned row → oldest-window behavior preserved (pre-GAP-016)."""
+        sku = _baseline_sku
+        with app.app_context():
+            baseline = MonitoringRepository.baseline_metrics(sku, "prophet")
+            assert baseline is not None
+            assert float(baseline["mae"]) == 10.0  # oldest window, not the latest
+            assert float(baseline["mape"]) == 10.0
+
+    def test_promote_baseline_pins_metrics(self, app, _baseline_sku):
+        """Promotion → baseline_metrics returns the pinned (latest) values."""
+        sku = _baseline_sku
+        with app.app_context():
+            MonitoringService.promote_baseline(
+                sku, model_name="prophet", promoted_by="tester"
+            )
+            baseline = MonitoringRepository.baseline_metrics(sku, "prophet")
+            assert float(baseline["mae"]) == 20.0
+            assert float(baseline["mape"]) == 20.0
+            assert baseline["source"] == "promotion"
+            assert baseline["promoted_by"] == "tester"
+
+    def test_promote_upsert_overwrites(self, app, _baseline_sku):
+        """Re-promotion overwrites the pinned row — never a duplicate."""
+        sku = _baseline_sku
+        with app.app_context():
+            MonitoringService.promote_baseline(sku, model_name="prophet")
+            MonitoringService.promote_baseline(
+                sku, model_name="prophet", promoted_by="second"
+            )
+            pinned = MonitoringRepository.get_pinned_baseline(sku, "prophet")
+            assert pinned["promoted_by"] == "second"
+            with get_cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS c FROM model_baselines WHERE sku = %s",
+                    (sku,),
+                )
+                assert cur.fetchone()["c"] == 1
+
+    def test_promote_endpoint_rbac(self, app, _baseline_sku):
+        """viewer → 403; manager and admin → 200 with pinned values."""
+        sku = _baseline_sku
+        viewer_resp = _session_client(app, "viewer").post(
+            "/ai/monitoring/promote-baseline", json={"sku": sku}
+        )
+        assert viewer_resp.status_code == 403
+
+        manager_resp = _session_client(app, "manager").post(
+            "/ai/monitoring/promote-baseline", json={"sku": sku}
+        )
+        assert manager_resp.status_code == 200
+
+        admin_resp = _session_client(app, "admin").post(
+            "/ai/monitoring/promote-baseline", json={"sku": sku}
+        )
+        assert admin_resp.status_code == 200
+        data = admin_resp.get_json()
+        assert data["success"] is True
+        with app.app_context():
+            pinned = MonitoringRepository.get_pinned_baseline(sku, "prophet")
+            assert pinned is not None
+            assert float(pinned["mae"]) == 20.0

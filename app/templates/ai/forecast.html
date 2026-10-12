@@ -49,6 +49,8 @@
       <div class="panel-title">Demand forecast &mdash; history + projection</div>
       <span class="badge ai" id="forecastModelBadge">PROPHET</span>
     </div>
+    <div id="forecast-warning" class="alert alert-warning" role="alert" hidden
+      style="margin:0 0 12px;padding:12px 14px;border:1px solid var(--line);border-left:4px solid var(--amber);border-radius:11px;background:var(--surface)"></div>
     <div class="panel-content"><div id="forecastChart" class="ai-forecast-chart"></div></div>
   </article>
   <div class="metric-grid">
@@ -73,7 +75,7 @@
     <div class="panel-header"><div class="panel-title">Backtest Results (Rolling-Origin)</div></div>
     <div class="table-scroll">
       <table class="data-table" id="backtestTable">
-        <thead><tr><th>Metric</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th><th>Origins</th></tr></thead>
+        <thead><tr><th scope="col">Metric</th><th scope="col">Mean</th><th scope="col">Std</th><th scope="col">Min</th><th scope="col">Max</th><th scope="col">Origins</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -83,7 +85,7 @@
     <div class="panel-header"><div class="panel-title">Portfolio forecast snapshot</div></div>
     <div class="table-scroll">
       <table class="data-table" id="portfolioTable">
-        <thead><tr><th>SKU</th><th>Product</th><th>Model</th><th>Model Used</th><th>Baseline</th><th>Predicted</th><th>Delta</th><th>Accuracy</th><th>Data</th></tr></thead>
+        <thead><tr><th scope="col">SKU</th><th scope="col">Product</th><th scope="col">Model</th><th scope="col">Model Used</th><th scope="col">Baseline</th><th scope="col">Predicted</th><th scope="col">Delta</th><th scope="col">Accuracy</th><th scope="col">Data</th></tr></thead>
         <tbody><tr><td colspan="9"><div class="empty-state">Run a forecast to load the portfolio snapshot</div></td></tr></tbody>
       </table>
     </div>

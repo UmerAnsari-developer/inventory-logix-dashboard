@@ -137,6 +137,36 @@ class Mailer:
         return True
 
     @staticmethod
+    def send_alert(to_emails: list[str], subject: str, body: str) -> bool:
+        """Send a plain-text ops alert email (GAP-009). Best-effort: returns
+        False on any failure — alert routing must never raise into the caller.
+
+        Uses the same SMTP config as password resets; SendGrid is not used
+        here (it is reset-link specific).
+        """
+        cfg = current_app.config
+        if not cfg.get("SMTP_HOST") or not to_emails:
+            return False
+
+        msg = MIMEMultipart()
+        msg["Subject"] = subject
+        msg["From"] = formataddr(("InventoryLogix Alerts", cfg["MAIL_FROM"]))
+        msg["To"] = ", ".join(to_emails)
+        msg.attach(MIMEText(body, "plain"))
+
+        try:
+            with smtplib.SMTP(cfg["SMTP_HOST"], cfg["SMTP_PORT"], timeout=10) as server:
+                if cfg.get("MAIL_USE_TLS"):
+                    server.starttls()
+                if cfg.get("SMTP_USERNAME"):
+                    server.login(cfg["SMTP_USERNAME"], cfg["SMTP_PASSWORD"])
+                server.sendmail(cfg["MAIL_FROM"], to_emails, msg.as_string())
+        except (OSError, smtplib.SMTPException) as exc:
+            LOGGER.warning("Alert email to %s failed: %s", to_emails, exc)
+            return False
+        return True
+
+    @staticmethod
     def _html_body(username: str, reset_link: str) -> str:
         """Render the HTML email body with the embedded logo CID reference."""
         ttl = current_app.config.get("PASSWORD_RESET_TTL_MINUTES", 5)
