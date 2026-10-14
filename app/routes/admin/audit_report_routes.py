@@ -8,13 +8,54 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 from flask_login import current_user, login_required
 
 from app.extensions import limiter
+from app.database import get_cursor
 from app.security import write_roles_required
 from app.security.audit import audit_admin_action
 from app.services import AuditReportService
 from app.repositories import ScheduledAuditReportRepository
+from app.services.job_queue_service import Job
 from app.services.job_tracker import JobTracker
 
 admin_audit_report_bp = Blueprint("admin_audit_report", __name__, url_prefix="/admin/audit_reports")
+
+# GAP-012 Batch 5: job_queue → JobTracker-dict adapter (see _queue_job_to_tracker_dict).
+_STATUS_MAP = {"pending": "pending", "running": "running", "completed": "completed", "dead": "failed"}
+_PROGRESS_MAP = {"pending": 0, "running": 50, "completed": 100, "dead": 100}
+
+
+def _load_queue_job(job_id: int) -> Job | None:
+    """Load a full job_queue row locally.
+
+    JobQueueService.get_status() calls the job_queue_get_status proc, which
+    OMITS ``payload`` — and the 403 ownership check needs ``payload.user_id``.
+    """
+    with get_cursor() as cur:
+        cur.execute("SELECT * FROM job_queue WHERE id = %s", (job_id,))
+        row = cur.fetchone()
+    return Job(**row) if row else None
+
+
+def _queue_job_to_tracker_dict(job: Job) -> dict:
+    """Reproduce the JobTracker dict contract exactly (job_tracker.py:28-44)
+    so the polling UI cannot tell queue jobs from legacy thread jobs."""
+    return {
+        "job_id": str(job.id),
+        "job_type": "audit_report",
+        "user_id": (job.payload or {}).get("user_id"),
+        "status": _STATUS_MAP.get(job.status, "failed"),
+        "progress": _PROGRESS_MAP.get(job.status, 0),
+        "current_step": {"pending": 0, "running": 1, "completed": 4, "dead": 4}.get(job.status, 0),
+        "total_steps": 4,
+        "message": {"pending": "Queued", "running": "Processing report",
+                    "completed": "Report generated"}.get(job.status) or (job.error or "Report generation failed"),
+        "result": job.result,
+        "error": job.error,
+        "metadata": {"report_id": (job.payload or {}).get("report_id")},
+        "created_at": job.created_at,
+        "updated_at": job.completed_at or job.started_at or job.created_at,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+    }
 
 
 @admin_audit_report_bp.route("/")
@@ -231,7 +272,22 @@ def run_due_reports():
 @write_roles_required
 def job_status(job_id: str):
     """Get job status for progress polling."""
-    job = JobTracker.get_job(job_id)
+    # GAP-012 Batch 5: branch on numeric-parse, not on the flag — UUIDs are
+    # never numeric (legacy JobTracker jobs), numeric ids are queue jobs. A
+    # numeric id missing from job_queue falls through to JobTracker → 404
+    # (identical to today's garbage-id behavior). This survives flag flips
+    # across restarts and serves mixed legacy/queue jobs in any mode.
+    job = None
+    try:
+        numeric_id = int(job_id)
+    except (TypeError, ValueError):
+        numeric_id = None
+    if numeric_id is not None:
+        queue_job = _load_queue_job(numeric_id)
+        if queue_job is not None:
+            job = _queue_job_to_tracker_dict(queue_job)
+    if job is None:
+        job = JobTracker.get_job(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
 

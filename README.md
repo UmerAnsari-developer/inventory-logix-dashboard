@@ -305,6 +305,42 @@ All CRUD goes through `sp_*` functions to prevent SQL injection. Examples:
 
 ---
 
+## Background job worker (optional)
+
+By default, background work (warehouse ETL, backup restore, scheduled audit
+reports) runs on per-request daemon threads. Setting `JOB_QUEUE_ENABLED=1`
+switches those routes to a persistent PostgreSQL job queue (`job_queue` table):
+
+```bash
+# .env
+JOB_QUEUE_ENABLED=1
+```
+
+With the flag on, an in-process worker thread starts automatically with the
+app (polls every 5 s). For a dedicated worker process instead, run:
+
+```bash
+python -m app.worker
+```
+
+**⚠️ pg_cron hosts:** if the `job-queue-processor` schedule exists, unschedule
+it when the flag is on — it only MARKS jobs `running`, it never executes them:
+
+```sql
+SELECT cron.unschedule('job-queue-processor');
+```
+
+If it is left scheduled, rows it marks `running` sit until the worker's
+stale-requeue rescues them after 10 minutes. The `job-queue-cleanup` and
+backup-enqueue schedules stay.
+
+**Stale jobs:** a job stuck `running` for more than 10 minutes (killed worker,
+OOM, deploy) is requeued on the next tick (`attempts + 1`) or moved to `dead`
+once `max_attempts` is reached. Unset the flag + restart to return to the
+legacy threading behavior (stray `pending` rows are inert).
+
+---
+
 ## REST API
 
 | Method | Endpoint                          | Description                       |

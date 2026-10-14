@@ -486,10 +486,60 @@ def restore_backup(backup_id: int, user_id: int | None = None) -> dict:
         # The background thread will create its own connection and re-acquire the lock
         lock_conn.close()
     
-    # Capture app context for background thread
-    from flask import current_app
+    # GAP-012 Batch 5: queue mode — enqueue instead of spawning a thread.
+    # The sync pre-checks and advisory-lock pre-check above stay unconditional;
+    # the queue handler re-acquires the lock (fail → failed keys, same as the
+    # thread path below).
+    if current_app.config.get("JOB_QUEUE_ENABLED"):
+        from app.services.job_queue_service import JobQueueService
+
+        job_id = JobQueueService.enqueue(
+            "restore_backup", {"backup_id": backup_id, "user_id": user_id}
+        )
+        return {
+            "success": True,
+            "message": "Restore queued for background processing",
+            "queued": True,
+            "started": True,  # backup_routes flashes "info" when started
+            "job_id": job_id,
+        }
+
+    # Capture app object for the background thread (current_app is imported
+    # at module level; a local re-import here would shadow it function-wide).
     _app = current_app._get_current_object()
+
+    def _run():
+        # Thin wrapper: the whole restore body lives in _restore_sync so this
+        # legacy thread and the job-queue handler share ONE implementation.
+        with _app.app_context():
+            _restore_sync(backup_id, user_id)
+
+    # Start background thread
+    thread = threading.Thread(target=_run, daemon=True, name="restore_run")
+    try:
+        thread.start()
+    except Exception as e:
+        LOGGER.error("Failed to start restore thread: %s", _safe_error(e))
+        return {
+            "success": False,
+            "message": f"Failed to start restore: {_safe_error(e)}",
+        }
     
+    return {
+        "success": True,
+        "message": "Restore started in background. Check monitoring page for status.",
+        "started": True
+    }
+
+
+def _restore_sync(backup_id: int, user_id: int | None) -> dict:
+    """Synchronous restore body — ONE implementation shared by the legacy
+    daemon thread and the job-queue ``restore_backup`` handler (pure code
+    motion of the old thread closure). The caller must provide an app context.
+
+    Writes the same ``restore_job_status`` / ``restore_job_error`` keys to
+    ``etl_warehouse_state`` in both modes, so monitoring reads them unchanged.
+    """
     def _persist(key, value=None):
         """Best-effort etl_warehouse_state upsert; value=None clears the row."""
         try:
@@ -513,149 +563,138 @@ def restore_backup(backup_id: int, user_id: int | None = None) -> dict:
             LOGGER.warning(
                 "Could not persist restore job state %s: %s", key, _safe_error(e)
             )
-    
-    def _run():
-        # Background thread creates ITS OWN connection for the advisory lock
-        # Advisory locks are session-level and released when connection closes
-        with _app.app_context():
-            bg_conn = _open_conn()
-            try:
-                # Clean up any stale lock on THIS connection
-                _cleanup_stale_restore_lock(bg_conn)
-                
-                # Acquire advisory lock on THIS connection
-                if not _acquire_restore_lock(bg_conn):
-                    _persist("restore_job_status", "failed")
-                    _persist("restore_job_error", "Another restore acquired lock")
-                    return
-                
-                try:
-                    _persist("restore_job_status", "running")
-                    _persist("restore_job_error")
-                    
-                    # Get the backup record
-                    backup_record = SystemBackupRepository.get_by_id(backup_id)
-                    if not backup_record:
-                        _persist("restore_job_status", "failed")
-                        _persist("restore_job_error", "Backup record not found")
-                        return
-                    
-                    # Determine the user who initiated the restore (use local variable)
-                    restore_user_id = user_id
-                    if restore_user_id is None:
-                        from flask_login import current_user
-                        if current_user.is_authenticated:
-                            restore_user_id = current_user.id
-                        else:
-                            admin_user = UserRepository.find_by_username("admin")
-                            if admin_user:
-                                restore_user_id = admin_user.id
-                            else:
-                                first_user = UserRepository.find_by_id(1)
-                                if first_user:
-                                    restore_user_id = first_user.id
-                                else:
-                                    raise ValueError("No user found to attribute the restore to")
-                    
-                    # Get the backup file path
-                    encrypted_path = Path(backup_record["file_path"])
-                    if not encrypted_path.exists():
-                        _persist("restore_job_status", "failed")
-                        _persist("restore_job_error", f"Backup file not found: {encrypted_path}")
-                        return
-                    
-                    # Get database parameters
-                    db_params = _get_db_params()
-                    
-                    # Decrypt backup for restore
-                    key_id = backup_record.get("encryption_key_id")
-                    if not key_id:
-                        _persist("restore_job_status", "failed")
-                        _persist("restore_job_error", "Backup encryption key ID missing.")
-                        return
-                    
-                    decrypted_path = _decrypt_file(encrypted_path, key_id)
-                    
-                    try:
-                        # Create the restore command
-                        restore_cmd = _get_restore_command(db_params, str(decrypted_path))
-                        
-                        # Set environment for subprocess
-                        env = os.environ.copy()
-                        if "url" in db_params:
-                            pass
-                        else:
-                            env["PGPASSWORD"] = db_params["password"]
-                        
-                        # Run the restore
-                        result = subprocess.run(
-                            restore_cmd,
-                            env=env,
-                            capture_output=True,
-                            text=True,
-                            check=False
-                        )
-                        
-                        if result.returncode != 0:
-                            error_msg = f"Restore failed: {result.stderr}"
-                            _persist("restore_job_status", "failed")
-                            _persist("restore_job_error", error_msg)
-                        else:
-                            _persist("restore_job_status", "success")
-                            _persist("restore_job_error")
-                    
-                    finally:
-                        # Clean up decrypted file
-                        if decrypted_path.exists():
-                            decrypted_path.unlink()
-                        
-                        monitoring_cache.invalidate("")  # bust cache
-                        
-                except Exception as e:
-                    LOGGER.warning("Background restore failed: %s", _safe_error(e))
-                    _persist("restore_job_status", "failed")
-                    _persist("restore_job_error", _safe_error(e))
-            finally:
-                # ADM-004: Release advisory lock and close dedicated connection
-                # This runs even if background thread crashes
-                try:
-                    _release_restore_lock(bg_conn)
-                finally:
-                    bg_conn.close()
-    
-    # Start background thread
-    thread = threading.Thread(target=_run, daemon=True, name="restore_run")
+
+    # Creates ITS OWN connection for the advisory lock — advisory locks are
+    # session-level and released when the connection closes.
+    bg_conn = _open_conn()
     try:
-        thread.start()
-    except Exception as e:
-        LOGGER.error("Failed to start restore thread: %s", _safe_error(e))
-        return {
-            "success": False,
-            "message": f"Failed to start restore: {_safe_error(e)}",
-        }
-    
-    return {
-        "success": True,
-        "message": "Restore started in background. Check monitoring page for status.",
-        "started": True
-    }
+        # Clean up any stale lock on THIS connection
+        _cleanup_stale_restore_lock(bg_conn)
+
+        # Acquire advisory lock on THIS connection
+        if not _acquire_restore_lock(bg_conn):
+            _persist("restore_job_status", "failed")
+            _persist("restore_job_error", "Another restore acquired lock")
+            return {"success": False, "message": "Another restore acquired lock"}
+
+        try:
+            _persist("restore_job_status", "running")
+            _persist("restore_job_error")
+
+            # Get the backup record
+            backup_record = SystemBackupRepository.get_by_id(backup_id)
+            if not backup_record:
+                _persist("restore_job_status", "failed")
+                _persist("restore_job_error", "Backup record not found")
+                return {"success": False, "message": "Backup record not found"}
+
+            # Determine the user who initiated the restore (use local variable)
+            restore_user_id = user_id
+            if restore_user_id is None:
+                from flask_login import current_user
+                if current_user.is_authenticated:
+                    restore_user_id = current_user.id
+                else:
+                    admin_user = UserRepository.find_by_username("admin")
+                    if admin_user:
+                        restore_user_id = admin_user.id
+                    else:
+                        first_user = UserRepository.find_by_id(1)
+                        if first_user:
+                            restore_user_id = first_user.id
+                        else:
+                            raise ValueError("No user found to attribute the restore to")
+
+            # Get the backup file path
+            encrypted_path = Path(backup_record["file_path"])
+            if not encrypted_path.exists():
+                _persist("restore_job_status", "failed")
+                _persist("restore_job_error", f"Backup file not found: {encrypted_path}")
+                return {"success": False, "message": f"Backup file not found: {encrypted_path}"}
+
+            # Get database parameters
+            db_params = _get_db_params()
+
+            # Decrypt backup for restore
+            key_id = backup_record.get("encryption_key_id")
+            if not key_id:
+                _persist("restore_job_status", "failed")
+                _persist("restore_job_error", "Backup encryption key ID missing.")
+                return {"success": False, "message": "Backup encryption key ID missing."}
+
+            decrypted_path = _decrypt_file(encrypted_path, key_id)
+
+            try:
+                # Create the restore command
+                restore_cmd = _get_restore_command(db_params, str(decrypted_path))
+
+                # Set environment for subprocess
+                env = os.environ.copy()
+                if "url" in db_params:
+                    pass
+                else:
+                    env["PGPASSWORD"] = db_params["password"]
+
+                # Run the restore. timeout=600 matches the worker's 10-min
+                # stale threshold — a hung pg_restore must not hang the
+                # worker thread past the point where stale-requeue would
+                # duplicate the job.
+                result = subprocess.run(
+                    restore_cmd,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=600,
+                )
+
+                if result.returncode != 0:
+                    error_msg = f"Restore failed: {result.stderr}"
+                    _persist("restore_job_status", "failed")
+                    _persist("restore_job_error", error_msg)
+                    return {"success": False, "message": error_msg}
+                else:
+                    _persist("restore_job_status", "success")
+                    _persist("restore_job_error")
+                    return {"success": True, "message": "Restore completed successfully"}
+
+            finally:
+                # Clean up decrypted file
+                if decrypted_path.exists():
+                    decrypted_path.unlink()
+
+                monitoring_cache.invalidate("")  # bust cache
+
+        except Exception as e:
+            LOGGER.warning("Background restore failed: %s", _safe_error(e))
+            _persist("restore_job_status", "failed")
+            _persist("restore_job_error", _safe_error(e))
+            return {"success": False, "message": _safe_error(e)}
+    finally:
+        # ADM-004: Release advisory lock and close dedicated connection
+        # This runs even if the restore crashes
+        try:
+            _release_restore_lock(bg_conn)
+        finally:
+            bg_conn.close()
 
 
 # Register restore handler with JobQueueService (GAP-012)
 try:
     from app.services.job_queue_service import JobQueueService
 
-    def _restore_handler(payload: dict) -> dict:
-        backup_id = payload["backup_id"]
-        user_id = payload.get("user_id")
-        # The actual restore logic is in restore_backup, but we need to adapt it
-        # to work with the job queue. We'll call the existing restore logic.
-        from .backup_service import restore_backup
-        return restore_backup(backup_id, user_id)
+    def _restore_backup_handler(payload: dict) -> dict:
+        """Queue handler — SYNCHRONOUS restore. Never spawns threads.
 
-    JobQueueService.register_handler("restore_backup", _restore_handler)
-except ImportError:
-    # JobQueueService not available (e.g., during migration)
+        (The old handler re-entered restore_backup()'s threading path: the
+        queued job 'completed' instantly while a daemon thread did the work.)
+        """
+        return _restore_sync(payload["backup_id"], payload.get("user_id"))
+
+    JobQueueService.register_handler("restore_backup", _restore_backup_handler)
+except (ImportError, ValueError):
+    # JobQueueService not available (e.g., during migration), or the handler
+    # is already registered (module re-import).
     pass
 
 

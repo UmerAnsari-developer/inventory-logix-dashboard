@@ -182,6 +182,16 @@ def create_app(config_name: str | None = None) -> Flask:
                     raise
                 LOGGER.warning("Database bootstrap deferred: %s", exc)
 
+    # GAP-012 Batch 5: in-process job-queue worker (opt-in).
+    if (
+        app.config.get("JOB_QUEUE_ENABLED")
+        and not app.config.get("TESTING")
+        and not reloader_parent
+    ):
+        from .worker import start_worker_thread
+
+        start_worker_thread(app)
+
     return app
 
 

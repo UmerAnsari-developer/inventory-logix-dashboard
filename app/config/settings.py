@@ -112,6 +112,12 @@ class Config:
     # Portfolio forecast: run actual models per product (cached) vs moving average baseline
     PORTFOLIO_RUN_ACTUAL_MODELS = _bool(os.environ.get("PORTFOLIO_RUN_ACTUAL_MODELS"), False)
 
+    # GAP-012 Batch 5: persistent job queue. When True, background routes
+    # enqueue instead of spawning threads and an in-process worker executes
+    # jobs (or run `python -m app.worker` standalone). Default off = legacy
+    # threading behavior, byte-identical.
+    JOB_QUEUE_ENABLED = _bool(os.environ.get("JOB_QUEUE_ENABLED"), False)
+
     @classmethod
     def psycopg2_params(cls) -> dict:
         if cls.DATABASE_URL:
@@ -147,6 +153,9 @@ class TestingConfig(Config):
     RATELIMIT_STORAGE_URI = "memory://"
     # Hermetic caches too — never touch Redis from the test suite.
     USE_REDIS_CACHE = False
+    # Hermetic: the test suite never starts the worker thread or takes the
+    # queue code paths unless a test explicitly flips this per-test.
+    JOB_QUEUE_ENABLED = False
     # Default to a test-specific DB name to avoid hitting production data
     DB_NAME = os.environ.get("TEST_DB_NAME", "inventory_db_test")
 

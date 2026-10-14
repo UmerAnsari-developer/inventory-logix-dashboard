@@ -7,7 +7,7 @@ import json
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List
 
-from flask import Response, current_app
+from flask import Response, current_app, has_app_context
 
 from ..database import get_cursor
 from ..repositories import (
@@ -112,6 +112,16 @@ class AuditReportService:
         generated_by: int
     ) -> str:
         """Start async report generation and return job ID."""
+        # GAP-012 Batch 5: queue mode — enqueue instead of JobTracker + thread.
+        # user_id rides in the payload: the job_status 403 ownership check
+        # depends on it (job_queue has no user_id column).
+        if has_app_context() and current_app.config.get("JOB_QUEUE_ENABLED"):
+            from app.services.job_queue_service import JobQueueService
+
+            return str(JobQueueService.enqueue(
+                "generate_report", {"report_id": report_id, "user_id": generated_by}
+            ))
+
         # Threads do not inherit the caller's app context — without this the
         # background thread dies on `current_app` at its first DB touch and
         # the job flips straight to 'failed'.
@@ -298,7 +308,8 @@ try:
 
     def _generate_report_handler(payload: dict) -> dict:
         report_id = payload["report_id"]
-        generated_by = payload.get("generated_by")
+        # Batch 5 enqueue writes "user_id"; accept the legacy key too.
+        generated_by = payload.get("user_id") or payload.get("generated_by")
         # Use the existing synchronous method
         return AuditReportService.generate_and_save_report(report_id, generated_by)
 

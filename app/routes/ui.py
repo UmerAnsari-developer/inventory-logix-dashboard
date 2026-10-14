@@ -12,7 +12,7 @@ import logging
 import threading
 from datetime import date, timedelta
 
-from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from ..extensions import limiter
@@ -2366,7 +2366,22 @@ def monitoring():
         # Surface interrupted at READ time only; the row stays 'running'.
         job = etl_status.get("etl_job_status")
         if job and job.get("value") == "running" and not _ETL_RUN_LOCK.locked():
-            etl_status["etl_job_status"] = {**job, "value": "interrupted"}
+            # GAP-012 Batch 5: a worker-driven ETL writes the same keys but
+            # holds no _ETL_RUN_LOCK — treat a running run_etl queue row as
+            # live so a healthy worker run is not misreported as interrupted.
+            # ponytail: a worker killed mid-run leaves the row 'running' up to
+            # 10 min before stale-requeue — monitoring shows "running", not
+            # "interrupted", in that window; self-heals on the next tick.
+            queue_live = False
+            if current_app.config.get("JOB_QUEUE_ENABLED"):
+                with get_cursor() as cur:
+                    cur.execute(
+                        "SELECT EXISTS(SELECT 1 FROM job_queue "
+                        "WHERE task_name = 'run_etl' AND status = 'running') AS live"
+                    )
+                    queue_live = cur.fetchone()["live"]
+            if not queue_live:
+                etl_status["etl_job_status"] = {**job, "value": "interrupted"}
         return {
             "active_sessions": active_sessions,
             "login_history": login_history,
@@ -2380,6 +2395,32 @@ def monitoring():
     return render_template("monitoring.html", **cached)
 
 
+def _run_etl_via_queue():
+    """GAP-012 Batch 5: queue-mode POST /monitoring/run-etl.
+
+    Enqueues a ``run_etl`` job instead of spawning a daemon thread; the
+    job-queue worker executes it. The pending/running duplicate-row guard
+    replaces ``_ETL_RUN_LOCK`` here (a process-local lock cannot see a
+    worker-driven run).
+    """
+    from app.services.job_queue_service import JobQueueService
+
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT id FROM job_queue WHERE task_name = 'run_etl' "
+            "AND status IN ('pending', 'running') LIMIT 1"
+        )
+        existing = cur.fetchone()
+    if existing:
+        flash("ETL already queued or running", "warning")
+        return redirect(url_for("ui.monitoring"))
+
+    job_id = JobQueueService.enqueue("run_etl", {"force": True})
+    monitoring_cache.invalidate("")  # bust so the page shows fresh ETL state
+    flash(f"ETL queued (job #{job_id})", "success")
+    return redirect(url_for("ui.monitoring"))
+
+
 @ui_bp.route("/monitoring/run-etl", methods=["POST"])
 @limiter.limit("5 per minute")
 @login_required
@@ -2390,6 +2431,10 @@ def monitoring_run_etl():
 
     from ..database.connection import etl_database
     from ..database.etl import _safe_error
+
+    # GAP-012 Batch 5: queue mode — enqueue instead of spawning a thread.
+    if current_app.config.get("JOB_QUEUE_ENABLED"):
+        return _run_etl_via_queue()
 
     # F2: non-blocking in-flight guard — no second worker (double-TRUNCATE)
     # while one is running. Lives in the route/thread only: direct

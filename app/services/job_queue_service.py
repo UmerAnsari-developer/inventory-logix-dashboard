@@ -98,10 +98,12 @@ class JobQueueService:
         try:
             result = handler(job.payload)
             with get_cursor(commit=True) as cur:
+                # Guarded: a stale-requeued duplicate execution must not
+                # clobber the state written by the claim that owns the row.
                 cur.execute(
                     """
                     UPDATE job_queue SET status='completed', completed_at=now(), result=%s
-                    WHERE id=%s
+                    WHERE id=%s AND status='running'
                     """,
                     (json.dumps(result), job.id),
                 )
@@ -115,7 +117,7 @@ class JobQueueService:
                     cur.execute(
                         """
                         UPDATE job_queue SET status='dead', completed_at=now(), error=%s
-                        WHERE id=%s
+                        WHERE id=%s AND status='running'
                         """,
                         (safe, job.id),
                     )
@@ -126,7 +128,7 @@ class JobQueueService:
                         """
                         UPDATE job_queue SET status='pending', attempts=attempts+1,
                                next_run=now() + make_interval(mins => attempts + 1)
-                        WHERE id=%s
+                        WHERE id=%s AND status='running'
                         """,
                         (job.id,),
                     )

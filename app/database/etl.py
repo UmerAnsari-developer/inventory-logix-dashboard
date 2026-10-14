@@ -771,9 +771,53 @@ def _run_warehouse_etl(conn=None):
 try:
     from app.services.job_queue_service import JobQueueService
 
+    def _persist_etl_state(key: str, value: str | None) -> None:
+        """Mirror the route thread's etl_warehouse_state writes (H2 fix) so the
+        /monitoring page shows queue-mode ETL runs identically. Best-effort."""
+        try:
+            from app.database import get_cursor
+
+            with get_cursor(commit=True) as cur:
+                if value is None:
+                    cur.execute(
+                        "DELETE FROM etl_warehouse_state WHERE state_key = %s",
+                        (key,),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO etl_warehouse_state (state_key, value, updated_at)
+                        VALUES (%s, %s, NOW())
+                        ON CONFLICT (state_key)
+                        DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                        """,
+                        (key, str(value)),
+                    )
+        except Exception as exc:  # noqa: BLE001 — status writes must never fail the job
+            LOGGER.warning("Could not persist ETL state %s: %s", key, _safe_error(exc))
+
     def _etl_handler(payload: dict) -> dict:
-        """Run ETL pipeline."""
-        return run_etl(force=payload.get("force", False))
+        """Run ETL pipeline — writes the same monitoring keys as the legacy
+        route thread (etl_job_status/etl_job_error/warehouse_etl_ok) so the
+        /monitoring page renders queue-mode runs identically."""
+        from app.utils.cache import monitoring_cache
+
+        _persist_etl_state("etl_job_status", "running")
+        _persist_etl_state("etl_job_error", None)
+        try:
+            summary = run_etl(force=payload.get("force", False))
+        except Exception as exc:
+            _persist_etl_state("etl_job_status", "failed")
+            _persist_etl_state("etl_job_error", _safe_error(exc))
+            monitoring_cache.invalidate("")
+            raise
+        _persist_etl_state("etl_job_status", "success")
+        _persist_etl_state(
+            "warehouse_etl_ok", str(summary.get("warehouse_etl_ok", True))
+        )
+        _persist_etl_state("etl_job_error", None)
+        monitoring_cache.invalidate("")
+        return summary
 
     JobQueueService.register_handler("run_etl", _etl_handler)
 except ImportError:
