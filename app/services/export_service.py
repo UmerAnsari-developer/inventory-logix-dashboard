@@ -114,6 +114,7 @@ class ExportService:
                 FROM movements m
                 LEFT JOIN products p ON m.product_id = p.id
                 LEFT JOIN users u ON m.user_id = u.id
+                WHERE m.deleted_at IS NULL
                 ORDER BY m.created_at DESC
                 LIMIT %s
                 """,
@@ -183,6 +184,7 @@ class ExportService:
                 FROM purchase_orders po
                 LEFT JOIN suppliers s ON po.supplier_id = s.id
                 LEFT JOIN products p ON po.product_id = p.id
+                WHERE po.deleted_at IS NULL
                 ORDER BY po.created_at DESC
                 """
             )

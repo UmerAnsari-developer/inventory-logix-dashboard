@@ -111,7 +111,8 @@ def dashboard_live():
             )
             risk = cur.fetchone()
             cur.execute(
-                "SELECT COALESCE(SUM(quantity), 0) AS units FROM movements WHERE created_at::date = %s",
+                "SELECT COALESCE(SUM(quantity), 0) AS units FROM movements "
+                "WHERE created_at::date = %s AND deleted_at IS NULL",
                 (today,),
             )
             units_today = int(cur.fetchone()["units"] or 0)

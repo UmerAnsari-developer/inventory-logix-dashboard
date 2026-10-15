@@ -170,6 +170,7 @@ class AnomalyService:
                                           ELSE 0 END), 0) AS total
                 FROM movements m
                 WHERE m.product_id = ANY(%s) AND m.created_at >= NOW() - INTERVAL '120 days'
+                  AND m.deleted_at IS NULL
                 GROUP BY m.product_id, m.created_at::date, m.type
                 ORDER BY m.product_id, day
                 """,
@@ -329,6 +330,7 @@ class AnomalyService:
                     SELECT 1 FROM movements m 
                     WHERE m.product_id = p.id 
                     AND m.created_at >= NOW() - INTERVAL '120 days'
+                    AND m.deleted_at IS NULL
                 )
                 ORDER BY p.id
             """)
@@ -346,6 +348,7 @@ class AnomalyService:
                        COALESCE(SUM(CASE WHEN m.type='OUT' THEN m.quantity ELSE 0 END), 0) AS total
                 FROM movements m
                 WHERE m.product_id = ANY(%s) AND m.created_at >= NOW() - INTERVAL '120 days'
+                  AND m.deleted_at IS NULL
                 GROUP BY m.product_id, m.created_at::date
                 ORDER BY m.product_id, day
             """, (product_ids,))

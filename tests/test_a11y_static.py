@@ -28,26 +28,11 @@ ARIA_LABEL = re.compile(r"\baria-label\s*=", re.I)
 HTML_TAG = re.compile(r"<[^>]+>")
 HTML_ENTITY = re.compile(r"&[a-zA-Z#0-9]+;")
 
-# Templates that still carry unscoped <th> and are OUTSIDE Agent A's Batch-4
-# file ownership (dashboard.html, monitoring.html, admin/*) — reported to the
-# orchestrator for assignment. Ratchet: an entry must be removed once its file
-# is fixed (a fully-scoped allowlisted file FAILS below), and no new file may
-# appear here (any unscoped <th> outside this set FAILS).
-KNOWN_UNSCOPED = frozenset(
-    {
-        "admin/audit_report/index.html",
-        "admin/backup/index.html",
-        "admin/dashboard/index.html",
-        "admin/log_viewer/index.html",
-        "admin/system_config/index.html",
-        "admin/user_activity/index.html",
-        "admin/user_activity/user.html",
-        "admin/user_activity_analytics/index.html",
-        "admin/user_management/index.html",
-        "dashboard.html",
-        "monitoring.html",
-    }
-)
+# GAP-014 complete: every template's <th> is scoped, so the ratchet is now a
+# hard repo-wide guarantee — ANY unscoped <th> in ANY template fails the test.
+# Keep the set (not the mechanism) so a future regression has a place to be
+# ratcheted, but it must stay empty.
+KNOWN_UNSCOPED = frozenset()
 
 
 def _unscoped_th(text: str) -> list[str]:
@@ -141,4 +126,23 @@ def test_forecast_warning_banner_present():
     js = AI_FEATURES_JS.read_text(encoding="utf-8")
     assert "forecast-warning" in js, (
         "ai-features.js must populate the forecast-warning banner"
+    )
+
+
+# ── Stored-XSS: innerHTML row builders escape server data ────────────────
+
+def test_portfolio_rows_escape_server_data():
+    # RED evidence: a raw `+ r.sku +` concat into innerHTML trips the detector;
+    # escapeHtml(r.sku) does not. Product name/sku are manager-writable free
+    # text, so any unescaped interpolation is a stored-XSS sink for viewers.
+    js = AI_FEATURES_JS.read_text(encoding="utf-8")
+    assert re.search(r"\bescapeHtml\b\s*=", js), (
+        "ai-features.js must define an escapeHtml helper"
+    )
+    assert "escapeHtml(r.sku)" in js and "escapeHtml(r.name)" in js, (
+        "portfolio row builders must wrap sku/name (manager-writable) in escapeHtml"
+    )
+    raw = re.findall(r"\+\s*r\.\w+", js)
+    assert raw == [], (
+        f"unescaped server-data interpolation into innerHTML: {raw}"
     )

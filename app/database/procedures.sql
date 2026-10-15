@@ -295,6 +295,7 @@ BEGIN
            COALESCE(SUM(m.quantity), 0)::BIGINT AS total
     FROM movements m
     WHERE m.created_at >= (CURRENT_DATE - (p_days - 1))
+      AND m.deleted_at IS NULL
     GROUP BY day ORDER BY day;
 END;
 $$ LANGUAGE plpgsql;
@@ -308,6 +309,7 @@ BEGIN
            COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity ELSE 0 END), 0)::BIGINT AS out_qty
     FROM movements m
     WHERE m.created_at >= (CURRENT_DATE - (p_days - 1))
+      AND m.deleted_at IS NULL
     GROUP BY day ORDER BY day;
 END;
 $$ LANGUAGE plpgsql;
@@ -330,6 +332,7 @@ BEGIN
         FROM movements m
         WHERE m.created_at >= (CURRENT_DATE - (p_days - 1))
           AND m.product_id = p_product_id
+          AND m.deleted_at IS NULL
         GROUP BY day
     ) m ON m.day = d.day::date
     ORDER BY d.day;
@@ -342,7 +345,7 @@ DECLARE
     total BIGINT;
 BEGIN
     SELECT COALESCE(SUM(quantity), 0) INTO total
-    FROM movements WHERE created_at::date = CURRENT_DATE;
+    FROM movements WHERE created_at::date = CURRENT_DATE AND deleted_at IS NULL;
     RETURN total;
 END;
 $$ LANGUAGE plpgsql;

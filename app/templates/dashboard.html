@@ -161,7 +161,7 @@
     <div class="table-scroll">
       <table>
         <thead>
-          <tr><th>SKU</th><th>Product</th><th>Current</th><th>Stock runway</th><th>ROP</th><th>EOQ</th><th>State</th>{% if current_user.role in ['admin', 'manager'] %}<th>Action</th>{% endif %}</tr>
+          <tr><th scope="col">SKU</th><th scope="col">Product</th><th scope="col">Current</th><th scope="col">Stock runway</th><th scope="col">ROP</th><th scope="col">EOQ</th><th scope="col">State</th>{% if current_user.role in ['admin', 'manager'] %}<th scope="col">Action</th>{% endif %}</tr>
         </thead>
         <tbody>
           {% for product in queue %}
@@ -216,7 +216,7 @@
       <div class="table-scroll compact">
         <table>
           <thead>
-            <tr><th>Product</th><th>Days idle</th><th>Stock</th><th>Value</th></tr>
+            <tr><th scope="col">Product</th><th scope="col">Days idle</th><th scope="col">Stock</th><th scope="col">Value</th></tr>
           </thead>
           <tbody>
             {% for p in slow_movers %}
@@ -254,7 +254,7 @@
       <div class="table-scroll compact">
         <table>
           <thead>
-            <tr><th>#</th><th>Product</th><th>Units</th></tr>
+            <tr><th scope="col">#</th><th scope="col">Product</th><th scope="col">Units</th></tr>
           </thead>
           <tbody>
             {% for p in top_demand %}
@@ -292,7 +292,7 @@
       <div class="table-scroll compact">
         <table>
           <thead>
-            <tr><th>#</th><th>Product</th><th>Revenue</th></tr>
+            <tr><th scope="col">#</th><th scope="col">Product</th><th scope="col">Revenue</th></tr>
           </thead>
           <tbody>
             {% for p in top_sales %}
@@ -328,7 +328,7 @@
       <div class="table-scroll compact">
         <table>
           <thead>
-            <tr><th>#</th><th>Supplier</th><th>Units supplied</th><th>SKUs</th></tr>
+            <tr><th scope="col">#</th><th scope="col">Supplier</th><th scope="col">Units supplied</th><th scope="col">SKUs</th></tr>
           </thead>
           <tbody>
             {% for s in top_suppliers %}
@@ -384,7 +384,7 @@
     <div class="panel-content">
       <div class="table-scroll compact">
         <table>
-          <thead><tr><th>Category</th><th>COGS (₹)</th><th>Avg Inv Value (₹)</th><th>Turnover Rate</th><th>SKUs</th></tr></thead>
+          <thead><tr><th scope="col">Category</th><th scope="col">COGS (₹)</th><th scope="col">Avg Inv Value (₹)</th><th scope="col">Turnover Rate</th><th scope="col">SKUs</th></tr></thead>
           <tbody>
             {% for t in turnover_by_category %}
             <tr>
@@ -413,7 +413,7 @@
     <div class="panel-content">
       <div class="table-scroll compact">
         <table>
-          <thead><tr><th>Class</th><th>#</th><th>SKU</th><th>Product</th><th>Category</th><th>Value (₹)</th><th>Cumulative %</th></tr></thead>
+          <thead><tr><th scope="col">Class</th><th scope="col">#</th><th scope="col">SKU</th><th scope="col">Product</th><th scope="col">Category</th><th scope="col">Value (₹)</th><th scope="col">Cumulative %</th></tr></thead>
           <tbody>
             {% for a in abc_data[:30] %}
             <tr class="{{ 'abc-a' if a.class == 'A' else 'abc-b' if a.class == 'B' else 'abc-c' }}">

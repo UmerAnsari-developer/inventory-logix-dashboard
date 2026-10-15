@@ -228,6 +228,7 @@ class ForecastService:
                        COALESCE(SUM(CASE WHEN m.type='OUT' THEN m.quantity ELSE 0 END), 0) AS total
                 FROM movements m
                 WHERE m.product_id = ANY(%s) AND m.created_at >= NOW() - INTERVAL '180 days'
+                  AND m.deleted_at IS NULL
                 GROUP BY m.product_id, m.created_at::date
                 ORDER BY m.product_id, day
                 """,
@@ -323,6 +324,7 @@ class ForecastService:
                        COALESCE(SUM(CASE WHEN m.type='OUT' THEN m.quantity ELSE 0 END), 0) AS total
                 FROM movements m
                 WHERE m.product_id = ANY(%s) AND m.created_at >= NOW() - INTERVAL '90 days'
+                  AND m.deleted_at IS NULL
                 GROUP BY m.product_id, m.created_at::date
                 ORDER BY m.product_id, day
                 """,

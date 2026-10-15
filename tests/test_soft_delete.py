@@ -1,9 +1,9 @@
-"""GAP-020 phase 1: soft delete for movements + purchase_orders.
+"""GAP-020: soft delete for movements + purchase_orders (phases 1 + 2).
 
-Verifies the migration landed (columns, indexes, procs), that the three
-filtered list procs exclude soft-deleted rows, that sp_po_transition refuses
-deleted POs, and PINS the documented phase-1 limitation: analytics
-(sp_movement_daily_totals) still counts soft-deleted rows.
+Verifies the migration landed (columns, indexes, procs), that the filtered
+list procs exclude soft-deleted rows, that sp_po_transition refuses deleted
+POs, that soft deletes write audit rows (phase 2), and that analytics
+(sp_movement_daily_totals) EXCLUDE soft-deleted rows (phase 2 reconciliation).
 """
 from __future__ import annotations
 
@@ -150,9 +150,9 @@ def test_po_transition_blocked_for_deleted(app):
             assert cur.fetchone()["status"] == "draft"
 
 
-# ── phase-1 limitation (pinned): analytics still count soft-deleted rows ────
+# ── phase 2: analytics exclude soft-deleted rows ─────────────────────────────
 
-def test_soft_deleted_rows_still_counted_in_analytics(app):
+def test_soft_deleted_rows_excluded_from_analytics(app):
     pid = _mk_product(app, stock=10)
     with app.app_context():
         with get_cursor() as cur:
@@ -171,8 +171,45 @@ def test_soft_deleted_rows_still_counted_in_analytics(app):
         with get_cursor(commit=True) as cur:
             cur.execute("SELECT sp_movement_soft_delete(%s)", (mv_id,))
 
-        # PINNED phase-1 limitation: daily totals STILL include the
-        # soft-deleted movement until GAP-020 phase 2 filters analytics.
+        # Phase 2: daily totals EXCLUDE the soft-deleted movement.
         with get_cursor() as cur:
             cur.execute("SELECT COALESCE(SUM(total), 0) AS t FROM sp_movement_daily_totals(1)")
-            assert int(cur.fetchone()["t"]) == base + 7
+            assert int(cur.fetchone()["t"]) == base
+
+
+# ── phase 2: soft deletes write audit rows ───────────────────────────────────
+
+def test_po_soft_delete_writes_audit_row(app):
+    pid = _mk_product(app)
+    po_id = _mk_po(app, pid)
+    with app.app_context():
+        with get_cursor(commit=True) as cur:
+            cur.execute("SELECT sp_po_soft_delete(%s)", (po_id,))
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT action FROM audit_log "
+                "WHERE target_type = 'purchase_order' AND target_id = %s "
+                "AND action = 'po_deleted' ORDER BY id DESC LIMIT 1",
+                (po_id,),
+            )
+            row = cur.fetchone()
+    assert row is not None, "po_deleted audit row must exist after soft delete"
+
+
+def test_movement_soft_delete_writes_audit_row(app):
+    pid = _mk_product(app, stock=10)
+    with app.app_context():
+        with get_cursor(commit=True) as cur:
+            cur.execute("SELECT sp_movement_record(%s, 'IN', 3, 'sd-audit', NULL, NULL)",
+                        (pid,))
+            mv_id = cur.fetchone()["sp_movement_record"]
+            cur.execute("SELECT sp_movement_soft_delete(%s)", (mv_id,))
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT action FROM audit_log "
+                "WHERE target_type = 'movement' AND target_id = %s "
+                "AND action = 'movement_deleted' ORDER BY id DESC LIMIT 1",
+                (mv_id,),
+            )
+            row = cur.fetchone()
+    assert row is not None, "movement_deleted audit row must exist after soft delete"

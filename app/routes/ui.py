@@ -110,7 +110,8 @@ def dashboard():
             critical_count = int(agg["critical"] or 0)
             warning_count = int(agg["warning"] or 0)
 
-            cur.execute("SELECT COALESCE(SUM(quantity), 0) AS units FROM movements WHERE created_at::date = %s", (today,))
+            cur.execute("SELECT COALESCE(SUM(quantity), 0) AS units FROM movements "
+                        "WHERE created_at::date = %s AND deleted_at IS NULL", (today,))
             units_today = int(cur.fetchone()["units"] or 0)
 
             # --- KPI deltas: daily avg (30d) and previous month inventory value ---
@@ -118,6 +119,7 @@ def dashboard():
                 "SELECT COALESCE(AVG(daily_qty), 0) AS avg FROM ("
                 "  SELECT SUM(quantity) AS daily_qty FROM movements "
                 "  WHERE created_at >= %s AND created_at::date != %s "
+                "    AND deleted_at IS NULL "
                 "  GROUP BY created_at::date"
                 ") sub",
                 (today - timedelta(days=30), today),
@@ -139,7 +141,8 @@ def dashboard():
                 SELECT COALESCE(SUM(
                     (SELECT COALESCE(SUM(quantity), 0) FROM movements m2
                      WHERE m2.product_id = p.id AND m2.type = 'OUT'
-                       AND m2.created_at >= %s AND m2.created_at < %s)
+                       AND m2.created_at >= %s AND m2.created_at < %s
+                       AND m2.deleted_at IS NULL)
                     * p.unit_price
                 ), 0) AS prev_out_value
                 FROM products p WHERE p.unit_price IS NOT NULL
@@ -181,6 +184,7 @@ def dashboard():
                 SELECT p.id, p.sku, p.name
                 FROM products p
                 LEFT JOIN movements m ON m.product_id = p.id AND m.created_at >= %s
+                    AND m.deleted_at IS NULL
                 GROUP BY p.id, p.sku, p.name
                 ORDER BY COALESCE(SUM(m.quantity), 0) DESC, p.id
                 LIMIT 1
@@ -203,7 +207,7 @@ def dashboard():
                 LEFT JOIN (
                     SELECT product_id, MAX(created_at::date) AS max_date
                     FROM movements 
-                    WHERE type = 'OUT'
+                    WHERE type = 'OUT' AND deleted_at IS NULL
                     GROUP BY product_id
                 ) last_out ON last_out.product_id = p.id
                 ORDER BY last_out ASC
@@ -224,7 +228,7 @@ def dashboard():
                                          THEN m.quantity * p.unit_price ELSE 0 END), 0) AS value
                 FROM products p
                 JOIN movements m ON m.product_id = p.id
-                WHERE m.created_at >= %s
+                WHERE m.created_at >= %s AND m.deleted_at IS NULL
                 GROUP BY p.sku, p.name, p.category
                 """,
                 (today - timedelta(days=90),),
@@ -244,7 +248,7 @@ def dashboard():
                 FROM suppliers s
                 JOIN products p ON p.supplier_id = s.id
                 LEFT JOIN movements m ON m.product_id = p.id
-                    AND m.type = 'IN' AND m.created_at >= %s
+                    AND m.type = 'IN' AND m.created_at >= %s AND m.deleted_at IS NULL
                 GROUP BY s.id
                 ORDER BY spend DESC, units_in DESC
                 LIMIT 5
@@ -278,7 +282,7 @@ def dashboard():
                        COUNT(*) AS sku_count
                 FROM products p
                 LEFT JOIN movements m ON m.product_id = p.id
-                    AND m.type = 'OUT' AND m.created_at >= %s
+                    AND m.type = 'OUT' AND m.created_at >= %s AND m.deleted_at IS NULL
                 WHERE p.category IS NOT NULL AND p.unit_price IS NOT NULL
                 GROUP BY p.category
                 ORDER BY cogs DESC
@@ -999,7 +1003,7 @@ def reports():
         with _gc() as _cur:
             _cur.execute(
                 "SELECT DISTINCT product_id FROM movements "
-                "WHERE created_at >= %s AND created_at < %s",
+                "WHERE created_at >= %s AND created_at < %s AND deleted_at IS NULL",
                 (period_start, period_end),
             )
             period_active_ids = [r["product_id"] for r in _cur.fetchall()]
@@ -1346,7 +1350,7 @@ def reports():
             cur.execute(
                 f"""
                 SELECT
-                    (SELECT COUNT(*) FROM purchase_orders WHERE status NOT IN ('received','cancelled')) AS open_po,
+                    (SELECT COUNT(*) FROM purchase_orders WHERE status NOT IN ('received','cancelled') AND deleted_at IS NULL) AS open_po,
                     (SELECT COUNT(DISTINCT s.id) FROM suppliers s LEFT JOIN products p ON p.supplier_id = s.id {_pc_sub}) AS supplier_count,
                     (SELECT COUNT(*) FROM products p {_pc_sub}
                      AND current_stock <= reorder_point AND on_order <= 0) AS unders
@@ -1401,7 +1405,7 @@ def reports():
                        COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity END) / 90.0, 0) AS daily_out
                 FROM products p
                 LEFT JOIN movements m ON m.product_id = p.id
-                    AND m.type = 'OUT' AND m.created_at >= %s
+                    AND m.type = 'OUT' AND m.created_at >= %s AND m.deleted_at IS NULL
                 {product_where}
                 AND p.category IS NOT NULL
                 GROUP BY p.category
@@ -1425,7 +1429,7 @@ def reports():
                        COALESCE(AVG(p.current_stock * p.unit_price), 0) AS avg_inv
                 FROM products p
                 LEFT JOIN movements m ON m.product_id = p.id
-                    AND m.type = 'OUT' AND m.created_at >= %s
+                    AND m.type = 'OUT' AND m.created_at >= %s AND m.deleted_at IS NULL
                 {product_where}
                 AND p.warehouse IS NOT NULL AND p.unit_price IS NOT NULL
                 GROUP BY p.warehouse
@@ -1447,7 +1451,7 @@ def reports():
                 f"""
                 WITH last_out AS (
                     SELECT product_id, MAX(created_at) AS ts
-                    FROM movements WHERE type = 'OUT' GROUP BY product_id
+                    FROM movements WHERE type = 'OUT' AND deleted_at IS NULL GROUP BY product_id
                 )
                 SELECT
                     COALESCE(SUM(p.current_stock * p.unit_price) FILTER (
@@ -1495,7 +1499,7 @@ def reports():
                 SELECT p.sku, p.name, COALESCE(SUM(m.quantity), 0) AS units
                 FROM products p
                 JOIN movements m ON m.product_id = p.id
-                    AND m.created_at >= %s
+                    AND m.created_at >= %s AND m.deleted_at IS NULL
                 {product_where}
                 GROUP BY p.id, p.sku, p.name
                 ORDER BY units DESC LIMIT 10
@@ -1513,7 +1517,7 @@ def reports():
                 f"""
                 WITH last_move AS (
                     SELECT product_id, MAX(created_at) AS ts
-                    FROM movements GROUP BY product_id
+                    FROM movements WHERE deleted_at IS NULL GROUP BY product_id
                 )
                 SELECT
                     COUNT(*) FILTER (WHERE COALESCE(lm.ts, p.created_at) >= %s) AS fresh,
@@ -1557,7 +1561,8 @@ def reports():
                     COUNT(DISTINCT CASE WHEN type = 'OUT' THEN product_id END) AS skus
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
-                WHERE m.created_at >= %s AND m.created_at < %s {filter_clause}
+                WHERE m.created_at >= %s AND m.created_at < %s
+                  AND m.deleted_at IS NULL {filter_clause}
             """, (start, end) + tuple(params))
             return cur.fetchone()
 
@@ -1589,7 +1594,7 @@ def reports():
                     COALESCE(SUM(CASE WHEN created_at >= %s AND created_at < %s THEN quantity * unit_cost ELSE 0 END), 0) AS prev_ytd_value,
                     COUNT(CASE WHEN created_at >= %s AND created_at < %s THEN 1 END) AS prev_ytd_c
                 FROM purchase_orders
-                WHERE created_at >= %s AND created_at < %s
+                WHERE created_at >= %s AND created_at < %s AND deleted_at IS NULL
                 """,
                 tuple([
                     mtd_start, tomorrow, mtd_start, tomorrow,
@@ -1633,7 +1638,7 @@ def reports():
                        COALESCE(SUM(CASE WHEN m.type = 'OUT' THEN m.quantity * p.unit_price ELSE 0 END), 0) AS out_value
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
-                WHERE p.unit_price IS NOT NULL {filter_clause}
+                WHERE p.unit_price IS NOT NULL AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY 1 ORDER BY 1
                 """,
                 tuple(filter_params),
@@ -1655,7 +1660,8 @@ def reports():
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
                 WHERE p.unit_price IS NOT NULL
-                  AND m.created_at >= DATE_TRUNC('year', NOW()) - INTERVAL '1 year' {filter_clause}
+                  AND m.created_at >= DATE_TRUNC('year', NOW()) - INTERVAL '1 year'
+                  AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY 1, 2 ORDER BY 1, 2
                 """,
                 tuple(filter_params),
@@ -1688,7 +1694,8 @@ def reports():
                                          THEN m.quantity * p.unit_price ELSE 0 END), 0) AS sales_prev
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
-                WHERE p.category IS NOT NULL AND p.unit_price IS NOT NULL {filter_clause}
+                WHERE p.category IS NOT NULL AND p.unit_price IS NOT NULL
+                  AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY p.category ORDER BY cur DESC
                 """,
                 tuple([mtd_start, tomorrow, prev_mtd_start, mtd_start,
@@ -1727,7 +1734,9 @@ def reports():
             cur.execute(
                 """
                 SELECT status, COUNT(*) AS c, COALESCE(SUM(quantity * unit_cost), 0) AS value
-                FROM purchase_orders GROUP BY status ORDER BY value DESC
+                FROM purchase_orders
+                WHERE deleted_at IS NULL
+                GROUP BY status ORDER BY value DESC
                 """
             )
             po_status = list(cur.fetchall())
@@ -1745,6 +1754,7 @@ def reports():
                 LEFT JOIN suppliers s ON s.id = po.supplier_id
                 LEFT JOIN products p ON p.id = po.product_id
                 WHERE po.status NOT IN ('received', 'cancelled')
+                  AND po.deleted_at IS NULL
                 ORDER BY po.eta_date ASC LIMIT 12
                 """
             )
@@ -1796,7 +1806,7 @@ def reports():
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
                 WHERE m.created_at >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
-                  AND p.unit_price IS NOT NULL {filter_clause}
+                  AND p.unit_price IS NOT NULL AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY 1 ORDER BY 1
                 """,
                 tuple(filter_params),
@@ -1832,7 +1842,7 @@ def reports():
                     COUNT(*) FILTER (WHERE m.created_at >= %s AND m.created_at < %s) AS prev_ytd_orders
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
-                WHERE m.type = 'OUT' {filter_clause}
+                WHERE m.type = 'OUT' AND m.deleted_at IS NULL {filter_clause}
                 """,
                 tuple([
                     mtd_start, tomorrow,
@@ -1875,7 +1885,7 @@ def reports():
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
                 WHERE m.type = 'OUT' AND p.unit_price IS NOT NULL
-                  AND m.created_at >= '2024-01-01' {filter_clause}
+                  AND m.created_at >= '2024-01-01' AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY 1 ORDER BY 1
                 """,
                 tuple(filter_params),
@@ -1937,7 +1947,8 @@ def reports():
                                          THEN m.quantity * p.unit_price ELSE 0 END), 0) AS prev
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
-                WHERE m.type = 'OUT' AND p.category IS NOT NULL AND p.unit_price IS NOT NULL {filter_clause}
+                WHERE m.type = 'OUT' AND p.category IS NOT NULL AND p.unit_price IS NOT NULL
+                  AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY p.category ORDER BY cur DESC
                 """,
                 tuple([cur_q_start, tomorrow, prev_q_start, cur_q_start] + filter_params),
@@ -1953,7 +1964,8 @@ def reports():
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
                 WHERE m.type = 'OUT' AND p.unit_price IS NOT NULL
-                  AND EXTRACT(YEAR FROM m.created_at) BETWEEN %s AND %s {filter_clause}
+                  AND EXTRACT(YEAR FROM m.created_at) BETWEEN %s AND %s
+                  AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY 1, 2 ORDER BY 1, 2
                 """,
                 tuple([today.year - 2, today.year] + filter_params),
@@ -2006,7 +2018,8 @@ def reports():
                        COALESCE(SUM(m.quantity * p.unit_price), 0) AS value
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
-                WHERE m.type = 'OUT' AND p.warehouse IS NOT NULL AND p.unit_price IS NOT NULL {filter_clause}
+                WHERE m.type = 'OUT' AND p.warehouse IS NOT NULL AND p.unit_price IS NOT NULL
+                  AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY p.warehouse ORDER BY value DESC
                 """,
                 tuple(filter_params),
@@ -2022,7 +2035,8 @@ def reports():
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
                 WHERE m.type = 'OUT' AND p.category IS NOT NULL
-                      AND p.unit_price IS NOT NULL AND m.created_at >= %s {filter_clause}
+                      AND p.unit_price IS NOT NULL AND m.created_at >= %s
+                      AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY month, p.category
                 """,
                 tuple([date.today() - timedelta(days=365)] + filter_params),
@@ -2048,7 +2062,8 @@ def reports():
                        COALESCE(SUM(m.quantity * p.unit_price), 0) AS value
                 FROM movements m
                 JOIN products p ON p.id = m.product_id
-                WHERE m.type = 'OUT' AND p.unit_price IS NOT NULL {filter_clause}
+                WHERE m.type = 'OUT' AND p.unit_price IS NOT NULL
+                  AND m.deleted_at IS NULL {filter_clause}
                 GROUP BY p.sku, p.name, p.category
                 ORDER BY value DESC LIMIT 12
                 """,
@@ -2065,6 +2080,7 @@ def reports():
                 FROM purchase_orders
                 WHERE created_at >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
                   AND status NOT IN ('cancelled')
+                  AND deleted_at IS NULL
                 GROUP BY 1 ORDER BY 1
                 """
             )
@@ -2553,21 +2569,21 @@ def _landing_stats():
             stats["warehouses"] = int(cur.fetchone()["c"] or 0)
             cur.execute(
                 "SELECT COALESCE(SUM(quantity), 0) AS units FROM movements "
-                "WHERE created_at::date = %s", (today,)
+                "WHERE created_at::date = %s AND deleted_at IS NULL", (today,)
             )
             stats["units_today"] = int(cur.fetchone()["units"] or 0)
-            cur.execute("SELECT COUNT(*) AS c FROM movements")
+            cur.execute("SELECT COUNT(*) AS c FROM movements WHERE deleted_at IS NULL")
             stats["movements"] = int(cur.fetchone()["c"] or 0)
             cur.execute(
                 "SELECT MIN(created_at)::date AS first_d, MAX(created_at)::date AS last_d "
-                "FROM movements"
+                "FROM movements WHERE deleted_at IS NULL"
             )
             span = cur.fetchone()
             stats["first_movement"] = span["first_d"].isoformat() if span and span["first_d"] else ""
             stats["last_movement"] = span["last_d"].isoformat() if span and span["last_d"] else ""
             cur.execute(
                 "SELECT COUNT(*) AS c FROM purchase_orders "
-                "WHERE status IN ('approved', 'in_transit')"
+                "WHERE status IN ('approved', 'in_transit') AND deleted_at IS NULL"
             )
             stats["open_pos"] = int(cur.fetchone()["c"] or 0)
 
@@ -2589,6 +2605,7 @@ def _landing_stats():
                        COALESCE(SUM(quantity), 0) AS total
                 FROM movements
                 WHERE created_at >= (CURRENT_DATE - INTERVAL '11 months')
+                  AND deleted_at IS NULL
                 GROUP BY month ORDER BY month
                 """
             )

@@ -236,6 +236,10 @@ def _build_movement_facts(cur, start: date, end: date) -> int:
         "DELETE FROM fact_movement_daily WHERE date_key BETWEEN %s AND %s",
         (start, end),
     )
+    # GAP-020 phase 2: soft-deleted movements stop contributing to fact rows
+    # going forward. Historical fact rows built before phase 2 RETAIN their
+    # pre-phase-2 contributions — incremental ETL never revisits past days;
+    # run a full rebuild (force=True) to re-aggregate history without them.
     cur.execute(
         """
         INSERT INTO fact_movement_daily
@@ -255,6 +259,7 @@ def _build_movement_facts(cur, start: date, end: date) -> int:
         JOIN dim_product dp ON dp.sku = p.sku
         JOIN dim_warehouse dw ON dw.warehouse_name = p.warehouse
         WHERE m.created_at::date BETWEEN %s AND %s
+          AND m.deleted_at IS NULL
         GROUP BY m.created_at::date, dw.warehouse_key, dp.product_key
         ON CONFLICT (date_key, warehouse_key, product_key) DO NOTHING
         """,
@@ -293,6 +298,10 @@ def _build_inventory_facts(cur, end_day: date, start_day: date | None = None) ->
             FROM movements m
             WHERE m.created_at::date BETWEEN %s AND %s
             GROUP BY m.product_id, m.created_at::date
+            -- GAP-020 phase 2: deliberately NOT filtered on deleted_at — the
+            -- backward stock walk must stay consistent with products.current_stock,
+            -- which still includes soft-deleted movements' deltas (soft delete
+            -- does not reverse the stock delta).
         ),
         product_days AS (
             SELECT p.id, p.warehouse, p.current_stock, p.reorder_point, p.unit_price,
@@ -499,6 +508,9 @@ def run_etl(force: bool = False) -> dict:
             if facts_exist and not force:
                 # ---- incremental run ----------------------------------------
                 last_id = int(_read_state(cur, "last_movement_id", 0) or 0)
+                # GAP-020 phase 2: watermark stays UNFILTERED — soft-deleted
+                # movements still exist and must advance it (filtering would
+                # reprocess them forever).
                 cur.execute("SELECT MAX(id) AS max_id FROM movements")
                 max_id = (cur.fetchone() or {}).get("max_id") or 0
                 if max_id <= last_id:

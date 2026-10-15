@@ -7,6 +7,10 @@
 
     const $ = (sel, root) => (root || document).querySelector(sel);
     const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+    // Escape untrusted server data before it is interpolated into innerHTML.
+    const escapeHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
 
     // ----- THEME (applied from settings/localStorage; sidebar toggle removed) -----
     document.addEventListener('DOMContentLoaded', () => {
@@ -212,15 +216,15 @@
                 const rows = res.data || [];
                 const tbody = cfg.table.tBodies[0];
                 tbody.innerHTML = rows.length ? rows.map(r => (
-                    '<tr><td><span class="sku">' + r.sku + '</span></td>' +
-                    '<td>' + r.name + '</td>' +
-                    '<td>' + (r.model || '—') + '</td>' +
-                    '<td>' + (r.model_used || '—') + '</td>' +
-                    '<td>' + r.baseline + '</td>' +
-                    '<td>' + r.predicted_units + '</td>' +
-                    '<td>' + r.delta_pct + '%</td>' +
-                    '<td>' + r.accuracy + '%</td>' +
-                    '<td>' + (r.data_sufficiency || '—') + '</td></tr>'
+                    '<tr><td><span class="sku">' + escapeHtml(r.sku) + '</span></td>' +
+                    '<td>' + escapeHtml(r.name) + '</td>' +
+                    '<td>' + escapeHtml(r.model || '—') + '</td>' +
+                    '<td>' + escapeHtml(r.model_used || '—') + '</td>' +
+                    '<td>' + escapeHtml(r.baseline) + '</td>' +
+                    '<td>' + escapeHtml(r.predicted_units) + '</td>' +
+                    '<td>' + escapeHtml(r.delta_pct) + '%</td>' +
+                    '<td>' + escapeHtml(r.accuracy) + '%</td>' +
+                    '<td>' + escapeHtml(r.data_sufficiency || '—') + '</td></tr>'
                 )).join('') : '<tr><td colspan="9" class="empty-state">No data</td></tr>';
             } catch (e) {}
         }
@@ -271,7 +275,7 @@
             // Render baselines
             const baselines = data.baselines || {};
             cfg.backtestBaselines.innerHTML = Object.entries(baselines).map(([name, vals]) => (
-                '<div class="metric-card"><div class="metric-label">' + name + '</div>' +
+                '<div class="metric-card"><div class="metric-label">' + escapeHtml(name) + '</div>' +
                 '<div class="metric-value">MAE: ' + (vals.mae && vals.mae.mean !== null ? parseFloat(vals.mae.mean).toFixed(2) : '—') +
                 ' | RMSE: ' + (vals.rmse && vals.rmse.mean !== null ? parseFloat(vals.rmse.mean).toFixed(2) : '—') +
                 ' | WAPE: ' + (vals.wape && vals.wape.mean !== null ? parseFloat(vals.wape.mean).toFixed(1) : '—') + '%</div></div>'
@@ -349,11 +353,11 @@
 
     function riskBadge(level) {
         var cls = { critical: 'badge-critical', high: 'badge-high', medium: 'badge-medium', low: 'badge-low' };
-        return '<span class="badge ' + (cls[level] || 'badge-low') + '">' + (level || 'low') + '</span>';
+        return '<span class="badge ' + (cls[level] || 'badge-low') + '">' + escapeHtml(level || 'low') + '</span>';
     }
     function statusBadge(s) {
         var cls = { new: 'badge-new', reviewed: 'badge-reviewed', acknowledged: 'badge-ack', resolved: 'badge-resolved' };
-        return '<span class="badge ' + (cls[s] || 'badge-new') + '">' + (s || 'new') + '</span>';
+        return '<span class="badge ' + (cls[s] || 'badge-new') + '">' + escapeHtml(s || 'new') + '</span>';
     }
     function typeIcon(t) {
         return t === 'spike' ? '&#x25B2;' : '&#x25BC;';
@@ -411,16 +415,16 @@
                 var tbody = cfg.alertTable.tBodies[0];
                 tbody.innerHTML = rows.length ? rows.map(function(a) {
                     return '<tr>' +
-                        '<td>' + (a.alert_date || a.detected_at || '').substring(0, 10) + '</td>' +
-                        '<td><span class="sku">' + (a.sku || '') + '</span></td>' +
-                        '<td>' + (a.product_name || '') + '</td>' +
-                        '<td>' + typeIcon(a.anomaly_type) + ' ' + a.anomaly_type + '</td>' +
+                        '<td>' + escapeHtml((a.alert_date || a.detected_at || '').substring(0, 10)) + '</td>' +
+                        '<td><span class="sku">' + escapeHtml(a.sku || '') + '</span></td>' +
+                        '<td>' + escapeHtml(a.product_name || '') + '</td>' +
+                        '<td>' + typeIcon(a.anomaly_type) + ' ' + escapeHtml(a.anomaly_type) + '</td>' +
                         '<td>' + (a.z_score || 0) + '</td>' +
                         '<td>' + riskBadge(a.risk_level) + '</td>' +
                         '<td>' + (a.deviation_pct != null ? a.deviation_pct + '%' : '-') + '</td>' +
-                        '<td>' + (a.detection_method || '') + '</td>' +
+                        '<td>' + escapeHtml(a.detection_method || '') + '</td>' +
                         '<td>' + statusBadge(a.status) + '</td>' +
-                        '<td><button class="btn btn-sm btn-outline alert-detail-btn" data-id="' + a.id + '">View</button></td>' +
+                        '<td><button class="btn btn-sm btn-outline alert-detail-btn" data-id="' + escapeHtml(a.id) + '">View</button></td>' +
                     '</tr>';
                 }).join('') : '<tr><td colspan="10" class="empty-state">No alerts found</td></tr>';
                 if (cfg.pageInfo) cfg.pageInfo.textContent = 'Showing ' + rows.length + ' of ' + total;
@@ -441,20 +445,20 @@
                 cfg.modalTitle.textContent = 'Alert #' + a.id;
                 cfg.modalBody.innerHTML =
                     '<table style="width:100%;border-collapse:collapse">' +
-                    '<tr><td style="padding:4px 8px;font-weight:600;width:40%">SKU</td><td>' + (a.sku || '') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Product</td><td>' + (a.product_name || '') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Date</td><td>' + (a.alert_date || a.detected_at || '') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Type</td><td>' + typeIcon(a.anomaly_type) + ' ' + a.anomaly_type + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600;width:40%">SKU</td><td>' + escapeHtml(a.sku || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Product</td><td>' + escapeHtml(a.product_name || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Date</td><td>' + escapeHtml(a.alert_date || a.detected_at || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Type</td><td>' + typeIcon(a.anomaly_type) + ' ' + escapeHtml(a.anomaly_type) + '</td></tr>' +
                     '<tr><td style="padding:4px 8px;font-weight:600">Z-score</td><td>' + (a.z_score || 0) + '</td></tr>' +
                     '<tr><td style="padding:4px 8px;font-weight:600">Confidence</td><td>' + (a.confidence || 0) + '%</td></tr>' +
                     '<tr><td style="padding:4px 8px;font-weight:600">Risk Level</td><td>' + riskBadge(a.risk_level) + '</td></tr>' +
                     '<tr><td style="padding:4px 8px;font-weight:600">Expected</td><td>' + (a.expected_value != null ? a.expected_value : '-') + '</td></tr>' +
                     '<tr><td style="padding:4px 8px;font-weight:600">Observed</td><td>' + (a.observed_value != null ? a.observed_value : '-') + '</td></tr>' +
                     '<tr><td style="padding:4px 8px;font-weight:600">Deviation</td><td>' + (a.deviation_pct != null ? a.deviation_pct + '%' : '-') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Detection</td><td>' + (a.detection_method || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600">Detection</td><td>' + escapeHtml(a.detection_method || '') + '</td></tr>' +
                     '<tr><td style="padding:4px 8px;font-weight:600">Status</td><td>' + statusBadge(a.status) + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600;vertical-align:top">Description</td><td>' + (a.description || '') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600;vertical-align:top">Recommendation</td><td>' + (a.recommended_action || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600;vertical-align:top">Description</td><td>' + escapeHtml(a.description || '') + '</td></tr>' +
+                    '<tr><td style="padding:4px 8px;font-weight:600;vertical-align:top">Recommendation</td><td>' + escapeHtml(a.recommended_action || '') + '</td></tr>' +
                     '</table>';
                 var actions = cfg.modalActions;
                 actions.innerHTML = '';
@@ -521,7 +525,7 @@
                 if (cfg.prRiskTable) {
                     var byRisk = data.by_risk_level || {};
                     cfg.prRiskTable.tBodies[0].innerHTML = Object.entries(byRisk).map(([risk, v]) => (
-                        '<tr><td>' + risk + '</td>' +
+                        '<tr><td>' + escapeHtml(risk) + '</td>' +
                         '<td>' + (v.precision != null ? (v.precision * 100).toFixed(1) + '%' : '—') + '</td>' +
                         '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td>' +
                         '<td>' + (v.f1 != null ? (v.f1 * 100).toFixed(1) + '%' : '—') + '</td>' +
@@ -533,7 +537,7 @@
                 if (cfg.prMethodTable) {
                     var byMethod = data.by_detection_method || {};
                     cfg.prMethodTable.tBodies[0].innerHTML = Object.entries(byMethod).map(([method, v]) => (
-                        '<tr><td>' + method + '</td>' +
+                        '<tr><td>' + escapeHtml(method) + '</td>' +
                         '<td>' + (v.precision != null ? (v.precision * 100).toFixed(1) + '%' : '—') + '</td>' +
                         '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td>' +
                         '<td>' + (v.f1 != null ? (v.f1 * 100).toFixed(1) + '%' : '—') + '</td>' +
@@ -569,15 +573,15 @@
                 const tbody = cfg.table.tBodies[0];
                 tbody.innerHTML = anomalies.length ? anomalies.map(function(a) {
                     return '<tr>' +
-                        '<td>' + a.day + '</td>' +
+                        '<td>' + escapeHtml(a.day) + '</td>' +
                         '<td>' + a.value + '</td>' +
                         '<td>' + (a.expected_value != null ? a.expected_value : '-') + '</td>' +
                         '<td>' + a.z_score + '</td>' +
                         '<td>' + riskBadge(a.risk_level) + '</td>' +
                         '<td>' + (a.confidence || 0).toFixed(0) + '%</td>' +
-                        '<td>' + (a.detection_method || '') + '</td>' +
-                        '<td>' + a.description + '</td>' +
-                        '<td>' + (a.recommended_action || '') + '</td>' +
+                        '<td>' + escapeHtml(a.detection_method || '') + '</td>' +
+                        '<td>' + escapeHtml(a.description) + '</td>' +
+                        '<td>' + escapeHtml(a.recommended_action || '') + '</td>' +
                     '</tr>';
                 }).join('') : '<tr><td colspan="9" class="empty-state">No anomalies detected</td></tr>';
                 if (data.mean !== undefined) renderSPC(cfg.spcId, data);
@@ -623,7 +627,7 @@
             // By method
             var byMethod = data.by_method || {};
             cfg.benchmarkMethodTable.tBodies[0].innerHTML = Object.entries(byMethod).map(([method, v]) => (
-                '<tr><td>' + method + '</td>' +
+                '<tr><td>' + escapeHtml(method) + '</td>' +
                 '<td>' + (v.precision != null ? (v.precision * 100).toFixed(1) + '%' : '—') + '</td>' +
                 '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td>' +
                 '<td>' + (v.f1 != null ? (v.f1 * 100).toFixed(1) + '%' : '—') + '</td>' +
@@ -633,7 +637,7 @@
             // By type
             var byType = data.by_type || {};
             cfg.benchmarkTypeTable.tBodies[0].innerHTML = Object.entries(byType).map(([type, v]) => (
-                '<tr><td>' + type + '</td>' +
+                '<tr><td>' + escapeHtml(type) + '</td>' +
                 '<td>' + v.injected + '</td>' +
                 '<td>' + v.detected + '</td>' +
                 '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td></tr>'
@@ -648,11 +652,11 @@
                 const rows = res.data || [];
                 const tbody = cfg.portfolioTable.tBodies[0];
                 tbody.innerHTML = rows.length ? rows.map(r => (
-                    '<tr><td><span class="sku">' + r.sku + '</span></td>' +
-                    '<td>' + r.name + '</td>' +
-                    '<td>' + (r.model_used || '—') + '</td>' +
-                    '<td>' + r.anomaly_count + '</td>' +
-                    '<td>' + (r.max_z || 0).toFixed(2) + '</td></tr>'
+                    '<tr><td><span class="sku">' + escapeHtml(r.sku) + '</span></td>' +
+                    '<td>' + escapeHtml(r.name) + '</td>' +
+                    '<td>' + escapeHtml(r.model_used || '—') + '</td>' +
+                    '<td>' + escapeHtml(r.anomaly_count) + '</td>' +
+                    '<td>' + escapeHtml((r.max_z || 0).toFixed(2)) + '</td></tr>'
                 )).join('') : '<tr><td colspan="5" class="empty-state">No anomalies across the portfolio</td></tr>';
             } catch (e) {}
         }

@@ -65,7 +65,8 @@ class AdminDashboardService:
 
             # Movements today
             cur.execute(
-                "SELECT COUNT(*) AS cnt FROM movements WHERE created_at::date = %s",
+                "SELECT COUNT(*) AS cnt FROM movements "
+                "WHERE created_at::date = %s AND deleted_at IS NULL",
                 (date.today(),),
             )
             movements_today = cur.fetchone()["cnt"]

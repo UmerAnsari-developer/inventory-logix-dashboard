@@ -300,6 +300,39 @@ CREATE TRIGGER trg_movement_stock_update
     EXECUTE FUNCTION trg_log_movement_create();
 
 
+-- ── FUNCTION: Log movement soft delete to audit (GAP-020 phase 2) ───────────
+-- Mirrors the products pattern (trg_log_product_change DB-068 branch): a soft
+-- delete is an UPDATE to the database but a DELETE to the business.
+
+CREATE OR REPLACE FUNCTION trg_log_movement_soft_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+    VALUES (
+        current_app_user_id(),
+        'movement_deleted',
+        'movement',
+        OLD.id,
+        jsonb_build_object(
+            'product_id', OLD.product_id,
+            'sku', (SELECT sku FROM products WHERE id = OLD.product_id),
+            'type', OLD.type,
+            'quantity', OLD.quantity,
+            'reference', OLD.reference
+        )
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_movement_soft_delete ON movements;
+CREATE TRIGGER trg_movement_soft_delete
+    AFTER UPDATE ON movements
+    FOR EACH ROW
+    WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL)
+    EXECUTE FUNCTION trg_log_movement_soft_delete();
+
+
 -- ── FUNCTION: Track PO status changes ────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION trg_log_po_change()
@@ -309,6 +342,12 @@ BEGIN
         INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
         VALUES (current_app_user_id(), 'po_created', 'purchase_order', NEW.id,
                 jsonb_build_object('po_number', NEW.po_number, 'status', NEW.status));
+    ELSIF TG_OP = 'UPDATE' AND OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
+        -- GAP-020 phase 2: soft delete (deleted_at NULL -> NOT NULL) is an UPDATE
+        -- to the database but a DELETE to the business — log it as po_deleted.
+        INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
+        VALUES (current_app_user_id(), 'po_deleted', 'purchase_order', OLD.id,
+                jsonb_build_object('po_number', OLD.po_number, 'status', OLD.status));
     ELSIF TG_OP = 'UPDATE' AND OLD.status != NEW.status THEN
         INSERT INTO audit_log (user_id, action, target_type, target_id, detail)
         VALUES (current_app_user_id(), 'po_status_changed', 'purchase_order', NEW.id,
