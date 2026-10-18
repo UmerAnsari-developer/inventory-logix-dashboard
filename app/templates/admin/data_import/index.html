@@ -80,6 +80,12 @@
         <span id="file_name_{{ active_tab }}"
               role="status"
               style="font-size:0.82rem;color:var(--text-secondary);min-width:120px;"></span>
+        {% if active_tab in ('products', 'purchase_orders') %}
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text-secondary);margin:0;cursor:pointer;">
+          <input type="checkbox" name="create_missing" value="true" id="create_missing_{{ active_tab }}">
+          Create missing suppliers automatically
+        </label>
+        {% endif %}
         <button type="button" class="btn btn-primary" id="preview_btn_{{ active_tab }}">Preview Import</button>
       </form>
     </div>
@@ -93,6 +99,18 @@
       <div id="preview_errors" class="alert-strip" style="display:none;">
         <div class="alert-mark">error</div>
         <div><div class="alert-title" id="preview_error_msg"></div></div>
+      </div>
+      {# FK warnings (non-blocking): preview stays valid, user decides whether to proceed #}
+      <div id="preview_warnings" style="display:none;margin-top:12px;">
+        <span id="preview_warning_badge" class="status warning"></span>
+        <ul id="preview_warning_list"
+            style="margin:8px 0 0;padding-left:18px;color:#a8751e;font-size:0.75rem;line-height:1.5;max-height:160px;overflow:auto;"></ul>
+      </div>
+      {# Auto-created suppliers (armed create-missing preview): informational only #}
+      <div id="preview_creates" style="display:none;margin-top:12px;">
+        <span id="preview_create_badge" class="status good"></span>
+        <ul id="preview_create_list"
+            style="margin:8px 0 0;padding-left:18px;color:var(--green);font-size:0.75rem;line-height:1.5;max-height:160px;overflow:auto;"></ul>
       </div>
       <div id="preview_table_container" class="table-scroll" style="max-height:300px;overflow:auto;">
         <table id="preview_table">
@@ -150,7 +168,14 @@
     var previewStatus = document.getElementById('preview_status');
     var previewErrors = document.getElementById('preview_errors');
     var previewErrorMsg = document.getElementById('preview_error_msg');
+    var previewWarnings = document.getElementById('preview_warnings');
+    var previewWarningBadge = document.getElementById('preview_warning_badge');
+    var previewWarningList = document.getElementById('preview_warning_list');
+    var previewCreates = document.getElementById('preview_creates');
+    var previewCreateBadge = document.getElementById('preview_create_badge');
+    var previewCreateList = document.getElementById('preview_create_list');
     var previewTableContainer = document.getElementById('preview_table_container');
+    var createChk = document.getElementById('create_missing_' + activeTab);
 
     if (!form || !input || !span || !previewBtn || !backBtn || !confirmBtn) return;
 
@@ -196,6 +221,7 @@
             'X-CSRFToken': '{{ csrf_token() }}'
           },
           body: 'csv_content=' + encodeURIComponent(csvContent)
+            + (createChk && createChk.checked ? '&create_missing=true' : '')
         })
         .then(function(response) {
           // Session expired (admin timeout) or CSRF token stale: the server
@@ -205,6 +231,8 @@
             previewErrorMsg.textContent = 'Your session has expired. Redirecting to login…';
             previewErrors.style.display = 'flex';
             previewTableContainer.style.display = 'none';
+            previewWarnings.style.display = 'none';
+            previewCreates.style.display = 'none';
             step1.style.display = 'none';
             step2.style.display = 'block';
             setTimeout(function () { window.location.href = window.LOGIN_URL || '/auth/login'; }, 1500);
@@ -222,6 +250,43 @@
             previewRowCount.textContent = preview.row_count;
             previewStatus.textContent = preview.valid ? 'Valid' : 'Invalid';
             previewStatus.className = 'status ' + (preview.valid ? 'good' : 'danger');
+
+            // FK warnings are NON-BLOCKING: preview stays valid and the
+            // Confirm button stays enabled. warning_count also includes
+            // fk_possible_typo advisories (those suppliers are still
+            // created), so the badge copy stays neutral instead of naming
+            // a per-row outcome.
+            var warnCount = preview.warning_count || 0;
+            if (preview.valid && warnCount > 0) {
+              previewWarningBadge.textContent = warnCount + ' warning' + (warnCount === 1 ? '' : 's');
+              previewWarningList.innerHTML = '';
+              var warnItems = preview.warnings || [];
+              for (var wi = 0; wi < warnItems.length && wi < 50; wi++) {
+                var li = document.createElement('li');
+                li.textContent = warnItems[wi].message || (warnItems[wi].field + ' "' + warnItems[wi].value + '" not found');
+                previewWarningList.appendChild(li);
+              }
+              previewWarnings.style.display = 'block';
+            } else {
+              previewWarnings.style.display = 'none';
+            }
+
+            // "Will create" list (armed create-missing preview): informational,
+            // same non-blocking contract as the warnings above.
+            var createCount = preview.will_create_count || 0;
+            if (preview.valid && createCount > 0) {
+              previewCreateBadge.textContent = 'Will create ' + createCount + ' supplier' + (createCount === 1 ? '' : 's');
+              previewCreateList.innerHTML = '';
+              var createItems = preview.will_create || [];
+              for (var ci = 0; ci < createItems.length && ci < 50; ci++) {
+                var cli = document.createElement('li');
+                cli.textContent = createItems[ci].message || createItems[ci].value;
+                previewCreateList.appendChild(cli);
+              }
+              previewCreates.style.display = 'block';
+            } else {
+              previewCreates.style.display = 'none';
+            }
 
             if (preview.errors && preview.errors.length > 0) {
               previewErrors.style.display = 'flex';
@@ -273,6 +338,8 @@
             previewErrors.style.display = 'flex';
             previewErrorMsg.textContent = data.error || 'Preview failed';
             previewTableContainer.style.display = 'none';
+            previewWarnings.style.display = 'none';
+            previewCreates.style.display = 'none';
             step1.style.display = 'none';
             step2.style.display = 'block';
           }
@@ -283,6 +350,8 @@
           previewErrors.style.display = 'flex';
           previewErrorMsg.textContent = 'Preview request failed: ' + err.message;
           previewTableContainer.style.display = 'none';
+          previewWarnings.style.display = 'none';
+          previewCreates.style.display = 'none';
           step1.style.display = 'none';
           step2.style.display = 'block';
         });
@@ -322,6 +391,14 @@
       confirmInput.name = 'confirm';
       confirmInput.value = 'true';
       submitForm.appendChild(confirmInput);
+
+      if (createChk && createChk.checked) {
+        var cmInput = document.createElement('input');
+        cmInput.type = 'hidden';
+        cmInput.name = 'create_missing';
+        cmInput.value = 'true';
+        submitForm.appendChild(cmInput);
+      }
 
       document.body.appendChild(submitForm);
       submitForm.submit();

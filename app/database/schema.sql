@@ -814,4 +814,14 @@ BEGIN
     END IF;
 END $$;
 
+-- Supplier name uniqueness — committed parity with Alembic revision
+-- 20261017_supplier_name_live_unique (fresh installs converge on the same
+-- object there). The old table-wide uq_suppliers_name existed only by hand on
+-- the dev DB; the committed path follows the soft-delete convention (mirrors
+-- products_sku_live_key): a name is reusable after the previous row is
+-- soft-deleted, while duplicates among ACTIVE rows stay blocked.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_suppliers_name_live
+    ON suppliers (name)
+    WHERE deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_model_monitoring_alerts_alert_date ON model_monitoring_alerts(alert_date);

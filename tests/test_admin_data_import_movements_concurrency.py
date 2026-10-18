@@ -72,7 +72,7 @@ class TestImportMovementsConcurrency:
                     "reason": "Concurrent import"
                 }]
                 try:
-                    count = _import_movements(rows, lock_key=0x6D6F7665)
+                    count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
                     if count == 1:
                         successes.append(1)
                     else:
@@ -127,7 +127,7 @@ class TestImportMovementsConcurrency:
                     "reason": "Concurrent import"
                 }]
                 try:
-                    count = _import_movements(rows, lock_key=0x6D6F7665)
+                    count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
                     if count == 1:
                         successes.append(1)
                     else:
@@ -186,7 +186,7 @@ class TestImportMovementsConcurrency:
                     "reason": "Import concurrent"
                 }]
                 try:
-                    count = _import_movements(rows, lock_key=0x6D6F7665)
+                    count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
                     import_results.append(count)
                 except Exception as exc:
                     import_errors.append(str(exc))
@@ -254,7 +254,7 @@ class TestImportMovementsConcurrency:
                     "reason": "Product 1 import"
                 }]
                 try:
-                    count = _import_movements(rows, lock_key=0x6D6F7665)
+                    count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
                     results.append(("product_1", count))
                 except Exception as exc:
                     errors.append(("product_1", str(exc)))
@@ -268,7 +268,7 @@ class TestImportMovementsConcurrency:
                     "reason": "Product 2 import"
                 }]
                 try:
-                    count = _import_movements(rows, lock_key=0x6D6F7665)
+                    count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
                     results.append(("product_2", count))
                 except Exception as exc:
                     errors.append(("product_2", str(exc)))
@@ -331,7 +331,7 @@ class TestImportMovementsConcurrency:
                     "reason": "IN import"
                 }]
                 try:
-                    count = _import_movements(rows, lock_key=0x6D6F7665)
+                    count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
                     results.append(("IN", count))
                 except Exception as exc:
                     errors.append(("IN", str(exc)))
@@ -345,7 +345,7 @@ class TestImportMovementsConcurrency:
                     "reason": "OUT import"
                 }]
                 try:
-                    count = _import_movements(rows, lock_key=0x6D6F7665)
+                    count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
                     results.append(("OUT", count))
                 except Exception as exc:
                     errors.append(("OUT", str(exc)))
@@ -359,7 +359,7 @@ class TestImportMovementsConcurrency:
                     "reason": "ADJ import"
                 }]
                 try:
-                    count = _import_movements(rows, lock_key=0x6D6F7665)
+                    count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
                     results.append(("ADJ", count))
                 except Exception as exc:
                     errors.append(("ADJ", str(exc)))
@@ -414,7 +414,7 @@ class TestImportMovementsConcurrency:
                     "reason": "High concurrency"
                 }]
                 try:
-                    count = _import_movements(rows, lock_key=0x6D6F7665)
+                    count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
                     if count == 1:
                         successes.append(1)
                     else:
@@ -461,7 +461,7 @@ class TestImportMovementsConcurrency:
                     "movement_type": "OUT",
                     "reason": f"Pool import {qty}"
                 }]
-                return _import_movements(rows, lock_key=0x6D6F7665)
+                return _import_movements(rows, lock_key=0x6D6F7665)["imported"]
 
         # Submit 10 tasks of OUT 2 each (total 20, stock=20)
         with ThreadPoolExecutor(max_workers=10) as executor:

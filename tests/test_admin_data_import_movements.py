@@ -106,7 +106,7 @@ class TestImportMovementsUnit:
             ]
 
             with patch.object(MovementRepository, 'record', return_value=1) as mock_record:
-                count = _import_movements(rows, lock_key=0x6D6F7665)
+                count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
 
             assert count == 2
             assert mock_record.call_count == 2
@@ -163,7 +163,7 @@ class TestImportMovementsUnit:
             assert call_args.kwargs['user_id'] is None
 
     def test_import_movements_validates_invalid_product_id(self, app):
-        """Test invalid product_id rows are skipped."""
+        """Test invalid product_id rows are skipped (existence check, pre-repo)."""
         with app.app_context():
             with get_cursor(commit=True) as cur:
                 product_id = _mk_product(cur, stock=100, sku_suffix="UNIT04")
@@ -179,11 +179,12 @@ class TestImportMovementsUnit:
                 return 1
 
             with patch.object(MovementRepository, 'record', side_effect=side_effect) as mock_record:
-                count = _import_movements(rows, lock_key=0x6D6F7665)
+                count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
 
-            # Only valid product should be processed
+            # Only valid product should be processed; the bogus id is skipped
+            # by the existence check before the repository is called.
             assert count == 1
-            assert mock_record.call_count == 2
+            assert mock_record.call_count == 1
 
     def test_import_movements_validates_zero_qty(self, app):
         """Test zero quantity rows are skipped."""
@@ -197,7 +198,7 @@ class TestImportMovementsUnit:
             ]
 
             with patch.object(MovementRepository, 'record', return_value=1) as mock_record:
-                count = _import_movements(rows, lock_key=0x6D6F7665)
+                count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
 
             assert count == 1
             assert mock_record.call_count == 1
@@ -214,7 +215,7 @@ class TestImportMovementsUnit:
             ]
 
             with patch.object(MovementRepository, 'record', return_value=1) as mock_record:
-                count = _import_movements(rows, lock_key=0x6D6F7665)
+                count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
 
             assert count == 1
             assert mock_record.call_count == 1
@@ -237,7 +238,7 @@ class TestImportMovementsUnit:
                 return 1
 
             with patch.object(MovementRepository, 'record', side_effect=side_effect) as mock_record:
-                count = _import_movements(rows, lock_key=0x6D6F7665)
+                count = _import_movements(rows, lock_key=0x6D6F7665)["imported"]
 
             # First and third should succeed, second fails
             assert count == 2
@@ -482,7 +483,7 @@ class TestImportMovementsRegression:
                         "category": "Test",
                         "supplier_id": ""
                     }]
-                    count = _import_rows("products", rows)
+                    count = _import_rows("products", rows)["imported"]
                     results.append(count)
                 except Exception as e:
                     errors.append(str(e))

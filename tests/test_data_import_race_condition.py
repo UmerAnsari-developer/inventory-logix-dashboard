@@ -63,7 +63,7 @@ class TestDataImportRaceCondition:
                         "category": "Test",
                         "supplier_id": ""
                     }]
-                    count = _import_rows("products", rows)
+                    count = _import_rows("products", rows)["imported"]
                     results.append(count)
                 except Exception as e:
                     errors.append(f"Thread {thread_id}: {e}")
@@ -128,7 +128,7 @@ class TestDataImportRaceCondition:
                          "current_stock": "5", "reorder_point": "10", "category": "Test", "supplier_id": ""}]
                 
                 # Function catches exception and returns 0, doesn't raise
-                count = _import_rows("products", rows)
+                count = _import_rows("products", rows)["imported"]
                 assert count == 0
                 
                 # Verify unlock was called despite exception

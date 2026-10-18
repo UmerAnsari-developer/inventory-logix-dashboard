@@ -6,6 +6,8 @@ import csv
 
 import pytest
 
+from app.database import get_cursor
+
 
 def _csv_rows(rows):
     """Helper to convert list of dicts to CSV string."""
@@ -65,26 +67,45 @@ def test_import_warehouses(auth_client):
         assert b"imported" in resp.data
 
 
-def test_import_movements(auth_client):
+def test_import_movements(auth_client, app):
+    # Seed ids are not stable across DB reseeds — resolve a live product id.
+    # Rows commit individually (IN before OUT), so the OUT can never underflow.
+    with app.app_context():
+        with get_cursor() as cur:
+            cur.execute("SELECT id FROM products WHERE deleted_at IS NULL ORDER BY id LIMIT 1")
+            product_id = cur.fetchone()["id"]
+    assert product_id is not None
+
     with auth_client as client:
         rows = [
-            {"product_id": "1", "quantity": "10", "movement_type": "in", "reason": "Bulk import"},
-            {"product_id": "1", "quantity": "5", "movement_type": "out", "reason": "Sale"},
+            {"product_id": str(product_id), "quantity": "10", "movement_type": "in", "reason": "Bulk import"},
+            {"product_id": str(product_id), "quantity": "5", "movement_type": "out", "reason": "Sale"},
         ]
         resp = _post_upload(client, "movements", rows)
         assert resp.status_code == 200
-        assert b"imported" in resp.data
+        assert b"Successfully imported 2" in resp.data
 
 
-def test_import_purchase_orders(auth_client):
+def test_import_purchase_orders(auth_client, app):
+    # Legacy numeric columns: supplier_id / product_id aliases must resolve
+    # via the existence-checked numeric fallback against LIVE active ids
+    # (seed ids are not stable across DB reseeds — never hardcode them).
+    with app.app_context():
+        with get_cursor() as cur:
+            cur.execute("SELECT id FROM suppliers WHERE deleted_at IS NULL ORDER BY id LIMIT 1")
+            supplier_id = cur.fetchone()["id"]
+            cur.execute("SELECT id FROM products WHERE deleted_at IS NULL ORDER BY id LIMIT 2")
+            product_ids = [r["id"] for r in cur.fetchall()]
+    assert supplier_id is not None and len(product_ids) == 2
+
     with auth_client as client:
         rows = [
-            {"supplier_id": "1", "product_id": "1", "quantity": "100", "status": "pending"},
-            {"supplier_id": "1", "product_id": "2", "quantity": "50", "status": "completed"},
+            {"supplier_id": str(supplier_id), "product_id": str(product_ids[0]), "quantity": "100", "status": "pending"},
+            {"supplier_id": str(supplier_id), "product_id": str(product_ids[1]), "quantity": "50", "status": "completed"},
         ]
         resp = _post_upload(client, "purchase_orders", rows)
         assert resp.status_code == 200
-        assert b"imported" in resp.data
+        assert b"Successfully imported 2" in resp.data
 
 
 def test_import_invalid_entity(auth_client):
