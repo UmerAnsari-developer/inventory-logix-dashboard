@@ -305,62 +305,7 @@ def test_d5_supplier_soft_delete(app):
             cur.execute("DELETE FROM suppliers WHERE id = %s", (supplier_id,))
 
 
-# ---------------------------------------------------------------------------
-# D-6 / D-7: anomaly and forecast saves are idempotent upserts
-# ---------------------------------------------------------------------------
 
-def test_d6_anomaly_save_is_idempotent(app):
-    from app.repositories import AnomalyRepository
-
-    with app.app_context():
-        with get_cursor(commit=True) as cur:
-            product_id = _mk_product(cur)
-        try:
-            common = dict(product_id=product_id, anomaly_type="stockout",
-                          z_score=3.1, confidence=90.0,
-                          description="first", alert_date="2026-09-01")
-            first_id = AnomalyRepository.save(**common)
-            AnomalyRepository.save(**{**common, "z_score": 4.2,
-                                      "description": "second"})
-            with get_cursor() as cur:
-                cur.execute(
-                    "SELECT COUNT(*) AS c FROM anomaly_log WHERE product_id = %s",
-                    (product_id,))
-                count = cur.fetchone()["c"]
-                cur.execute(
-                    "SELECT z_score FROM anomaly_log WHERE product_id = %s",
-                    (product_id,))
-                row = cur.fetchone()
-            assert count == 1, f"duplicate alert row created (count={count})"
-            assert first_id is not None
-            assert float(row["z_score"]) == 4.2, row
-        finally:
-            _cleanup_product(product_id)
-
-
-def test_d7_forecast_save_is_idempotent(app):
-    from app.repositories import ForecastRepository
-
-    with app.app_context():
-        with get_cursor(commit=True) as cur:
-            product_id = _mk_product(cur)
-        try:
-            ForecastRepository.save(product_id, "prophet", 7, {"mape": 10.0})
-            ForecastRepository.save(product_id, "prophet", 7, {"mape": 5.0})
-            with get_cursor() as cur:
-                cur.execute(
-                    "SELECT COUNT(*) AS c FROM forecast_cache "
-                    "WHERE product_id = %s AND model = 'prophet' AND horizon = 7",
-                    (product_id,))
-                count = cur.fetchone()["c"]
-            assert count == 1, f"duplicate forecast cache row (count={count})"
-            rows = ForecastRepository.recent(product_id, limit=5)
-            matching = [r for r in rows if r["model"] == "prophet"
-                        and r["horizon"] == 7]
-            assert matching, "forecast row missing"
-            assert float(matching[0]["payload"]["mape"]) == 5.0, matching[0]
-        finally:
-            _cleanup_product(product_id)
 
 
 # ---------------------------------------------------------------------------

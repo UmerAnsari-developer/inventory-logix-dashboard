@@ -1,7 +1,6 @@
 -- =============================================================================
 -- InventoryLogix — PostgreSQL schema
--- Tables: users, suppliers, products, movements, audit_log, forecast_cache,
---          anomaly_log, purchase_orders
+-- Tables: users, suppliers, products, movements, audit_log, purchase_orders
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS users (
@@ -245,80 +244,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at      TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS forecast_cache (
-    id              SERIAL PRIMARY KEY,
-    product_id      INTEGER REFERENCES products(id) ON DELETE CASCADE,
-    model           VARCHAR(30) NOT NULL,
-    horizon         INTEGER NOT NULL,
-    payload         JSONB NOT NULL,
-    accuracy        NUMERIC(5,2),
-    generated_at    TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS anomaly_log (
-    id              SERIAL PRIMARY KEY,
-    product_id      INTEGER REFERENCES products(id) ON DELETE CASCADE,
-    anomaly_type    VARCHAR(40) NOT NULL,
-    z_score         NUMERIC(8,3),
-    confidence      NUMERIC(5,2),
-    description     TEXT,
-    detected_at     TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
 CREATE INDEX IF NOT EXISTS idx_products_category     ON products(category);
 CREATE INDEX IF NOT EXISTS idx_audit_user            ON audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created         ON audit_log(created_at);
-CREATE INDEX IF NOT EXISTS idx_forecast_product      ON forecast_cache(product_id);
-CREATE INDEX IF NOT EXISTS idx_anomaly_product       ON anomaly_log(product_id);
-
--- Enhanced anomaly detection: structured business alerts
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS expected_value  NUMERIC(12,3);
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS observed_value  NUMERIC(12,3);
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS deviation_pct   NUMERIC(7,2);
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS metric          VARCHAR(40) DEFAULT 'quantity';
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS alert_date      DATE;
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS risk_level      VARCHAR(20) DEFAULT 'low';
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS detection_method VARCHAR(40) DEFAULT 'zscore';
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS recommended_action TEXT;
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS status          VARCHAR(20) DEFAULT 'new';
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS reviewed_at     TIMESTAMP;
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS reviewed_by     INTEGER REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS sku             VARCHAR(50);
-
--- Anomaly labeling fields (for precision/recall validation)
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS label           VARCHAR(20);
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS labeled_at      TIMESTAMP;
-ALTER TABLE anomaly_log ADD COLUMN IF NOT EXISTS labeled_by      INTEGER REFERENCES users(id) ON DELETE SET NULL;
-
-CREATE INDEX IF NOT EXISTS idx_anomaly_status        ON anomaly_log(status);
-CREATE INDEX IF NOT EXISTS idx_anomaly_risk          ON anomaly_log(risk_level);
-CREATE INDEX IF NOT EXISTS idx_anomaly_alert_date    ON anomaly_log(alert_date);
-CREATE INDEX IF NOT EXISTS idx_anomaly_label         ON anomaly_log(label) WHERE label IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_po_status             ON purchase_orders(status);
 
--- Fix DB-010: re-running anomaly detection must not duplicate alerts.
--- Expression index (nullable columns would defeat a plain unique index);
--- ON CONFLICT in AnomalyRepository.save targets the same expression list.
-DELETE FROM anomaly_log a
- USING anomaly_log b
- WHERE a.id < b.id
-   AND a.product_id IS NOT DISTINCT FROM b.product_id
-   AND COALESCE(a.alert_date, a.detected_at::date) = COALESCE(b.alert_date, b.detected_at::date)
-   AND a.anomaly_type = b.anomaly_type
-   AND COALESCE(a.detection_method, 'zscore') = COALESCE(b.detection_method, 'zscore');
-CREATE UNIQUE INDEX IF NOT EXISTS uq_anomaly_detection
-    ON anomaly_log (product_id, COALESCE(alert_date, detected_at::date),
-                    anomaly_type, COALESCE(detection_method, 'zscore'));
-
--- Fix DB-011: forecast_cache is a cache — keep one row per product/model/horizon.
-DELETE FROM forecast_cache a
- USING forecast_cache b
- WHERE a.id < b.id
-   AND a.product_id IS NOT DISTINCT FROM b.product_id
-   AND a.model = b.model
-   AND a.horizon = b.horizon;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_forecast_cache_key
-    ON forecast_cache (product_id, model, horizon);
 
 -- =============================================================================
 -- Data warehouse — star schema
@@ -423,80 +353,8 @@ CREATE INDEX IF NOT EXISTS idx_rate_limit_expires ON rate_limit_state(expires_at
 CREATE INDEX IF NOT EXISTS idx_rate_limit_key ON rate_limit_state(key);
 
 -- ─────────────────────────────────────────────────────────────────
--- Forecast Model Monitoring
+-- System Alerts
 -- ─────────────────────────────────────────────────────────────────
-
-CREATE TABLE IF NOT EXISTS forecast_predictions (
-    id                      SERIAL PRIMARY KEY,
-    sku                     VARCHAR(50) NOT NULL,
-    model_name              VARCHAR(30) NOT NULL,
-    forecast_generated_at   TIMESTAMP NOT NULL DEFAULT NOW(),
-    forecast_date           DATE NOT NULL,
-    predicted_value         NUMERIC(12,3) NOT NULL,
-    actual_value            NUMERIC(12,3),
-    forecast_horizon        INTEGER NOT NULL DEFAULT 1,
-    status                  VARCHAR(20) NOT NULL DEFAULT 'pending',
-    created_at              TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_fp_sku_model_status_date
-    ON forecast_predictions(sku, model_name, status, forecast_date);
-
--- Dedup: re-running a forecast must not accumulate duplicate prediction rows.
--- Keep the latest row per (sku, model_name, forecast_date), then enforce uniqueness
--- so actual_vs_predicted metrics are computed over distinct days, not run duplicates.
-DELETE FROM forecast_predictions a
- USING forecast_predictions b
- WHERE a.id < b.id
-   AND a.sku = b.sku
-   AND a.model_name = b.model_name
-   AND a.forecast_date = b.forecast_date;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_forecast_prediction
-    ON forecast_predictions(sku, model_name, forecast_date);
-
-CREATE TABLE IF NOT EXISTS forecast_monitoring_metrics (
-    id                  SERIAL PRIMARY KEY,
-    sku                 VARCHAR(50) NOT NULL,
-    model_name          VARCHAR(30) NOT NULL,
-    monitoring_date     DATE NOT NULL,
-    aggregation_period  VARCHAR(10) NOT NULL DEFAULT 'daily',
-    observation_count   INTEGER NOT NULL DEFAULT 0,
-    mae                 NUMERIC(10,3),
-    mape                NUMERIC(7,2),
-    rmse                NUMERIC(10,3),
-    mean_error          NUMERIC(10,3),
-    error_std           NUMERIC(10,3),
-    zero_demand_count   INTEGER NOT NULL DEFAULT 0,
-    baseline_mae        NUMERIC(10,3),
-    baseline_mape       NUMERIC(7,2),
-    mae_change_percent  NUMERIC(7,2),
-    mape_change_percent NUMERIC(7,2),
-    model_status        VARCHAR(20) NOT NULL DEFAULT 'healthy',
-    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
--- WAPE (weighted absolute percentage error) — required metric for
--- intermittent demand; evaluate_all() now returns it.
-ALTER TABLE forecast_monitoring_metrics ADD COLUMN IF NOT EXISTS wape NUMERIC(7,2);
-
-CREATE INDEX IF NOT EXISTS idx_fmm_sku_model_date
-    ON forecast_monitoring_metrics(sku, model_name, monitoring_date);
-
--- GAP-016: pinned per-model baselines (mirrors migrations/20261012_model_baselines
--- — fresh-install parity). baseline_metrics() reads this first, falling back to
--- the oldest evaluation window when a model has no pinned row.
-CREATE TABLE IF NOT EXISTS model_baselines (
-    id              SERIAL PRIMARY KEY,
-    sku             VARCHAR NOT NULL,
-    model_name      VARCHAR NOT NULL,
-    mae             FLOAT,
-    mape            FLOAT,
-    source          VARCHAR NOT NULL DEFAULT 'promotion'
-                    CHECK (source IN ('promotion','first_eval')),
-    promoted_at     TIMESTAMP NOT NULL DEFAULT NOW(),
-    promoted_by     VARCHAR,
-    CONSTRAINT model_baselines_sku_model UNIQUE (sku, model_name)
-);
 
 CREATE TABLE IF NOT EXISTS model_monitoring_alerts (
     id                  SERIAL PRIMARY KEY,
@@ -521,54 +379,6 @@ CREATE INDEX IF NOT EXISTS idx_mma_sku_model_type_status
     ON model_monitoring_alerts(sku, model_name, alert_type, status);
 CREATE INDEX IF NOT EXISTS idx_mma_created ON model_monitoring_alerts(created_at);
 
--- ─────────────────────────────────────────────────────────────────
--- Forecast Backtest Results
--- ─────────────────────────────────────────────────────────────────
-
-CREATE TABLE IF NOT EXISTS forecast_backtest_results (
-    id                  BIGSERIAL PRIMARY KEY,
-    product_id          INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    sku                 VARCHAR(50) NOT NULL,
-    model_name          VARCHAR(30) NOT NULL,
-    baseline_name       VARCHAR(30),
-    origin_date         DATE NOT NULL,
-    horizon             INTEGER NOT NULL,
-    mae                 NUMERIC(10,3),
-    mape                NUMERIC(7,2),
-    rmse                NUMERIC(10,3),
-    wape                NUMERIC(7,2),
-    mase                NUMERIC(7,3),
-    bias                NUMERIC(10,3),
-    interval_coverage   NUMERIC(5,2),
-    observation_count   INTEGER NOT NULL,
-    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_fbr_product_model_origin
-    ON forecast_backtest_results(product_id, model_name, origin_date);
-CREATE INDEX IF NOT EXISTS idx_fbr_sku_origin
-    ON forecast_backtest_results(sku, origin_date);
-
--- ─────────────────────────────────────────────────────────────────
--- Anomaly Fatigue Metrics (Daily Aggregates)
--- ─────────────────────────────────────────────────────────────────
-
-CREATE TABLE IF NOT EXISTS anomaly_fatigue_daily (
-    id                  SERIAL PRIMARY KEY,
-    metric_date         DATE NOT NULL UNIQUE,
-    total_alerts        INTEGER NOT NULL DEFAULT 0,
-    critical_count      INTEGER NOT NULL DEFAULT 0,
-    high_count          INTEGER NOT NULL DEFAULT 0,
-    medium_count        INTEGER NOT NULL DEFAULT 0,
-    low_count           INTEGER NOT NULL DEFAULT 0,
-    reviewed_count      INTEGER NOT NULL DEFAULT 0,
-    resolved_count      INTEGER NOT NULL DEFAULT 0,
-    avg_resolve_hours   NUMERIC(6,2),
-    review_rate         NUMERIC(5,2),
-    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_afd_date ON anomaly_fatigue_daily(metric_date);
 
 -- ─────────────────────────────────────────────────────────────────
 -- Notifications

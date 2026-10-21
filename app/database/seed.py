@@ -7,8 +7,8 @@ when their tables are empty (unless ``force=True``), so repeated startups never
 duplicate rows. The product catalogue uses real product names from the DataCo
 SMART SUPPLY CHAIN dataset, spread across ten warehouses and a curated set of
 real-world suppliers. A movement ledger is generated from January 2024 to the
-current date so every module (dashboard KPIs, reports, Analytics/AI forecasting
-and anomaly detection, purchase orders) has data to work with.
+current date so every module (dashboard KPIs, reports, Analytics,
+purchase orders) has data to work with.
 """
 from __future__ import annotations
 
@@ -210,12 +210,12 @@ def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> lis
 
     Each year gets a similar but not identical number of base movement days
     to create year-over-year competition with 1-5 lakh differences.
-    Current year gets days up to today. A small recent burst is added for forecasting.
+    Current year gets days up to today. A small recent burst is added for recent activity.
     """
     dates: list[date] = []
     current_year = today.year
     # Base movement days per year with slight variation for YoY competition
-    # Increased to ~180 days/year (daily-ish) for proper ML training/backtesting
+    # Increased to ~180 days/year (daily-ish) for realistic movement density
     BASE_DAYS_PER_YEAR = {2024: 180, 2025: 180, 2026: 180}
     for year in range(MOVEMENT_START.year, current_year + 1):
         year_start = max(MOVEMENT_START, date(year, 1, 1))
@@ -241,7 +241,7 @@ def _movement_dates(rng: random.Random, today: date, recent_cutoff: date) -> lis
                     m_end = min(year_end, date(year, month + 1, 1) - timedelta(days=1))
                 if (m_end - m_start).days >= 0:
                     dates.append(m_start + timedelta(days=rng.randint(0, (m_end - m_start).days)))
-    # Small recent burst for forecasting (4-6 days in last 180 days)
+    # Small recent burst for recent activity (4-6 days in last 180 days)
     recent_span = (today - recent_cutoff).days
     if recent_span > 0:
         for _ in range(rng.randint(4, 6)):

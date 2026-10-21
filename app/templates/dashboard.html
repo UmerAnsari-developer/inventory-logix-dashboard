@@ -23,19 +23,6 @@
   {% endif %}
 </section>
 
-<section class="ai-forecast-strip panel">
-  <div class="panel-header">
-    <div>
-      <div class="panel-title">AI demand forecast &mdash; next 90 days</div>
-      <div class="panel-caption">Live Prophet model trained on the last 180 days of movement history</div>
-    </div>
-    <span class="badge ai">AI &middot; PROPHET</span>
-  </div>
-  <div class="panel-content">
-    <div class="ai-forecast-chart" id="dashboardForecastChart"></div>
-  </div>
-</section>
-
 <section class="dashboard-grid">
   <article class="panel">
     <div class="panel-header">
@@ -470,19 +457,6 @@ document.addEventListener('DOMContentLoaded', function () {
   var moveChart = document.querySelector('.panel .chart');
   if (moveChart) {
     setTimeout(function() { moveChart.classList.add('in'); }, 200);
-  }
-
-  if (window.StockflowDashboardForecast) {
-    var product = {{ (forecast_product|tojson) if forecast_product else 'null' }};
-    var el = document.getElementById('dashboardForecastChart');
-    if (product && el) {
-      window.StockflowDashboardForecast.init({
-        product: product,
-        model: {{ forecast_model|tojson }},
-        chartId: 'dashboardForecastChart',
-        runUrl: "{{ url_for('ai.forecast_run') }}",
-      });
-    }
   }
 
   var live = window.appSettings && window.appSettings.live_data === 'on';

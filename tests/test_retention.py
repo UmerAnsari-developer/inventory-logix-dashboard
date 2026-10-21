@@ -2,7 +2,7 @@
 
 Validates the *database* guarantees: each sp_retention_purge_* exists, deletes
 only rows past the retention window, and sp_retention_run_all reports one row
-per object. forecast/anomaly/fact tables are intentionally NOT purged.
+per object. fact tables are intentionally NOT purged.
 """
 from __future__ import annotations
 

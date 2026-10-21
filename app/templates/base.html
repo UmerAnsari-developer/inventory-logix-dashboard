@@ -40,7 +40,7 @@
   </script>
   {% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=c5e7c656" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=17d23f14" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=42b4e60c" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=f4d430c1" />
   <script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}?v=ddb8b099" defer></script>
   <script src="{{ url_for('static', filename='js/vendor/chartjs-plugin-datalabels.min.js') }}?v=f3adb031"
@@ -132,25 +132,6 @@
                 class="menu-item {{ 'active' if active_page == 'reports' else '' }}">
                 <span class="nav-text">Analytics & Reports</span>
               </a>
-            </div>
-          </div>
-          <div class="nav-drop">
-            <button type="button" class="nav-drop-btn" aria-haspopup="true" aria-expanded="false">
-              <span class="nav-drop-label">Intelligence</span><span class="nav-drop-caret"
-                aria-hidden="true">&#9662;</span>
-            </button>
-            <div class="nav-drop-menu">
-              <a href="{{ url_for('ai.forecast_page') }}"
-                class="menu-item {{ 'active' if active_page == 'forecast' else '' }}">
-                <span class="nav-icon">AI</span><span class="nav-text">Demand Forecasting</span>
-                <span class="badge new">NEW</span>
-              </a>
-              {% if app_settings.get('anomaly_detection') != 'off' %}
-              <a href="{{ url_for('ai.anomaly_page') }}"
-                class="menu-item {{ 'active' if active_page == 'anomaly' else '' }}">
-                <span class="nav-icon">AI</span><span class="nav-text">Anomaly Detection</span>
-              </a>
-              {% endif %}
             </div>
           </div>
           <div class="nav-drop">
@@ -306,11 +287,11 @@
   <div class="toast-region" id="toastRegion" aria-live="polite"></div>
 
   <script defer src="{{ url_for('static', filename='js/main.js') }}?v=39d2264b"></script>
-  <script defer src="{{ url_for('static', filename='js/ai-features.js') }}?v=12c8e06a"></script>
+  <script defer src="{{ url_for('static', filename='js/ai-features.js') }}?v=6e568d02"></script>
   <script defer src="{{ url_for('static', filename='js/http-client.js') }}?v=0a957d3f"></script>
   <script defer src="{{ url_for('static', filename='js/session-handler.js') }}?v=1d5a4033"></script>
-  <script defer src="{{ url_for('static', filename='js/saas-animations.js') }}?v=eef298f3"></script>
-  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=db591da6"></script>
+  <script defer src="{{ url_for('static', filename='js/saas-animations.js') }}?v=1a588d2b"></script>
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=1261c4ce"></script>
   {% if not current_user.is_authenticated %}
   <!-- Theme toggle for auth pages + localStorage sync -->
   <script nonce="{{ csp_nonce }}">

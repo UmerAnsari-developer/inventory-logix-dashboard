@@ -28,16 +28,6 @@ class TestConfigValidationAllowlist:
         # DARK_MODE_ENABLED, SECURITY_HEADERS_ENABLED) were removed from the
         # allowlist — they were never read by application code.
         allowed_keys = [
-            "ANOMALY_ZWARNING",
-            "ANOMALY_ZHIGH",
-            "ANOMALY_ZCRITICAL",
-            "ANOMALY_CONTAMINATION",
-            "ANOMALY_RULE_MULTIPLIER",
-            "ANOMALY_FORECAST_DEVIATION",
-            "MODEL_WARNING_THRESHOLD",
-            "MODEL_DEGRADATION_THRESHOLD",
-            "MODEL_CRITICAL_THRESHOLD",
-            "MODEL_MONITORING_WINDOW",
             "RUN_ETL_ON_STARTUP",
         ]
         
@@ -71,21 +61,6 @@ class TestConfigValidationAllowlist:
         assert response.status_code == 200
         assert b"error" in response.data.lower() or b"invalid" in response.data.lower()
 
-    def test_system_config_validates_numeric_ranges(self, auth_client):
-        """System config should validate numeric ranges."""
-        # ANOMALY_CONTAMINATION should be between 0 and 1
-        response = auth_client.post(
-            "/admin/system_config/create",
-            data={
-                "key": "ANOMALY_CONTAMINATION",
-                "value": "5.0",  # Invalid - should be 0-1
-                "csrf_token": "test"
-            },
-            follow_redirects=True
-        )
-        assert response.status_code == 200
-        assert b"error" in response.data.lower() or b"invalid" in response.data.lower() or b"range" in response.data.lower()
-
     def test_system_config_service_has_allowlist(self):
         """SystemConfigService should have an allowlist of valid keys."""
         from app.services.system_config_service import SystemConfigService
@@ -118,8 +93,3 @@ class TestConfigValidationAllowlist:
         # Should reject invalid boolean
         with pytest.raises(ValueError):
             SystemConfigService.validate_value("RUN_ETL_ON_STARTUP", "not_bool")
-        
-        # Should validate numeric range
-        assert SystemConfigService.validate_value("ANOMALY_CONTAMINATION", "0.05") is True
-        with pytest.raises(ValueError):
-            SystemConfigService.validate_value("ANOMALY_CONTAMINATION", "5.0")

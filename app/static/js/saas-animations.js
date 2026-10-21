@@ -13,7 +13,7 @@
   var isMobile = window.innerWidth < 768;
   if (isMobile) {
     /* Just show everything without animation */
-    document.querySelectorAll('.metric-card, .panel, .kanban-card, .supplier-card, .warehouse-card-detail, .report-tab, .filter-bar, .page-heading, .chart-wrap, .report-chart, .ai-forecast-chart, .warehouse-chart-wrap').forEach(function(el) {
+    document.querySelectorAll('.metric-card, .panel, .kanban-card, .supplier-card, .warehouse-card-detail, .report-tab, .filter-bar, .page-heading, .chart-wrap, .report-chart, .warehouse-chart-wrap').forEach(function(el) {
       el.style.opacity = '1';
       el.style.transform = 'none';
     });
@@ -69,18 +69,6 @@
       });
     }
 
-    /* ── AI Banner — fade in ─────────────────────────────────────── */
-    var aiBanner = document.querySelector(".ai-banner");
-    if (aiBanner) {
-      gsap.from(aiBanner, {
-        opacity: 0,
-        y: -10,
-        duration: 0.4,
-        ease: "power2.out",
-        delay: 0.08,
-      });
-    }
-
     /* ── Panels — scroll-triggered fade up ───────────────────────── */
     var panels = document.querySelectorAll(".panel");
     panels.forEach(function (panel) {
@@ -121,7 +109,7 @@
 
     /* ── Charts — scale in on scroll ─────────────────────────────── */
     var chartContainers = document.querySelectorAll(
-      ".chart-wrap, .report-chart, .ai-forecast-chart, .warehouse-chart-wrap"
+      ".chart-wrap, .report-chart, .warehouse-chart-wrap"
     );
     chartContainers.forEach(function (chart) {
       gsap.from(chart, {

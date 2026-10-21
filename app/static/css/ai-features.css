@@ -590,103 +590,6 @@ body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { backgr
     color: var(--text-primary);
 }
 
-/* ----- AI BANNER ----- */
-.ai-banner {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    align-items: center;
-    padding: 14px 18px;
-    border-radius: var(--radius-md);
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), rgba(99, 102, 241, 0.08));
-    border: 1px solid rgba(56, 189, 248, 0.25);
-    box-shadow: var(--shadow-sm);
-    margin-bottom: 16px;
-}
-
-.ai-banner .ai-icon {
-    width: 36px;
-    height: 36px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 10px;
-    background: rgba(56, 189, 248, 0.15);
-    color: #38bdf8;
-    font-size: 13px;
-    font-weight: 800;
-}
-
-.ai-banner strong {
-    color: #38bdf8;
-}
-
-.ai-banner #aiRecommendation {
-    color: var(--muted);
-    font-size: 0.78rem;
-    margin-left: 6px;
-}
-
-.ai-banner .ai-confidence {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: rgba(56, 189, 248, 0.15);
-    color: #38bdf8;
-    font-size: 11px;
-    font-weight: 700;
-    margin-left: 8px;
-}
-
-.ai-banner-btn {
-    margin-left: auto;
-    background: rgba(56, 189, 248, 0.12);
-    color: #38bdf8;
-    border: 1px solid rgba(56, 189, 248, 0.3);
-    border-radius: 8px;
-    padding: 7px 14px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.ai-banner-btn:hover {
-    background: rgba(56, 189, 248, 0.22);
-}
-
-/* ----- AI / 3D CHART CONTAINERS ----- */
-.forecast-controls {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 12px;
-    background: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    border-radius: 14px;
-    padding: 16px;
-    margin-bottom: 20px;
-    align-items: end;
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    box-shadow: var(--shadow-sm), var(--glass-highlight);
-}
-
-.forecast-controls label {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--text-secondary);
-}
-
-.ai-forecast-strip {
-    margin-bottom: 16px;
-}
-
-.ai-forecast-chart {
-    padding: 16px 20px;
-    min-height: 240px;
-}
 
 .badge.ai {
     background: linear-gradient(135deg, var(--primary), var(--purple));
@@ -1428,14 +1331,6 @@ body.ink-dark .auth-divider::before, body.ink-dark .auth-divider::after { backgr
         grid-template-columns: 1fr;
     }
 
-    #forecastChart {
-        height: 260px !important;
-    }
-
-    #spcChart {
-        height: 240px !important;
-    }
-
 #eoq3dChart {
          height: 260px !important;
          min-height: 260px !important;
@@ -1730,18 +1625,17 @@ body.ink-dark .auth-card::before {
     background: transparent !important;
 }
 
-/* ── Mobile Performance: disable blur on AI features ──────────── */
+/* ── Mobile Performance: disable blur on auth card ──────────── */
 @media (max-width: 768px) {
-    .ai-banner, .ai-forecast-chart, .ai-anomaly-chart,
-    .ai-metric-card, .ai-result-card, .auth-card {
+    .auth-card {
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
     }
 }
 
-/* ── Anomaly Alert: KPI Grid ──────────────────────────────────── */
+/* ── Shared: KPI Grid ──────────────────────────────────── */
 
-/* ── Anomaly Alert: Badges ────────────────────────────────────── */
+/* ── Shared: Badges ────────────────────────────────────── */
 .badge {
     display: inline-block;
     padding: 2px 8px;
@@ -1767,7 +1661,7 @@ body.ink-dark .auth-card::before {
 [data-theme="dark"] .badge-ack { color: #ca8a04; }
 [data-theme="dark"] .badge-resolved { color: #16a34a; }
 
-/* ── Anomaly Alert: Filter controls ───────────────────────────── */
+/* ── Shared: Filter controls ───────────────────────────── */
 .filter-select {
     width: 100%;
     box-sizing: border-box;
@@ -1786,7 +1680,7 @@ body.ink-dark .auth-card::before {
     box-sizing: border-box;
 }
 
-/* ── Anomaly Alert: Modal overlay ─────────────────────────────── */
+/* ── Shared: Modal overlay ─────────────────────────────── */
 .modal-overlay {
     position: fixed;
     inset: 0;
@@ -1811,7 +1705,7 @@ body.ink-dark .auth-card::before {
     border-color: rgba(255,255,255,0.08);
 }
 
-/* ── Anomaly Alert: btn-sm ────────────────────────────────────── */
+/* ── Shared: btn-sm ────────────────────────────────────── */
 .btn-sm {
     padding: 4px 10px;
     font-size: 0.78rem;
@@ -1828,7 +1722,7 @@ body.ink-dark .auth-card::before {
     background: rgba(56,189,248,0.08);
 }
 
-/* ── Anomaly Alert: empty state ───────────────────────────────── */
+/* ── Shared: empty state ───────────────────────────────── */
 .empty-state {
     text-align: center;
     padding: 24px 12px;
@@ -1836,7 +1730,7 @@ body.ink-dark .auth-card::before {
     font-size: 0.9rem;
 }
 
-/* ── Anomaly Alert: SKU tag ───────────────────────────────────── */
+/* ── Shared: SKU tag ───────────────────────────────────── */
 .sku {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.8rem;
@@ -1844,14 +1738,6 @@ body.ink-dark .auth-card::before {
     border-radius: 4px;
     background: rgba(99,102,241,0.1);
     color: var(--purple);
-}
-
-/* ── Anomaly Alert: table row hover ───────────────────────────── */
-#alertTable tbody tr:hover {
-    background: rgba(56,189,248,0.04);
-}
-#anomalyTable tbody tr:hover {
-    background: rgba(56,189,248,0.04);
 }
 
 /* ── Form validation: field status & hints ─────────────────────── */

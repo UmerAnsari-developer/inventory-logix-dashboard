@@ -16,7 +16,7 @@
       </div>
     </div>
     <h1>Welcome back</h1>
-    <p class="auth-tagline">Sign in to manage stock, run EOQ, and review AI forecasts</p>
+    <p class="auth-tagline">Sign in to manage stock, run EOQ, and review live reports</p>
     <form method="post" action="{{ url_for('auth.login') }}" class="auth-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
       <label><span>Username</span>

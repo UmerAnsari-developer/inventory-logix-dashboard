@@ -5,7 +5,6 @@ from .supplier_repo import SupplierRepository
 from .movement_repo import MovementRepository
 from .audit_repo import AuditRepository
 from .po_repo import PurchaseOrderRepository, POError
-from .forecast_repo import ForecastRepository, AnomalyRepository
 from .settings_repo import SettingsRepository
 from .warehouse_repo import WarehouseRepository
 from .monitoring_repo import MonitoringRepository
@@ -23,8 +22,6 @@ __all__ = [
     "AuditRepository",
     "PurchaseOrderRepository",
     "POError",
-    "ForecastRepository",
-    "AnomalyRepository",
     "SettingsRepository",
     "WarehouseRepository",
     "MonitoringRepository",

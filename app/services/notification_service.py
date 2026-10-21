@@ -93,12 +93,6 @@ def notify_po_status(po_number: str, status: str, supplier_name: str) -> None:
     _bulk_create(_admin_manager_ids(), title, message, icons.get(status, "&#9675;"), "/purchase-orders")
 
 
-def notify_anomaly(sku: str, product_name: str, anomaly_type: str, details: str) -> None:
-    title = f"Anomaly: {sku}"
-    message = f"{product_name} ({sku}) — {anomaly_type}: {details}"
-    _bulk_create(_admin_manager_ids(), title, message, "&#9888;", "/ai/anomaly")
-
-
 def run_monitoring_checks() -> dict:
     """Run checks at most once per 10 minutes (global_cache TTL).
 

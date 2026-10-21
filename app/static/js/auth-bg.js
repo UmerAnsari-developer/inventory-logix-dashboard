@@ -95,7 +95,7 @@ function sampleLuminance(renderer) {
 
 // Mobile: disable Three.js on non-landing pages
 // Spec §21: background animation REMOVED from authenticated app pages
-// (dashboard/inventory/forecast/reports/settings/admin) on ALL devices.
+// (dashboard/inventory/reports/settings/admin) on ALL devices.
 // Landing page (has #hero) and auth pages (no .app-shell) KEEP the animation.
 if (isNonLanding) {
   canvas.style.display = 'none';

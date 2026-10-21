@@ -19,8 +19,6 @@ Gap -> test -> expected status against CURRENT code:
      get/set lets every cold request run the query battery)
   5b test_t5b_dashboard_monitoring_check_once   RED   (F4 x F6: two cold
      loads spawn two run_monitoring_checks whose guard races)
-  6  test_t6_forecast_portfolio_single_flight   RED   (F3: manual get/set
-     around ForecastService.portfolio bypasses the lock)
   7  test_t7_rebuild_locks_stays_bounded        RED   (F5: _rebuild_locks
      grows forever — one Lock per key ever seen)
   8  test_t8_run_monitoring_checks_single_flight RED  (F6: check-then-act
@@ -76,7 +74,6 @@ def _isolated_caches():
         cache_mod.api_cache,
         cache_mod.landing_cache,
         cache_mod.monitoring_cache,
-        ai_mod._portfolio_cache,
     )
     for c in caches:
         c.clear()
@@ -540,68 +537,6 @@ def test_t5b_dashboard_monitoring_check_once(app, monkeypatch):
     )
 
 
-# ---------------------------------------------------------------------------
-# T6 - F3 HIGH (gap 6): forecast portfolio bypasses the per-key lock
-# ---------------------------------------------------------------------------
-
-def test_t6_forecast_portfolio_single_flight(app, monkeypatch):
-    """F3: /ai/forecast/portfolio does manual get/set around
-    ForecastService.portfolio (Prophet/ARIMA fitting) instead of
-    _portfolio_cache.get_or_set, so two concurrent cold calls both fit.
-    Mock the fit, clear the cache, fire two requests while the first fit is
-    gated — the mock must be called exactly once.
-    """
-    import app.routes.ai as ai_mod
-
-    ai_mod._portfolio_cache.clear()
-
-    calls: list[int] = []
-    first_inside = threading.Event()
-    release = threading.Event()
-
-    def fake_portfolio(horizon: int = 30, model: str = "prophet"):
-        calls.append(1)
-        first_inside.set()
-        assert release.wait(10), "portfolio gate never released"
-        return [{"sku": "SKU-1", "forecast_total": 5}]
-
-    monkeypatch.setattr(ai_mod.ForecastService, "portfolio", fake_portfolio)
-
-    client_a = _session_client(app, "admin")
-    client_b = _session_client(app, "admin")
-    statuses: dict[str, object] = {}
-    url = "/ai/forecast/portfolio?horizon=31&model=prophet"
-
-    def _run(name, client):
-        try:
-            statuses[name] = client.get(url).status_code
-        except Exception as exc:  # noqa: BLE001
-            statuses[name] = f"EXC:{exc!r}"
-
-    ta = threading.Thread(target=_run, args=("a", client_a))
-    ta.start()
-    assert first_inside.wait(10), "thread A never reached the portfolio fit"
-    tb = threading.Thread(target=_run, args=("b", client_b))
-    tb.start()
-    try:
-        # RED path: B reaches the (unguarded) fit while A is gated → calls
-        # hits 2 and the loop exits fast. GREEN path: B blocks on the
-        # per-key lock, the loop times out, then the gate releases.
-        deadline = time.time() + 1.0
-        while time.time() < deadline and len(calls) < 2:
-            time.sleep(0.02)
-    finally:
-        release.set()
-        ta.join(15)
-        tb.join(15)
-
-    assert not ta.is_alive() and not tb.is_alive(), "portfolio request thread hung"
-    assert statuses == {"a": 200, "b": 200}, f"unexpected responses: {statuses}"
-    assert len(calls) == 1, (
-        f"ForecastService.portfolio ran {len(calls)}x under concurrent cold "
-        f"requests (expected 1) — convert manual get/set to "
-        f"_portfolio_cache.get_or_set (F3)"
-    )
 
 
 # ---------------------------------------------------------------------------

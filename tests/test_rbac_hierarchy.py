@@ -97,8 +97,8 @@ def test_receiving_associate_permissions():
 
 def test_demand_planning_analyst_permissions():
     perms = user_permissions(_FakeUser(role="viewer", job_role="demand_planning_analyst"))
-    assert "forecast.run" in perms
-    assert "forecast.validate" in perms
+    assert "analytics.view" in perms
+    assert "report.submit" in perms
     assert "po.approve" not in perms
 
 

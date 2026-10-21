@@ -77,7 +77,7 @@
         <div class="hero-copy">
           <span class="badge glass" data-anim>
             <i class="dot ok"></i> Live Production Dataset &middot; {{ '{:,}'.format(stats.movements) }} stock movements
-            &middot; Prophet &middot; XGBoost &middot; Isolation Forest
+            &middot; EOQ optimization &middot; live reporting
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M5 12h14m-6-6 6 6-6 6" />
             </svg>
@@ -85,8 +85,8 @@
           <h1 data-anim>Turn real stock data into <span class="grad">revenue-ready decisions.</span></h1>
           <p class="lede" data-anim>A full production dataset — {{ stats.total_skus }} real-world products across {{
             stats.warehouses }} warehouses, supplied by {{ stats.suppliers }} vendors, with {{
-            '{:,}'.format(stats.movements) }} transactions recorded every day. Demand forecasting, anomaly detection,
-            EOQ optimization, and live reporting in one command center.</p>
+            '{:,}'.format(stats.movements) }} transactions recorded every day. EOQ optimization,
+            stock movement analytics, and live reporting in one command center.</p>
           <div class="cta-row" data-anim>
             <a class="btn btn-primary" href="{{ url_for('auth.register') }}">Get started free
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -139,9 +139,8 @@
                 <circle cx="12" cy="12" r="1.4" fill="currentColor" />
                 <path d="M12 12 18.5 5.5" opacity=".7" />
               </svg></div>
-            <h3>Demand Forecasting</h3>
-            <p>Prophet & XGBoost models project demand up to 90 days ahead with confidence bands so you order before
-              stockouts happen.</p>
+            <h3>Real-Time Stock Control</h3>
+            <p>Every SKU tracked across warehouses with live KPIs, reorder-point alerts, and instant stock movements.</p>
           </div>
           <div class="card feature reveal" style="--d:.08s">
             <div class="f-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -149,9 +148,9 @@
                 <path d="M3 17.5 9 11l4 3.5 8-9" />
                 <path d="M15.5 5.5H21V11" />
               </svg></div>
-            <h3>Anomaly Detection</h3>
-            <p>Isolation Forest and SPC z-score control charts detect unexpected spikes and demand drops before they
-              impact margins.</p>
+            <h3>Supplier &amp; Purchase Orders</h3>
+            <p>Vendor lead times, ratings, and purchase orders in one loop &mdash; draft, approve, and receive without
+              spreadsheet churn.</p>
           </div>
           <div class="card feature reveal" style="--d:.16s">
             <div class="f-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -202,8 +201,8 @@
                 </div>
               </div>
               <div class="panel chart">
-                <h4>Demand · 30-day vs AI forecast</h4>
-                <svg viewBox="0 0 560 210" role="img" aria-label="Demand chart with AI forecast">
+                <h4>Demand · 30-day trend</h4>
+                <svg viewBox="0 0 560 210" role="img" aria-label="Demand trend chart">
                   <defs>
                     <linearGradient id="sg" x1="0" y1="0" x2="560" y2="0" gradientUnits="userSpaceOnUse">
                       <stop stop-color="#38bdf8" />
@@ -222,7 +221,7 @@
                     <line x1="0" y1="175" x2="560" y2="175" />
                   </g>
                   <line class="now" x1="386" y1="14" x2="386" y2="196" />
-                  <text class="now-label" x="394" y="28">AI FORECAST →</text>
+                  <text class="now-label" x="394" y="28">DEMAND TREND →</text>
                   <path class="area" fill="url(#ag)"
                     d="M0 158 C40 150 62 130 92 138 S152 172 192 152 S262 96 302 110 S362 68 402 84 S472 48 560 58 L560 210 0 210 Z" />
                   <path class="line"
@@ -298,7 +297,7 @@
             <div class="m-lab">Suppliers</div>
           </div>
         </div>
-        <p class="m-note reveal">Averages across production dataset · Prophet · XGBoost · Isolation Forest</p>
+        <p class="m-note reveal">Averages across production dataset &middot; updated live</p>
       </div>
     </section>
 
@@ -384,7 +383,7 @@
   </div>
 
   <!-- Shared Three.js background -->
-  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=db591da6"></script>
+  <script type="module" src="{{ url_for('static', filename='js/auth-bg.js') }}?v=1261c4ce"></script>
 
   <!-- Landing page interactions -->
   <script nonce="{{ csp_nonce }}">

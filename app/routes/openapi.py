@@ -45,42 +45,8 @@ _PATHS: list[tuple[str, dict[str, str]]] = [
     ("/api/notifications/{notif_id}/read", {"post": "Mark one notification read"}),
     ("/api/notifications/read-all", {"post": "Mark all notifications read"}),
     ("/api/openapi.json", {"get": "This OpenAPI 3.0 specification"}),
-    # ── /ai — forecast ──
-    ("/ai/forecast", {"get": "Forecast page (HTML)"}),
-    ("/ai/forecast/run", {"post": "Run forecast for a product"}),
-    ("/ai/forecast/backtest", {
-        "get": "List backtest results (filters: product_id, sku, model, horizon, dates)",
-        "post": "Run rolling-origin backtest",
-    }),
-    ("/ai/forecast/portfolio", {"get": "Forecast portfolio across the catalogue"}),
-    # ── /ai — anomaly ──
-    ("/ai/anomaly", {"get": "Anomaly page (HTML)"}),
-    ("/ai/anomaly/run", {"post": "Run anomaly detection for a product"}),
-    ("/ai/anomaly/portfolio", {"get": "Anomaly portfolio across the catalogue"}),
-    ("/ai/anomaly/benchmark", {"get": "Synthetic anomaly benchmark"}),
-    ("/ai/anomaly/precision-recall", {"get": "Empirical precision/recall from labeled alerts"}),
-    ("/ai/anomaly/fatigue", {"get": "Alert fatigue metrics"}),
-    ("/ai/anomaly/summary", {"get": "Anomaly alert KPI counts"}),
-    ("/ai/anomaly/alerts", {"get": "List anomaly alerts (filterable)"}),
-    ("/ai/anomaly/alerts/{alert_id}", {"get": "Get one anomaly alert"}),
-    ("/ai/anomaly/alerts/{alert_id}/status", {"put": "Update alert status"}),
-    ("/ai/anomaly/alerts/{alert_id}/label", {"post": "Label alert true/false positive"}),
+    # ── /ai — EOQ ──
     ("/ai/eoq/sensitivity", {"get": "EOQ sensitivity surface"}),
-    # ── /ai — model monitoring ──
-    ("/ai/monitoring", {"get": "Monitoring page (HTML)"}),
-    ("/ai/monitoring/summary", {"get": "Monitoring summary KPIs"}),
-    ("/ai/monitoring/health", {"get": "Per-model health table"}),
-    ("/ai/monitoring/actual-vs-predicted", {"get": "Actual vs predicted series"}),
-    ("/ai/monitoring/metrics", {"get": "Metrics trend per SKU+Model"}),
-    ("/ai/monitoring/alerts", {"get": "List monitoring alerts (filterable)"}),
-    ("/ai/monitoring/alerts/{alert_id}/status", {"put": "Update monitoring alert status"}),
-    ("/ai/monitoring/evaluate", {"post": "Evaluate pending predictions"}),
-    ("/ai/monitoring/compute", {"post": "Compute metrics for a SKU+Model window"}),
-    ("/ai/monitoring/predictions", {"get": "List stored predictions"}),
-    ("/ai/monitoring/pool-status", {"get": "DB connection-pool utilization"}),
-    ("/ai/monitoring/etl-health", {"get": "Warehouse ETL health snapshot"}),
-    ("/ai/monitoring/cache-status", {"get": "Per-cache backend hit/miss stats"}),
-    ("/ai/monitoring/promote-baseline", {"post": "Pin latest metrics as the model baseline"}),
 ]
 
 

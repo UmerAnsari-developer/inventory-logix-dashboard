@@ -1,7 +1,7 @@
 # InventoryLogix — Inventory Logistics Optimization Dashboard
 
 A full-stack Flask + PostgreSQL application for warehouse stock management with
-**real-time CRUD**, **AI demand forecasting**, **anomaly detection**, **REST API**,
+**real-time CRUD**, **EOQ optimization**, **REST API**,
 **data warehouse ETL**, and an **auth-protected** UI built on a unified futuristic
 dark-mode design with glassmorphism, GSAP animations, and Three.js 3D backgrounds.
 
@@ -22,17 +22,11 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
   holding costs (used for EOQ) and up to 150 suppliers. Deterministic synthetic
   catalogue when the dataset file is absent.
 - **REST API** — `/api/products`, `/api/suppliers`, `/api/movements`,
-  `/api/eoq/calculate`, `/api/health`, plus AI endpoints. Consistent JSON
-  envelope with success/error codes.
-- **ML module** — Prophet, ARIMA, and ensemble forecasting with graceful
-  fallback. Anomaly detection uses Isolation Forest plus SPC z-score control
-  charts. Portfolio-level forecast and anomaly endpoints with 1-hour caching.
-  Both portfolio tables include **every product** with a **Model column**
-  (forecast: Prophet/ARIMA/Ensemble label; anomaly: Isolation Forest /
-  SPC (z-score)) and load **only after a run** — never pre-filled.
-  Both AI pages ship a plain-language **"How to read this page"** section
-  explaining every KPI (MAE, MAPE, RMSE, accuracy, confidence band) and the
-  SPC ±3σ control chart for non-technical users.
+  `/api/eoq/calculate`, `/api/health`, plus the EOQ sensitivity endpoint.
+  Consistent JSON envelope with success/error codes.
+- **EOQ optimization** — per-product economic order quantity with a live cost
+  curve chart and a 3D cost-sensitivity surface. The per-product EOQ table is
+  cached (busted on product CRUD) to keep the page fast.
 - **Data warehouse** — ETL pipeline populates `dim_product`, `dim_supplier`,
   `dim_date`, `fact_inventory_daily`, and `fact_movement_monthly`. Stock walk
   clamping ensures inventory accuracy. Warehouse monitoring dashboard at
@@ -42,8 +36,8 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
   logging, account lockout, secure session cookies, and soft-validated forms.
 - **Performance** — cached context processor (60s), lazy-loaded Plotly (3.5MB
   only on pages that use it), dashboard queries batched (14→11), reports cache
-  TTL 1 hour, dashboard cache TTL 5 min, AI portfolio cached 1 hour, Intelligence
-  (forecast/anomaly) product list + EOQ table cached, ETL rebuilds non-blocking.
+  TTL 1 hour, dashboard cache TTL 5 min, Intelligence product list + EOQ table
+  cached, ETL rebuilds non-blocking.
   Heavy report sections (category breakdown + KPIs, 30-day movement series,
   top SKUs) query the **star-schema fact tables** (`fact_movement_daily` +
   dimensions) instead of raw `movements` scans.
@@ -81,10 +75,8 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 │   │   ├── etl.py               # ETL pipeline + stock walk clamping
 │   │   ├── seed.py              # Demo data seeding (DataCo / synthetic)
 │   │   └── connection.py        # Pool management + lazy health-check + bootstrap
-│   ├── monitoring/              # Forecast model monitoring
-│   │   ├── metrics.py           # MAE/MAPE/RMSE evaluation
-│   │   ├── degradation.py       # Degradation detection + health status
-│   │   └── alerts.py            # Model monitoring alerts
+│   ├── monitoring/              # System alert generation + dedup
+│   │   └── alerts.py            # ETL/backup/pool failure alerts
 │   ├── repositories/            # SQL CRUD per entity
 │   │   ├── product_repo.py      # products (via sp_product_list)
 │   │   ├── movement_repo.py     # movements
@@ -94,8 +86,7 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 │   │   ├── user_repo.py         # users + sessions
 │   │   ├── settings_repo.py     # per-user settings
 │   │   ├── notification_repo.py # notifications
-│   │   ├── forecast_repo.py     # forecast cache
-│   │   ├── monitoring_repo.py   # predictions + metrics + alerts
+│   │   ├── monitoring_repo.py   # system alerts
 │   │   └── audit_repo.py        # audit log
 │   ├── services/                # Business logic
 │   │   ├── auth_service.py      # Authentication + lockout + session tracking
@@ -103,9 +94,7 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 │   │   ├── movement_service.py  # Movement recording
 │   │   ├── supplier_service.py  # Supplier creation
 │   │   ├── eoq_service.py       # EOQ table + sensitivity surface
-│   │   ├── forecast_service.py  # Forecast portfolio (OUT demand, active-day accuracy)
-│   │   ├── anomaly_service.py   # Anomaly portfolio (Isolation Forest + SPC)
-│   │   ├── monitoring_service.py # Model monitoring aggregation
+│   │   ├── monitoring_service.py # System alert persistence + retention
 │   │   ├── notification_service.py # Alert checks + bulk inserts
 │   │   ├── settings_service.py  # Per-user settings
 │   │   ├── dataset_service.py   # DataCo dataset import
@@ -114,10 +103,7 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 │   │   ├── auth.py              # /auth/* (login, register, reset, logout)
 │   │   ├── ui.py                # Main pages (dashboard, inventory, reports, …)
 │   │   ├── api.py               # /api/* REST endpoints
-│   │   └── ai.py                # /ai/* forecast, anomaly, monitoring, EOQ
-│   ├── ml/                      # Forecasting + anomaly detection
-│   │   ├── forecasting.py       # Prophet / ARIMA / ensemble
-│   │   └── anomaly.py           # Isolation Forest + SPC z-score
+│   │   └── ai.py                # /ai/* EOQ sensitivity
 │   ├── security/                # Validators, CSP headers, roles
 │   │   ├── validators.py        # Input validators (SKU, email, password, …)
 │   │   ├── headers.py           # CSP + security header after_request
@@ -129,19 +115,18 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 │   │   ├── base.html            # Shared layout + CDN scripts + theme init
 │   │   ├── landing.html         # Public landing page
 │   │   ├── auth/                # login / register / forgot / reset
-│   │   ├── ai/                  # forecast / anomaly / model monitoring
 │   │   ├── errors/              # 400 / 401 / 403 / 404 / 422 / 429 / 500
 │   │   └── …                    # dashboard, inventory, reports, monitoring, …
 │   └── static/
 │       ├── css/
 │       │   ├── style.css        # Main app styles (~3800 lines)
 │       │   ├── landing.css      # Landing page + theme tokens
-│       │   └── ai-features.css  # AI overlay styles
+│       │   └── ai-features.css  # EOQ + shared feature styles
 │       ├── js/
 │       │   ├── auth-bg.js       # Three.js 3D background (all pages)
 │       │   ├── dashboard-3d.js  # Dashboard panel tilt + chart animation
 │       │   ├── saas-animations.js  # GSAP entrance animations
-│       │   ├── ai-features.js   # AI forecast/anomaly/portfolio UI
+│       │   ├── ai-features.js   # EOQ calculator + shared UI helpers
 │       │   ├── eoq.js           # EOQ calculator + cost curve chart
 │       │   ├── main.js          # IntersectionObserver, toast, theme
 │       │   └── landing.js       # Landing page animations
@@ -162,8 +147,6 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 │   ├── test_auth.py             # Auth flows
 │   ├── test_cache.py            # TTLCache + bust hooks
 │   ├── test_etl.py              # ETL pipeline / warehouse
-│   ├── test_ml.py               # Forecast + anomaly models
-│   ├── test_monitoring.py       # Model monitoring
 │   ├── test_notifications.py    # Notification API
 │   ├── test_reports_fact.py     # Reports fact-table endpoints
 │   ├── test_roles.py            # Role-based access control
@@ -245,14 +228,13 @@ Schema is applied and seeded automatically on first run. Demo credentials:
 | Area | Before | After |
 |------|--------|-------|
 | Context processor | 1 DB query per page load | Cached 60s (global key) |
-| Plotly CDN | Loaded on every page (~3.5MB) | Lazy-loaded (dashboard, forecast, anomaly, EOQ only) |
+| Plotly CDN | Loaded on every page (~3.5MB) | Lazy-loaded (dashboard, EOQ only) |
 | Dashboard queries | 14 sequential | 11 (batched product agg + merged top demand/sales) |
 | Dashboard cache | 60s TTL | 300s TTL (5 min) |
 | Reports heavy sections | Raw `movements` scans | Star-schema fact tables (`fact_movement_daily` + dims) |
 | Reports cache | 300s TTL | 3600s TTL (1 hour) — cold `/reports` ≈7s once, then ≈0.6s |
 | Intelligence pages | 100-product query every load | Cached product list (`ai_product_list`) |
 | EOQ calculator | Per-product table query every load | Cached (`eoq_table`) |
-| AI portfolio | No caching | 1-hour TTL cache |
 | ETL rebuild | Synchronous (10-60s block) | Non-blocking thread |
 | DB connections | `SELECT 1` ping per request | Lazy health-check + stale-connection retry |
 | Bootstrap | Full schema init on every first boot | Skipped when schema exists (1 `SELECT`) |
@@ -286,7 +268,7 @@ Schema is applied and seeded automatically on first run. Demo credentials:
 
 ### Operational tables
 `users`, `suppliers`, `products`, `movements`, `purchase_orders`, `audit_log`,
-`forecast_cache`, `anomaly_log`, `user_settings`, `etl_state`
+`model_monitoring_alerts`, `user_settings`, `etl_state`
 
 ### Stored procedures (84+)
 All CRUD goes through `sp_*` functions to prevent SQL injection. Examples:
@@ -356,27 +338,7 @@ legacy threading behavior (stray `pending` rows are inert).
 | POST   | `/api/movements`                  | Record a stock movement           |
 | GET    | `/api/movements/recent?days=14`   | Daily movement totals             |
 | POST   | `/api/eoq/calculate`              | Run EOQ math on supplied params   |
-| POST   | `/ai/forecast/run`                | Run Prophet/ARIMA/ensemble        |
-| GET    | `/ai/forecast/portfolio`          | Portfolio-level forecast (cached) |
-| POST   | `/ai/anomaly/run`                 | Run anomaly detection             |
-| GET    | `/ai/anomaly/portfolio`           | Portfolio anomalies (cached)      |
 | GET    | `/ai/eoq/sensitivity`             | 3D EOQ sensitivity surface        |
-
----
-
-## ML Module
-
-**Forecasting** (`app/ml/forecasting.py`):
-- `forecast_with_prophet` — Prophet with weekly seasonality
-- `forecast_with_arima` — ARIMA(1, 1, 1)
-- `forecast_ensemble` — averages the two
-- Graceful fallback to moving-average when libraries unavailable
-
-**Anomaly detection** (`app/ml/anomaly.py`):
-- `detect_anomalies_isoforest` — sklearn Isolation Forest
-- `spc_zscore_analysis` — mean/sigma/UCL/LCL for SPC charts
-
-Portfolio endpoints are cached for 1 hour to avoid repeated model fitting.
 
 ---
 
@@ -401,19 +363,11 @@ Portfolio endpoints are cached for 1 hour to avoid repeated model fitting.
    interactive charts, filterable by warehouse/category/date range.
 10. **EOQ calculator** — `/eoq-calculator` — live form, cost curve, per-product
     table, theme-aware datalabels.
-11. **AI forecast** — `/ai/forecast` — product selector, model choice, Plotly
-    chart with confidence intervals, portfolio snapshot table (every product,
-    with Model column; loads only after a forecast run), plus a plain-language
-    "How to read this page" section explaining every KPI.
-12. **Anomaly detection** — `/ai/anomaly` — Isolation Forest + SPC control
-    chart, portfolio table (every product incl. healthy SKUs, with Model
-    column; loads only after a detection run), and an info section explaining
-    the SPC ±3σ chart and every value.
-13. **Monitoring** — `/monitoring` — DB stats, ETL status, daily logins,
+11. **Monitoring** — `/monitoring` — DB stats, ETL status, daily logins,
     warehouse health, Run ETL button (non-blocking).
-14. **Settings** — `/settings` — per-account preferences, AI defaults, alert
-    thresholds (admin/manager only).
-15. **Help / Contact** — `/help`, `/contact` — FAQ and support form.
+12. **Settings** — `/settings` — per-account preferences, recommendation &
+    reorder defaults, alert thresholds (admin/manager only).
+13. **Help / Contact** — `/help`, `/contact` — FAQ and support form.
 
 Dark/light theme toggle saved to localStorage. All pages have themed scrollbars,
 GSAP entrance animations, and the Three.js 3D wave background.
@@ -425,10 +379,10 @@ GSAP entrance animations, and the Three.js 3D wave background.
 pip install pytest
 pytest
 ```
-Covers auth flow, role-based access, REST API, security helpers, ML smoke
-tests, service-layer validation, caching, ETL, and the reports fact-table
-endpoints (`tests/test_reports_fact.py` — verifies 200 OK, fact-table SQL
-execution, and dimension-table joins when filters are applied).
+Covers auth flow, role-based access, REST API, security helpers,
+service-layer validation, caching, ETL, and the reports fact-table endpoints
+(`tests/test_reports_fact.py` — verifies 200 OK, fact-table SQL execution,
+and dimension-table joins when filters are applied).
 
 
 ## Known Limitations
@@ -456,6 +410,12 @@ execution, and dimension-table joins when filters are applied).
   fact-table rows retain pre-phase-2 contributions (ETL is incremental).
 
 ### Changelog
+- **2026-10-18 — Feature removal (forecast/anomaly):** Demand Forecasting and
+  Anomaly Detection were removed end-to-end (routes, services, ML modules,
+  templates, JS/CSS, tests, requirements). The seven feature tables were
+  dropped via Alembic migration `20261018_drop_forecast_tables`. The EOQ
+  calculator and the system-alert backbone (ETL/backup/pool failure alerts)
+  remain.
 - **2026-09-25 — DB integrity fixes (D-1…D-8):** atomic `sp_movement_record`
   (row lock + stock guard, no lost updates or negative stock), PO state machine
   `sp_po_transition` (valid transitions only, idempotent receive, stock/`on_order`

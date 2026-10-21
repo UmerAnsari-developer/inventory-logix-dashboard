@@ -36,10 +36,12 @@ in-app or external worker processes them.
 
 **Failure alerting:** `create_backup()` calls `_alert_backup_failure()`
 (backup_service.py:35, fired at :343 and :399 on failure), which routes through
-`_maybe_create_backup_failure_alert()` (monitoring_service.py:295) into
+`_maybe_create_backup_failure_alert()` (monitoring_service.py:64) into
 `model_monitoring_alerts` with `severity='critical'` (dedup-aware) and the
 optional external notifier. A failed daily backup therefore surfaces as a
-critical alert — check `/ai/monitoring/alerts` or the admin notification center.
+critical alert — persisted in `model_monitoring_alerts` (dedup-aware) and
+routed to the configured alert channels (email/Slack/webhook via
+`alert_notifier.py`).
 
 **Verification cadence:** `verify_latest_backup()` (backup_service.py:664-699)
 decrypts the newest backup, re-computes its SHA-256 checksum and compares it to

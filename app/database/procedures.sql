@@ -1071,8 +1071,8 @@ $$ LANGUAGE plpgsql;
 
 -- ─────────────────────────────────────────────────────────────────
 -- DB-044: Retention purges for audit/ops tables.
--- forecast/anomaly/fact tables intentionally NOT purged — they hold
--- business history. Ops tables only.
+-- fact tables intentionally NOT purged — they hold business history.
+-- Ops tables only.
 -- ─────────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION sp_retention_purge_audit_log(p_days INT DEFAULT 90)

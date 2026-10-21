@@ -1,53 +1,5 @@
-"""Monitoring alert generation and deduplication."""
+"""System alert generation and deduplication (ETL / backup / pool)."""
 from __future__ import annotations
-
-from ..config.settings import Config
-
-
-def _threshold(name: str) -> float:
-    return float(getattr(Config, name, 10))
-
-
-def generate_alert(*, sku: str, model_name: str, alert_date: str,
-                   alert_type: str, metric: str,
-                   baseline_value: float | None, current_value: float | None,
-                   change_percent: float) -> dict:
-    """Create a monitoring alert dict with severity and recommendation."""
-    warning = _threshold("MODEL_WARNING_THRESHOLD")
-    degraded = _threshold("MODEL_DEGRADATION_THRESHOLD")
-    critical = _threshold("MODEL_CRITICAL_THRESHOLD")
-    if change_percent >= critical:
-        severity = "critical"
-    elif change_percent >= degraded:
-        severity = "high"
-    elif change_percent >= warning:
-        severity = "warning"
-    else:
-        severity = "info"
-    message = (
-        f"{metric.upper()} changed by {change_percent:+.1f}% "
-        f"(baseline: {baseline_value:.1f}, current: {current_value:.1f})"
-    )
-    action = "Review recent demand patterns and consider retraining the model."
-    if severity in ("critical", "high"):
-        action = (
-            "Model performance has deteriorated significantly. "
-            "Review recent demand patterns, retrain or reevaluate the forecasting model."
-        )
-    return {
-        "sku": sku,
-        "model_name": model_name,
-        "alert_date": alert_date,
-        "alert_type": alert_type,
-        "severity": severity,
-        "metric": metric,
-        "baseline_value": baseline_value,
-        "current_value": current_value,
-        "change_percent": round(change_percent, 2),
-        "message": message,
-        "recommended_action": action,
-        "status": "new",
-    }
 
 
 def generate_etl_failure_alert(*, error_message: str, stage: str | None = None,
@@ -109,8 +61,7 @@ def generate_pool_exhaustion_alert(*, active: int, pool_size: int) -> dict:
     )
     action = (
         "Connection pool is exhausted. Check for connection leaks (long checkouts), "
-        "slow queries holding connections, or increase DB_POOL_SIZE. "
-        "See /monitoring/pool-status for live utilization."
+        "slow queries holding connections, or increase DB_POOL_SIZE."
     )
     return {
         "sku": "SYSTEM",

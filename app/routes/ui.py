@@ -1,7 +1,6 @@
 """Main UI routes — dashboard, inventory, suppliers, reports, EOQ.
 
-Preserves the original dashboard design while exposing the AI capabilities
-(forecast, anomaly, dark mode).
+Preserves the original dashboard design (dark mode, EOQ surfaces).
 """
 from __future__ import annotations
 
@@ -178,21 +177,6 @@ def dashboard():
                 })
 
             queue = ProductRepository.low_stock()[:4]
-
-            cur.execute(
-                """
-                SELECT p.id, p.sku, p.name
-                FROM products p
-                LEFT JOIN movements m ON m.product_id = p.id AND m.created_at >= %s
-                    AND m.deleted_at IS NULL
-                GROUP BY p.id, p.sku, p.name
-                ORDER BY COALESCE(SUM(m.quantity), 0) DESC, p.id
-                LIMIT 1
-                """,
-                (today - timedelta(days=30),),
-            )
-            top = cur.fetchone()
-            forecast_product = {"id": top["id"], "sku": top["sku"], "name": top["name"]} if top else None
 
             # --- Slow-moving products: longest time sitting in inventory ---------
             # Days since the product's last OUT (sales) movement. Products with the
@@ -379,8 +363,6 @@ def dashboard():
             "inout_max": inout_max,
             "category_counts": category_counts,
             "queue": queue,
-            "forecast_product": forecast_product,
-            "forecast_model": SettingsService.forecast_model(),
             "queue_units": sum(int(p.get("current_stock") or 0) for p in queue),
             "slow_movers": slow_movers,
             "top_demand": top_demand,

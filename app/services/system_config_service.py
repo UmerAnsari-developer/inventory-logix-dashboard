@@ -13,21 +13,6 @@ class SystemConfigService:
 
     # Allowlist of valid configuration keys that can be overridden via admin UI
     ALLOWED_KEYS = {
-        # Anomaly detection thresholds
-        "ANOMALY_ZWARNING": {"type": "float", "min": 0.1, "max": 10.0, "description": "Z-score warning threshold"},
-        "ANOMALY_ZHIGH": {"type": "float", "min": 0.1, "max": 10.0, "description": "Z-score high threshold"},
-        "ANOMALY_ZCRITICAL": {"type": "float", "min": 0.1, "max": 10.0, "description": "Z-score critical threshold"},
-        "ANOMALY_CONTAMINATION": {"type": "float", "min": 0.001, "max": 0.5, "description": "Isolation Forest contamination"},
-        "ANOMALY_RULE_MULTIPLIER": {"type": "float", "min": 0.1, "max": 10.0, "description": "Rule-based anomaly multiplier"},
-        "ANOMALY_FORECAST_DEVIATION": {"type": "float", "min": 0.01, "max": 1.0, "description": "Forecast deviation threshold"},
-        
-        # Model monitoring thresholds
-        "MODEL_WARNING_THRESHOLD": {"type": "float", "min": 1, "max": 100, "description": "Model warning threshold %"},
-        "MODEL_DEGRADATION_THRESHOLD": {"type": "float", "min": 1, "max": 100, "description": "Model degradation threshold %"},
-        "MODEL_CRITICAL_THRESHOLD": {"type": "float", "min": 1, "max": 100, "description": "Model critical threshold %"},
-        "MODEL_MONITORING_WINDOW": {"type": "int", "min": 1, "max": 90, "description": "Model monitoring window days"},
-        
-        # Other settings
         "RUN_ETL_ON_STARTUP": {"type": "bool", "description": "Run ETL on startup"},
     }
 

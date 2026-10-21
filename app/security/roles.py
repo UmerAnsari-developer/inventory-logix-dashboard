@@ -48,7 +48,7 @@ LEGACY_JOB_ROLE = {
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "inventory_director": {"*"},  # everything
     "vp_operations": {
-        "inventory.view.all", "dashboard.view", "forecast.view", "analytics.view",
+        "inventory.view.all", "dashboard.view", "analytics.view",
         "supplier.view", "reports.view.all", "reports.review",
         "procurement.view", "warehouse.view",
     },
@@ -74,10 +74,9 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "stock.receive", "warehouse.view", "report.submit", "dashboard.view",
     },
     "inventory_analyst": {
-        "analytics.view", "forecast.view", "report.submit", "dashboard.view",
+        "analytics.view", "report.submit", "dashboard.view",
     },
     "demand_planning_analyst": {
-        "forecast.view", "forecast.run", "forecast.validate",
         "analytics.view", "report.submit", "dashboard.view",
     },
 }

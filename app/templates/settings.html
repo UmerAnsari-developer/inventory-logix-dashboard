@@ -36,10 +36,10 @@
     </article>
 
     <article class="panel">
-      <div class="panel-header"><div class="panel-title">AI &amp; Prediction Settings</div><div class="panel-caption">Machine learning defaults</div></div>
+      <div class="panel-header"><div class="panel-title">Automation &amp; Recommendations</div><div class="panel-caption">Reorder and suggestion defaults</div></div>
       <div class="panel-content">
         <div class="setting-group">
-          <h4>Machine Learning</h4>
+          <h4>Recommendations &amp; Reorder</h4>
           <div class="setting-row">
             <div>
               <div class="setting-label">Enable AI Recommendations</div>
@@ -49,35 +49,17 @@
           </div>
           <div class="setting-row">
             <div>
-              <div class="setting-label">Anomaly Detection</div>
-              <div class="setting-desc">Auto-detect unusual consumption patterns</div>
-            </div>
-            <label class="toggle"><input type="checkbox" id="settings-anomaly-toggle" data-setting="anomaly_detection"><span class="slider"></span></label>
-          </div>
-          <div class="setting-row">
-            <div>
               <div class="setting-label">Auto-Reorder (Critical items only)</div>
               <div class="setting-desc">Automatically draft POs for critical stock</div>
             </div>
             <label class="toggle"><input type="checkbox" id="settings-auto-reorder-toggle" data-setting="auto_reorder"><span class="slider"></span></label>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Forecast Model</div>
-              <div class="setting-desc">Default model for demand predictions</div>
-            </div>
-            <select class="settings-select" id="settings-forecast-model" data-setting="forecast_model">
-              <option value="prophet">Prophet (seasonality)</option>
-              <option value="xgboost">XGBoost (ML)</option>
-              <option value="ensemble">Ensemble (both)</option>
-            </select>
           </div>
         </div>
       </div>
     </article>
 
     <article class="panel">
-      <div class="panel-header"><div class="panel-title">Alert Thresholds</div><div class="panel-caption">Reorder and anomaly rules</div></div>
+      <div class="panel-header"><div class="panel-title">Alert Thresholds</div><div class="panel-caption">Reorder rules</div></div>
       <div class="panel-content">
         <div class="setting-group">
           <h4>Reorder Rules</h4>
@@ -94,13 +76,6 @@
               <div class="setting-desc">Trigger critical alert below this % of reorder point</div>
             </div>
             <input type="number" min="0" max="99" id="settings-critical" data-setting="critical_threshold" class="settings-input">
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Anomaly Z-Score Threshold</div>
-              <div class="setting-desc">Flag consumption beyond &plusmn;Z&sigma; multiplier</div>
-            </div>
-            <input type="number" min="1" max="10" step="0.5" id="settings-zscore" data-setting="z_score_threshold" class="settings-input">
           </div>
         </div>
       </div>
@@ -186,20 +161,10 @@
   initToggle(document.getElementById('settings-live-toggle'), 'live_data');
   initToggle(document.getElementById('settings-sound-toggle'), 'sound_alerts');
   initToggle(document.getElementById('settings-ai-reco-toggle'), 'ai_recommendations');
-  initToggle(document.getElementById('settings-anomaly-toggle'), 'anomaly_detection');
   initToggle(document.getElementById('settings-auto-reorder-toggle'), 'auto_reorder');
   initToggle(document.getElementById('settings-email-toggle'), 'email_alerts');
 
-  var modelSel = document.getElementById('settings-forecast-model');
-  if (modelSel) {
-    modelSel.value = settings.forecast_model || 'prophet';
-    modelSel.addEventListener('change', function () {
-      modelSel.disabled = true;
-      save('forecast_model', modelSel.value).then(function () { modelSel.disabled = false; });
-    });
-  }
-
-  ['settings-low-stock', 'settings-critical', 'settings-zscore'].forEach(function (id) {
+  ['settings-low-stock', 'settings-critical'].forEach(function (id) {
     var input = document.getElementById(id);
     if (!input) return;
     input.value = settings[input.dataset.setting] !== undefined ? settings[input.dataset.setting] : input.value;

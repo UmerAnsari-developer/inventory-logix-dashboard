@@ -37,9 +37,6 @@ Gap/finding -> test -> expected status against CURRENT code:
      TRUST_PROXY wiring exists anywhere in the repo: the request carrying
      a DIFFERENT X-Forwarded-For client still hits the exhausted
      REMOTE_ADDR bucket — 429 instead of 401)
-  #2         test_portfolio_endpoints_429_after_6  RED x2 (no explicit
-     limit on /ai/forecast/portfolio or /ai/anomaly/portfolio; default
-     200/min never trips at 7 — fix must add 6 per minute)
   #3         test_run_etl_429_after_5              RED (no explicit limit
      on POST /monitoring/run-etl; fix = 5 per minute. etl_database is
      monkeypatched to a no-op BEFORE posting, so no real ETL runs; Issue
@@ -79,8 +76,6 @@ from __future__ import annotations
 import importlib
 
 import pytest
-
-from app.services import AnomalyService, ForecastService
 
 # Bad-credential POST body: the username does not exist, so
 # AuthService.authenticate raises at the find_by_username miss — no failed
@@ -135,15 +130,6 @@ def _session_client(app, username: str):
         sess["_fresh"] = True
         sess["_id"] = ident_box["id"]
     return c
-
-
-def _stub_portfolio(**_kwargs):
-    """Stand-in for ForecastService.portfolio / AnomalyService.portfolio.
-
-    The views cache the result, so this runs at most once per cache key and
-    no model fitting ever happens in a rate-limit test.
-    """
-    return [{"sku": "STUB", "stub": True}]
 
 
 # ---------------------------------------------------------------------------
@@ -328,51 +314,6 @@ def test_xff_trusted_when_trust_proxy_on(monkeypatch):
         importlib.reload(settings_mod)
 
 
-# ---------------------------------------------------------------------------
-# #2 — explicit 6/min on the ML portfolio endpoints
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize(
-    "path, service",
-    [
-        pytest.param(
-            "/ai/forecast/portfolio?horizon=7&model=prophet",
-            ForecastService,
-            id="forecast",
-        ),
-        pytest.param(
-            "/ai/anomaly/portfolio?contamination=0.07",
-            AnomalyService,
-            id="anomaly",
-        ),
-    ],
-)
-def test_portfolio_endpoints_429_after_6(app, monkeypatch, path, service):
-    """#2 RED: both portfolio endpoints need an explicit 6 per minute.
-
-    Neither route carries @limiter.limit today, so only the 200/min default
-    applies and the 7th GET still returns 200 (the RED trigger). Requests
-    1-6 must serve 200: flask-limiter counts in before_request, so an
-    explicit limit trips the 429 BEFORE the view body runs — the stub below
-    just keeps those first six responses cheap (cache cleared first so the
-    stub path is deterministic).
-    """
-    import app.routes.ai as ai_mod
-
-    ai_mod._portfolio_cache.clear()
-    monkeypatch.setattr(service, "portfolio", _stub_portfolio)
-
-    client = _session_client(app, "viewer")
-    responses = [client.get(path) for _ in range(7)]
-    statuses = [r.status_code for r in responses]
-    assert statuses[:6] == [200] * 6, (
-        f"{path} must serve the first 6 GETs, got {statuses[:6]}: "
-        f"{responses[0].get_data(as_text=True)[:200]}"
-    )
-    assert statuses[6] == 429, (
-        f"the 7th GET {path} must return 429 (explicit 6 per minute, "
-        f"finding #2), got {statuses[6]} — default 200/min never trips at 7"
-    )
 
 
 # ---------------------------------------------------------------------------

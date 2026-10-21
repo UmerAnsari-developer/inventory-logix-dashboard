@@ -1,16 +1,9 @@
 /* =============================================================================
-   InventoryLogix v3.0 — AI feature client scripts.
-   Adds: theme persistence, toast helper, AI forecast, anomaly, EOQ 3D surface.
+   InventoryLogix v3.0 — shared client scripts.
+   Adds: theme persistence, toast helper, EOQ calculator (Chart.js + 3D surface).
    ============================================================================= */
 (function () {
     'use strict';
-
-    const $ = (sel, root) => (root || document).querySelector(sel);
-    const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
-    // Escape untrusted server data before it is interpolated into innerHTML.
-    const escapeHtml = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
-        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-    ));
 
     // ----- THEME (applied from settings/localStorage; sidebar toggle removed) -----
     document.addEventListener('DOMContentLoaded', () => {
@@ -74,615 +67,11 @@
     }
     window.StockflowAPI = { api, csrfToken };
 
-    // ----- AI FORECAST PAGE -----
-    function renderForecast(chartId, payload) {
-        const el = typeof chartId === 'string' ? document.getElementById(chartId) : chartId;
-        if (!el) return;
-        const tryRender = () => {
-            if (!window.Plotly) return false;
-            const hist = (payload.history || []).map((v, i) => ({
-                x: i, y: v,
-            }));
-            const n = (payload.history || []).length;
-            const xPred = payload.predictions.map((_, i) => n + i);
-            const traces = [
-                {
-                    x: hist.map(p => p.x), y: hist.map(p => p.y),
-                    mode: 'lines+markers', name: 'Historical',
-                    line: { color: '#2563eb', width: 2 },
-                },
-                {
-                    x: xPred, y: payload.predictions,
-                    mode: 'lines', name: 'Forecast',
-                    line: { color: '#7c3aed', width: 3, dash: 'dot' },
-                },
-                {
-                    x: xPred.concat(xPred.slice().reverse()),
-                    y: payload.upper.concat(payload.lower.slice().reverse()),
-                    fill: 'toself', name: '95% confidence',
-                    fillcolor: 'rgba(124,58,237,0.18)',
-                    line: { color: 'transparent' },
-                    type: 'scatter', mode: 'lines',
-                },
-            ];
-            const layout = {
-                margin: { t: 20, b: 30, l: 40, r: 10 },
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-                font: { family: 'Inter', size: 12 },
-                legend: { orientation: 'h', y: 1.1 },
-                xaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
-                yaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
-            };
-            Plotly.react(el, traces, layout, { responsive: true, displaylogo: false });
-            return true;
-        };
-        if (!tryRender()) {
-            const wait = setInterval(() => {
-                if (tryRender()) clearInterval(wait);
-            }, 100);
-            setTimeout(() => clearInterval(wait), 5000);
-        }
-    }
-
-    function initForecast(cfg) {
-        if (!cfg) return;
-        const run = async () => {
-            cfg.runButton.disabled = true;
-            cfg.runButton.textContent = 'Running...';
-            try {
-                const t0 = performance.now();
-                const res = await api(cfg.runUrl, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        product_id: parseInt(cfg.product.value, 10),
-                        horizon: parseInt(cfg.horizon.value, 10),
-                        model: cfg.model.value,
-                    }),
-                });
-                const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
-                const data = res.data;
-                renderForecast(cfg.chartId, data);
-                cfg.badge.textContent = data.model_label || data.model;
-                cfg.metrics.accuracy.textContent = (data.accuracy || 0).toFixed(1) + '%';
-                cfg.metrics.total.textContent = (data.predictions || []).reduce((a, b) => a + b, 0).toFixed(0);
-                cfg.metrics.band.textContent = '+/- ' +
-                    ((data.upper[data.upper.length - 1] - data.lower[data.lower.length - 1]) / 2).toFixed(0) + ' units';
-                cfg.metrics.runtime.textContent = elapsed + ' s';
-                // Show data sufficiency warning if present (toast + persistent banner)
-                const banner = document.getElementById('forecast-warning');
-                if (data.warning) {
-                    showToast(data.warning, 'warning');
-                    if (banner) {
-                        banner.textContent = data.warning;
-                        banner.hidden = false;
-                    }
-                } else if (banner) {
-                    banner.hidden = true; // clear a stale warning from a previous run
-                }
-                showToast('Forecast completed', 'success');
-                loadPortfolio();
-                if (cfg.monitoring) loadMonitoring(data);
-            } catch (e) {
-                showToast('Forecast failed', 'error');
-            } finally {
-                cfg.runButton.disabled = false;
-                cfg.runButton.textContent = 'Run forecast';
-            }
-        };
-        async function loadMonitoring(forecastData) {
-            var m = cfg.monitoring;
-            if (!m || !m.section) return;
-            try {
-                var sku = (forecastData.product && forecastData.product.sku) || '';
-                var model = cfg.model.value;
-                var res = await api(m.metricsUrl + '?sku=' + encodeURIComponent(sku) + '&model=' + encodeURIComponent(model) + '&limit=1');
-                var rows = res.data || [];
-                if (!rows.length) {
-                    m.mae.textContent = '—';
-                    m.mape.textContent = '—';
-                    m.rmse.textContent = '—';
-                    m.obs.textContent = '—';
-                    m.healthBadge.textContent = 'No data';
-                    m.healthBadge.className = 'badge';
-                    m.section.style.display = '';
-                    return;
-                }
-                var latest = rows[0];
-                m.mae.textContent = latest.mae != null ? parseFloat(latest.mae).toFixed(2) : '—';
-                m.mape.textContent = latest.mape != null ? parseFloat(latest.mape).toFixed(1) + '%' : '—';
-                m.rmse.textContent = latest.rmse != null ? parseFloat(latest.rmse).toFixed(2) : '—';
-                m.obs.textContent = latest.observation_count || '—';
-                var status = latest.model_status || 'unknown';
-                m.healthBadge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-                m.healthBadge.className = 'badge badge-' + (status === 'healthy' ? 'ai' : status === 'warning' ? 'medium' : status === 'degraded' ? 'high' : status === 'critical' ? 'critical' : 'ai');
-                m.section.style.display = '';
-            } catch (e) {
-                m.mae.textContent = '—';
-                m.mape.textContent = '—';
-                m.rmse.textContent = '—';
-                m.obs.textContent = '—';
-                m.healthBadge.textContent = 'Unavailable';
-                m.healthBadge.className = 'badge';
-                m.section.style.display = '';
-            }
-        }
-        async function loadPortfolio() {
-            try {
-                const q = new URLSearchParams();
-                if (cfg.model) q.set('model', cfg.model.value);
-                if (cfg.horizon) q.set('horizon', cfg.horizon.value);
-                const res = await api(cfg.portfolioUrl + '?' + q.toString());
-                const rows = res.data || [];
-                const tbody = cfg.table.tBodies[0];
-                tbody.innerHTML = rows.length ? rows.map(r => (
-                    '<tr><td><span class="sku">' + escapeHtml(r.sku) + '</span></td>' +
-                    '<td>' + escapeHtml(r.name) + '</td>' +
-                    '<td>' + escapeHtml(r.model || '—') + '</td>' +
-                    '<td>' + escapeHtml(r.model_used || '—') + '</td>' +
-                    '<td>' + escapeHtml(r.baseline) + '</td>' +
-                    '<td>' + escapeHtml(r.predicted_units) + '</td>' +
-                    '<td>' + escapeHtml(r.delta_pct) + '%</td>' +
-                    '<td>' + escapeHtml(r.accuracy) + '%</td>' +
-                    '<td>' + escapeHtml(r.data_sufficiency || '—') + '</td></tr>'
-                )).join('') : '<tr><td colspan="9" class="empty-state">No data</td></tr>';
-            } catch (e) {}
-        }
-        // Backtest functionality
-        async function runBacktest() {
-            if (!cfg.backtestButton) return;
-            cfg.backtestButton.disabled = true;
-            cfg.backtestButton.textContent = 'Running...';
-            try {
-                const res = await api(cfg.backtestUrl, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        product_id: parseInt(cfg.product.value, 10),
-                        horizon: parseInt(cfg.horizon.value, 10),
-                        model: cfg.model.value,
-                    }),
-                });
-                const data = res.data;
-                showToast('Backtest completed', 'success');
-                renderBacktestResults(data, cfg);
-                cfg.backtestSection.style.display = '';
-            } catch (e) {
-                showToast('Backtest failed', 'error');
-            } finally {
-                cfg.backtestButton.disabled = false;
-                cfg.backtestButton.textContent = 'Run backtest';
-            }
-        }
-        function renderBacktestResults(data, cfg) {
-            // Render metrics table
-            const metrics = data.metrics || {};
-            const tbody = cfg.backtestTable.tBodies[0];
-            const metricOrder = ['mae', 'rmse', 'wape', 'mase', 'bias', 'interval_coverage'];
-            const metricLabels = {
-                mae: 'MAE', rmse: 'RMSE', wape: 'WAPE', mase: 'MASE', 
-                bias: 'Bias', interval_coverage: 'Interval Coverage (%)'
-            };
-            tbody.innerHTML = metricOrder.map(m => {
-                const v = metrics[m];
-                if (!v || v.mean === null || v.mean === undefined) return '';
-                return '<tr><td>' + metricLabels[m] + '</td>' +
-                    '<td>' + (v.mean !== null ? parseFloat(v.mean).toFixed(2) : '—') + '</td>' +
-                    '<td>' + (v.std !== null ? parseFloat(v.std).toFixed(2) : '—') + '</td>' +
-                    '<td>' + (v.min !== null ? parseFloat(v.min).toFixed(2) : '—') + '</td>' +
-                    '<td>' + (v.max !== null ? parseFloat(v.max).toFixed(2) : '—') + '</td>' +
-                    '<td>' + (v.count || 0) + '</td></tr>';
-            }).join('');
-            // Render baselines
-            const baselines = data.baselines || {};
-            cfg.backtestBaselines.innerHTML = Object.entries(baselines).map(([name, vals]) => (
-                '<div class="metric-card"><div class="metric-label">' + escapeHtml(name) + '</div>' +
-                '<div class="metric-value">MAE: ' + (vals.mae && vals.mae.mean !== null ? parseFloat(vals.mae.mean).toFixed(2) : '—') +
-                ' | RMSE: ' + (vals.rmse && vals.rmse.mean !== null ? parseFloat(vals.rmse.mean).toFixed(2) : '—') +
-                ' | WAPE: ' + (vals.wape && vals.wape.mean !== null ? parseFloat(vals.wape.mean).toFixed(1) : '—') + '%</div></div>'
-            )).join('');
-        }
-        if (cfg.runButton) cfg.runButton.addEventListener('click', run);
-        if (cfg.backtestButton) cfg.backtestButton.addEventListener('click', runBacktest);
-    }
-    window.StockflowForecast = { init: initForecast, render: renderForecast };
-
-    // ----- Dashboard demand-forecast chart -----
-    function initDashboardForecast(cfg) {
-        if (!cfg || !cfg.product) return;
-        const chartEl = cfg.chartEl || document.getElementById(cfg.chartId);
-        if (!chartEl) return;
-        const run = async () => {
-            try {
-                const res = await api(cfg.runUrl, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        product_id: cfg.product.id,
-                        horizon: 90,
-                        model: cfg.model || 'prophet',
-                    }),
-                });
-                renderForecast(chartEl, res.data);
-                if (cfg.caption) {
-                    cfg.caption.textContent = 'Live Prophet model · ' + cfg.product.sku + ' — ' + cfg.product.name;
-                }
-            } catch (e) {
-                if (chartEl) chartEl.innerHTML = '<p class="empty-state">Forecast unavailable</p>';
-            }
-        };
-        if (window.Plotly) run(); else if (window.addEventListener) {
-            window.addEventListener('load', run);
-        }
-    }
-    window.StockflowDashboardForecast = { init: initDashboardForecast };
-
-    // ----- ANOMALY PAGE -----
-    function renderSPC(id, payload) {
-        const el = document.getElementById(id);
-        if (!el) return;
-        const tryRender = () => {
-            if (!window.Plotly) return false;
-            const values = payload.values || [];
-            const mean = payload.mean || 0;
-            const sigma = payload.sigma || 1;
-            const ucl = payload.ucl || (mean + 3 * sigma);
-            const lcl = payload.lcl || Math.max(0, mean - 3 * sigma);
-            const x = values.map((_, i) => i);
-            const meanLine = values.map(() => mean);
-            const uclLine = values.map(() => ucl);
-            const lclLine = values.map(() => lcl);
-            const traces = [
-                { x: x, y: values, mode: 'lines+markers', name: 'Consumption', line: { color: '#2563eb' } },
-                { x: x, y: meanLine, mode: 'lines', name: 'Mean', line: { color: '#64748b', dash: 'dash' } },
-                { x: x, y: uclLine, mode: 'lines', name: 'UCL (+3σ)', line: { color: '#dc2626', dash: 'dot' } },
-                { x: x, y: lclLine, mode: 'lines', name: 'LCL (-3σ)', line: { color: '#dc2626', dash: 'dot' } },
-            ];
-            Plotly.react(el, traces, {
-                margin: { t: 20, b: 30, l: 40, r: 10 },
-                paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-                font: { family: 'Inter', size: 12 },
-                xaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
-                yaxis: { gridcolor: 'rgba(127,127,127,0.18)' },
-            }, { responsive: true, displaylogo: false });
-            return true;
-        };
-        if (!tryRender()) {
-            const wait = setInterval(() => { if (tryRender()) clearInterval(wait); }, 100);
-            setTimeout(() => clearInterval(wait), 5000);
-        }
-    }
-
-    function riskBadge(level) {
-        var cls = { critical: 'badge-critical', high: 'badge-high', medium: 'badge-medium', low: 'badge-low' };
-        return '<span class="badge ' + (cls[level] || 'badge-low') + '">' + escapeHtml(level || 'low') + '</span>';
-    }
-    function statusBadge(s) {
-        var cls = { new: 'badge-new', reviewed: 'badge-reviewed', acknowledged: 'badge-ack', resolved: 'badge-resolved' };
-        return '<span class="badge ' + (cls[s] || 'badge-new') + '">' + escapeHtml(s || 'new') + '</span>';
-    }
-    function typeIcon(t) {
-        return t === 'spike' ? '&#x25B2;' : '&#x25BC;';
-    }
-
-    function initAnomaly(cfg) {
-        if (!cfg) return;
-        var alertPage = 0, alertPageSize = 6;
-
-        // ── Load KPI summary ──
-        async function loadSummary() {
-            try {
-                var res = await api(cfg.summaryUrl);
-                var d = res.data || {};
-                var total = d.total || 0;
-                if (cfg.kpiTotal) cfg.kpiTotal.textContent = total;
-                if (cfg.kpiCritical) cfg.kpiCritical.textContent = d.critical || 0;
-                if (cfg.kpiHigh) cfg.kpiHigh.textContent = d.high || 0;
-                if (cfg.kpiMedium) cfg.kpiMedium.textContent = d.medium || 0;
-                if (cfg.kpiLow) cfg.kpiLow.textContent = d.low || 0;
-                if (cfg.kpiNew) cfg.kpiNew.textContent = d['new'] || 0;
-                if (cfg.kpiReviewed) cfg.kpiReviewed.textContent = d.reviewed || 0;
-                if (cfg.kpiAlertsPerDay) cfg.kpiAlertsPerDay.textContent = (d.alerts_per_day || 0).toFixed(1);
-                if (cfg.kpiReviewRate) cfg.kpiReviewRate.textContent = (d.review_rate || 0).toFixed(1) + '%';
-
-                function pct(n) { return total ? Math.round((n / total) * 100) : 0; }
-                setFoot(cfg.kpiTotal, total + ' alerts detected');
-                setFoot(cfg.kpiCritical, pct(d.critical) + '% of total — take action');
-                setFoot(cfg.kpiHigh, pct(d.high) + '% of total — investigate soon');
-                setFoot(cfg.kpiMedium, pct(d.medium) + '% of total — monitor');
-                setFoot(cfg.kpiLow, pct(d.low) + '% of total — informational');
-                setFoot(cfg.kpiNew, d['new'] || 0 + ' not yet reviewed');
-                setFoot(cfg.kpiReviewed, (d.reviewed || 0) + (d.acknowledged || 0) + ' handled');
-            } catch (e) {}
-        }
-        function setFoot(el, text) {
-            if (!el) return;
-            var card = el.closest('.metric-card');
-            if (card) { var f = card.querySelector('.metric-foot'); if (f) f.textContent = text; }
-        }
-
-        // ── Load alerts table ──
-        async function loadAlerts() {
-            try {
-                var q = new URLSearchParams();
-                if (cfg.filterRisk && cfg.filterRisk.value) q.set('risk_level', cfg.filterRisk.value);
-                if (cfg.filterStatus && cfg.filterStatus.value) q.set('status', cfg.filterStatus.value);
-                if (cfg.filterType && cfg.filterType.value) q.set('anomaly_type', cfg.filterType.value);
-                q.set('limit', alertPageSize);
-                q.set('offset', alertPage * alertPageSize);
-                var res = await api(cfg.alertsUrl + '?' + q.toString());
-                var data = res.data || {};
-                var rows = data.alerts || [];
-                var total = data.total || 0;
-                var tbody = cfg.alertTable.tBodies[0];
-                tbody.innerHTML = rows.length ? rows.map(function(a) {
-                    return '<tr>' +
-                        '<td>' + escapeHtml((a.alert_date || a.detected_at || '').substring(0, 10)) + '</td>' +
-                        '<td><span class="sku">' + escapeHtml(a.sku || '') + '</span></td>' +
-                        '<td>' + escapeHtml(a.product_name || '') + '</td>' +
-                        '<td>' + typeIcon(a.anomaly_type) + ' ' + escapeHtml(a.anomaly_type) + '</td>' +
-                        '<td>' + (a.z_score || 0) + '</td>' +
-                        '<td>' + riskBadge(a.risk_level) + '</td>' +
-                        '<td>' + (a.deviation_pct != null ? a.deviation_pct + '%' : '-') + '</td>' +
-                        '<td>' + escapeHtml(a.detection_method || '') + '</td>' +
-                        '<td>' + statusBadge(a.status) + '</td>' +
-                        '<td><button class="btn btn-sm btn-outline alert-detail-btn" data-id="' + escapeHtml(a.id) + '">View</button></td>' +
-                    '</tr>';
-                }).join('') : '<tr><td colspan="10" class="empty-state">No alerts found</td></tr>';
-                if (cfg.pageInfo) cfg.pageInfo.textContent = 'Showing ' + rows.length + ' of ' + total;
-                if (cfg.prevPage) cfg.prevPage.disabled = alertPage <= 0;
-                if (cfg.nextPage) cfg.nextPage.disabled = (alertPage + 1) * alertPageSize >= total;
-                // Bind detail buttons
-                tbody.querySelectorAll('.alert-detail-btn').forEach(function(btn) {
-                    btn.addEventListener('click', function() { showAlertDetail(parseInt(this.dataset.id)); });
-                });
-            } catch (e) {}
-        }
-
-        // ── Alert detail modal ──
-        async function showAlertDetail(id) {
-            try {
-                var res = await api(cfg.alertDetailUrl + id);
-                var a = res.data || {};
-                cfg.modalTitle.textContent = 'Alert #' + a.id;
-                cfg.modalBody.innerHTML =
-                    '<table style="width:100%;border-collapse:collapse">' +
-                    '<tr><td style="padding:4px 8px;font-weight:600;width:40%">SKU</td><td>' + escapeHtml(a.sku || '') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Product</td><td>' + escapeHtml(a.product_name || '') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Date</td><td>' + escapeHtml(a.alert_date || a.detected_at || '') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Type</td><td>' + typeIcon(a.anomaly_type) + ' ' + escapeHtml(a.anomaly_type) + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Z-score</td><td>' + (a.z_score || 0) + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Confidence</td><td>' + (a.confidence || 0) + '%</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Risk Level</td><td>' + riskBadge(a.risk_level) + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Expected</td><td>' + (a.expected_value != null ? a.expected_value : '-') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Observed</td><td>' + (a.observed_value != null ? a.observed_value : '-') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Deviation</td><td>' + (a.deviation_pct != null ? a.deviation_pct + '%' : '-') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Detection</td><td>' + escapeHtml(a.detection_method || '') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600">Status</td><td>' + statusBadge(a.status) + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600;vertical-align:top">Description</td><td>' + escapeHtml(a.description || '') + '</td></tr>' +
-                    '<tr><td style="padding:4px 8px;font-weight:600;vertical-align:top">Recommendation</td><td>' + escapeHtml(a.recommended_action || '') + '</td></tr>' +
-                    '</table>';
-                var actions = cfg.modalActions;
-                actions.innerHTML = '';
-                // Status transition buttons
-                ['new','reviewed','acknowledged','resolved'].forEach(function(s) {
-                    if (s !== a.status) {
-                        var btn = document.createElement('button');
-                        btn.className = 'btn btn-sm btn-outline';
-                        btn.textContent = 'Mark ' + s;
-                        btn.addEventListener('click', function() { updateAlertStatus(id, s); });
-                        actions.appendChild(btn);
-                    }
-                });
-                // Labeling buttons (Confirm/Reject)
-                if (a.status === 'new') {
-                    var confirmBtn = document.createElement('button');
-                    confirmBtn.className = 'btn btn-sm btn-success';
-                    confirmBtn.textContent = 'Confirm (True Positive)';
-                    confirmBtn.addEventListener('click', function() { labelAlert(id, 'true_positive'); });
-                    actions.appendChild(confirmBtn);
-                    var rejectBtn = document.createElement('button');
-                    rejectBtn.className = 'btn btn-sm btn-warning';
-                    rejectBtn.textContent = 'Reject (False Positive)';
-                    rejectBtn.addEventListener('click', function() { labelAlert(id, 'false_positive'); });
-                    actions.appendChild(rejectBtn);
-                }
-                cfg.alertModal.style.display = 'flex';
-            } catch (e) { showToast('Failed to load alert detail', 'error'); }
-        }
-
-        async function updateAlertStatus(id, status) {
-            try {
-                await api(cfg.alertDetailUrl + id + '/status', {
-                    method: 'PUT',
-                    body: JSON.stringify({ status: status }),
-                });
-                showToast('Alert updated to ' + status, 'success');
-                cfg.alertModal.style.display = 'none';
-                loadAlerts();
-                loadSummary();
-            } catch (e) { showToast('Failed to update alert', 'error'); }
-        }
-
-        async function labelAlert(id, label) {
-            try {
-                await api(cfg.alertLabelUrl + id, {
-                    method: 'POST',
-                    body: JSON.stringify({ label: label }),
-                });
-                showToast('Alert labeled as ' + label, 'success');
-                cfg.alertModal.style.display = 'none';
-                loadAlerts();
-                loadSummary();
-                loadPrecisionRecall();
-            } catch (e) { showToast('Failed to label alert', 'error'); }
-        }
-
-        // ── Load precision/recall from labels ──
-        async function loadPrecisionRecall() {
-            try {
-                var res = await api(cfg.precisionRecallUrl);
-                var data = res.data || {};
-                // Render risk level table
-                if (cfg.prRiskTable) {
-                    var byRisk = data.by_risk_level || {};
-                    cfg.prRiskTable.tBodies[0].innerHTML = Object.entries(byRisk).map(([risk, v]) => (
-                        '<tr><td>' + escapeHtml(risk) + '</td>' +
-                        '<td>' + (v.precision != null ? (v.precision * 100).toFixed(1) + '%' : '—') + '</td>' +
-                        '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td>' +
-                        '<td>' + (v.f1 != null ? (v.f1 * 100).toFixed(1) + '%' : '—') + '</td>' +
-                        '<td>' + v.tp + '</td><td>' + v.fp + '</td></tr>'
-                    )).join('');
-                    cfg.precisionRecallSection.style.display = '';
-                }
-                // Render method table
-                if (cfg.prMethodTable) {
-                    var byMethod = data.by_detection_method || {};
-                    cfg.prMethodTable.tBodies[0].innerHTML = Object.entries(byMethod).map(([method, v]) => (
-                        '<tr><td>' + escapeHtml(method) + '</td>' +
-                        '<td>' + (v.precision != null ? (v.precision * 100).toFixed(1) + '%' : '—') + '</td>' +
-                        '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td>' +
-                        '<td>' + (v.f1 != null ? (v.f1 * 100).toFixed(1) + '%' : '—') + '</td>' +
-                        '<td>' + v.tp + '</td><td>' + v.fp + '</td></tr>'
-                    )).join('');
-                }
-            } catch (e) {}
-        }
-
-        // ── Load fatigue metrics ──
-        async function loadFatigue() {
-            try {
-                var res = await api(cfg.fatigueUrl + '?days=30');
-                var data = res.data || {};
-                // Update KPI cards already done in loadSummary
-                // Could add a fatigue panel here if needed
-            } catch (e) {}
-        }
-
-        // ── Run detection ──
-        const run = async () => {
-            cfg.runButton.disabled = true;
-            try {
-                const res = await api(cfg.runUrl, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        product_id: parseInt(cfg.product.value, 10),
-                        contamination: parseFloat(cfg.contamination.value),
-                    }),
-                });
-                const data = res.data;
-                const anomalies = data.anomalies || [];
-                const tbody = cfg.table.tBodies[0];
-                tbody.innerHTML = anomalies.length ? anomalies.map(function(a) {
-                    return '<tr>' +
-                        '<td>' + escapeHtml(a.day) + '</td>' +
-                        '<td>' + a.value + '</td>' +
-                        '<td>' + (a.expected_value != null ? a.expected_value : '-') + '</td>' +
-                        '<td>' + a.z_score + '</td>' +
-                        '<td>' + riskBadge(a.risk_level) + '</td>' +
-                        '<td>' + (a.confidence || 0).toFixed(0) + '%</td>' +
-                        '<td>' + escapeHtml(a.detection_method || '') + '</td>' +
-                        '<td>' + escapeHtml(a.description) + '</td>' +
-                        '<td>' + escapeHtml(a.recommended_action || '') + '</td>' +
-                    '</tr>';
-                }).join('') : '<tr><td colspan="9" class="empty-state">No anomalies detected</td></tr>';
-                if (data.mean !== undefined) renderSPC(cfg.spcId, data);
-                showToast('Anomaly detection complete', 'success');
-                loadPortfolio();
-                loadSummary();
-                loadPrecisionRecall();
-                alertPage = 0;
-                loadAlerts();
-            } catch (e) {
-                showToast('Anomaly detection failed', 'error');
-            } finally {
-                cfg.runButton.disabled = false;
-            }
-        };
-
-        // ── Run benchmark ──
-        async function runBenchmark() {
-            if (!cfg.benchmarkButton) return;
-            cfg.benchmarkButton.disabled = true;
-            cfg.benchmarkButton.textContent = 'Running...';
-            try {
-                const res = await api(cfg.benchmarkUrl + '?contamination=' + parseFloat(cfg.contamination.value));
-                const data = res.data;
-                showToast('Benchmark completed', 'success');
-                renderBenchmarkResults(data, cfg);
-                cfg.benchmarkSection.style.display = '';
-            } catch (e) {
-                showToast('Benchmark failed', 'error');
-            } finally {
-                cfg.benchmarkButton.disabled = false;
-                cfg.benchmarkButton.textContent = 'Run benchmark';
-            }
-        }
-
-        function renderBenchmarkResults(data, cfg) {
-            // Summary
-            cfg.benchmarkSummary.innerHTML = [
-                '<div class="metric-card"><div class="metric-label">Products Tested</div><div class="metric-value">' + (data.products_tested || 0) + '</div></div>',
-                '<div class="metric-card"><div class="metric-label">Total Injected</div><div class="metric-value">' + (data.total_injected || 0) + '</div></div>',
-                '<div class="metric-card"><div class="metric-label">Total Detected</div><div class="metric-value">' + (data.total_detected || 0) + '</div></div>',
-            ].join('');
-            // By method
-            var byMethod = data.by_method || {};
-            cfg.benchmarkMethodTable.tBodies[0].innerHTML = Object.entries(byMethod).map(([method, v]) => (
-                '<tr><td>' + escapeHtml(method) + '</td>' +
-                '<td>' + (v.precision != null ? (v.precision * 100).toFixed(1) + '%' : '—') + '</td>' +
-                '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td>' +
-                '<td>' + (v.f1 != null ? (v.f1 * 100).toFixed(1) + '%' : '—') + '</td>' +
-                '<td>' + (v.pr_auc != null ? (v.pr_auc * 100).toFixed(1) + '%' : '—') + '</td>' +
-                '<td>' + (v.products_with_data || 0) + '</td></tr>'
-            )).join('');
-            // By type
-            var byType = data.by_type || {};
-            cfg.benchmarkTypeTable.tBodies[0].innerHTML = Object.entries(byType).map(([type, v]) => (
-                '<tr><td>' + escapeHtml(type) + '</td>' +
-                '<td>' + v.injected + '</td>' +
-                '<td>' + v.detected + '</td>' +
-                '<td>' + (v.recall != null ? (v.recall * 100).toFixed(1) + '%' : '—') + '</td></tr>'
-            )).join('');
-        }
-
-        async function loadPortfolio() {
-            try {
-                const q = new URLSearchParams();
-                if (cfg.contamination) q.set('contamination', cfg.contamination.value);
-                const res = await api(cfg.portfolioUrl + '?' + q.toString());
-                const rows = res.data || [];
-                const tbody = cfg.portfolioTable.tBodies[0];
-                tbody.innerHTML = rows.length ? rows.map(r => (
-                    '<tr><td><span class="sku">' + escapeHtml(r.sku) + '</span></td>' +
-                    '<td>' + escapeHtml(r.name) + '</td>' +
-                    '<td>' + escapeHtml(r.model_used || '—') + '</td>' +
-                    '<td>' + escapeHtml(r.anomaly_count) + '</td>' +
-                    '<td>' + escapeHtml((r.max_z || 0).toFixed(2)) + '</td></tr>'
-                )).join('') : '<tr><td colspan="5" class="empty-state">No anomalies across the portfolio</td></tr>';
-            } catch (e) {}
-        }
-
-        if (cfg.runButton) cfg.runButton.addEventListener('click', run);
-        if (cfg.benchmarkButton) cfg.benchmarkButton.addEventListener('click', runBenchmark);
-        if (cfg.filterRisk) cfg.filterRisk.addEventListener('change', function() { alertPage = 0; loadAlerts(); });
-        if (cfg.filterStatus) cfg.filterStatus.addEventListener('change', function() { alertPage = 0; loadAlerts(); });
-        if (cfg.filterType) cfg.filterType.addEventListener('change', function() { alertPage = 0; loadAlerts(); });
-        if (cfg.prevPage) cfg.prevPage.addEventListener('click', function() { if (alertPage > 0) { alertPage--; loadAlerts(); } });
-        if (cfg.nextPage) cfg.nextPage.addEventListener('click', function() { alertPage++; loadAlerts(); });
-        if (cfg.closeModal) cfg.closeModal.addEventListener('click', function() { cfg.alertModal.style.display = 'none'; });
-        if (cfg.alertModal) cfg.alertModal.addEventListener('click', function(e) { if (e.target === cfg.alertModal) cfg.alertModal.style.display = 'none'; });
-
-        loadSummary();
-        loadAlerts();
-        loadPrecisionRecall();
-        loadFatigue();
-    }
-    window.StockflowAnomaly = { init: initAnomaly };
-
     // ----- EOQ calculator -----
     function eoqCalc(d, s, h) { return Math.sqrt((2 * d * s) / h); }
     function initEOQ(cfg) {
         if (!cfg) return;
-        
+
         // Wait for Chart.js and Plotly to be available
         function waitForLibs() {
             return new Promise(resolve => {
@@ -705,10 +94,10 @@
             const h = parseFloat(cfg.holding?.value || 0);
             const lead = parseFloat(cfg.lead?.value || 0);
             const safety = parseFloat(cfg.safety?.value || 0);
-            
+
             // Update result elements safely
             const safeSet = (el, val) => { if (el) el.textContent = val; };
-            
+
             if (!(d > 0 && s >= 0 && h > 0)) {
                 safeSet(cfg.out.eoq, '—');
                 safeSet(cfg.out.orders, '—');
@@ -727,7 +116,7 @@
             safeSet(cfg.out.total, '₹ ' + total.toLocaleString('en-IN', {maximumFractionDigits: 0}));
             drawCurve(cfg.chartId, eoq, d, s, h);
         };
-        
+
         function drawCurve(id, eoq, d, s, h) {
             const el = document.getElementById(id);
             if (!el || !window.Chart) return;
@@ -762,29 +151,29 @@
                 },
             });
         }
-        
+
         // Event listeners
         [cfg.demand, cfg.ordering, cfg.holding, cfg.lead, cfg.safety].forEach(el => {
             if (el) el.addEventListener('input', compute);
         });
-        
+
         // Initial compute
         compute();
-        
+
         // Wait for libraries then draw chart and 3D surface
         waitForLibs().then(() => {
             drawCurve(cfg.chartId, eoqCalc(
                 parseFloat(cfg.demand?.value || 0),
                 parseFloat(cfg.ordering?.value || 0),
                 parseFloat(cfg.holding?.value || 0)
-            ), 
+            ),
             parseFloat(cfg.demand?.value || 0),
             parseFloat(cfg.ordering?.value || 0),
             parseFloat(cfg.holding?.value || 0));
-            
+
             // 3D surface
-            api(cfg.sensitivityUrl + '?demand=' + (cfg.demand?.value || 0) + 
-                '&ordering_cost=' + (cfg.ordering?.value || 0) + 
+            api(cfg.sensitivityUrl + '?demand=' + (cfg.demand?.value || 0) +
+                '&ordering_cost=' + (cfg.ordering?.value || 0) +
                 '&holding_cost=' + (cfg.holding?.value || 0))
                 .then(res => {
                     const el = document.getElementById(cfg.surfaceId);
@@ -807,25 +196,6 @@
         });
     }
     window.StockflowEOQ = { init: initEOQ };
-
-    // ----- Live AI banner recommendation on dashboard -----
-    document.addEventListener('DOMContentLoaded', async () => {
-        const reco = document.getElementById('aiRecommendation');
-        const conf = document.getElementById('aiConfidence');
-        if (!reco) return;
-        try {
-            const res = await api('/ai/forecast/portfolio?horizon=14');
-            const rows = (res.data || []).filter(r => r.delta_pct > 8);
-            if (rows.length) {
-                const top = rows[0];
-                reco.textContent = 'Increase order quantity for ' + top.sku + ' by ' + top.delta_pct + '% — predicted demand surge';
-                conf.textContent = 'Confidence: ' + top.accuracy + '%';
-            } else {
-                reco.textContent = 'Demand steady across the portfolio — no surge predicted in the next 14 days';
-                conf.textContent = 'Confidence: 92%';
-            }
-        } catch (e) {}
-    });
 
     // ----- Search quick navigation -----
     document.addEventListener('DOMContentLoaded', () => {
