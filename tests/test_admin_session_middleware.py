@@ -371,7 +371,9 @@ class TestAdminSessionMiddlewareRegression:
         ]
         
         for route in admin_routes:
-            response = auth_client.get(route)
+            # buffered=True drains export streams inside the request; undrained
+            # stream_with_context responses otherwise pop on GC (F-V1 review finding).
+            response = auth_client.get(route, buffered=True)
             assert response.status_code == 200, f"Route {route} failed with {response.status_code}"
 
     def test_all_admin_routes_return_403_for_expired_admin(self, auth_client):

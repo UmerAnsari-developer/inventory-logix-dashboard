@@ -118,9 +118,9 @@ class Mailer:
         # Fallback to SMTP
         if not cfg.get("SMTP_HOST"):
             LOGGER.warning(
-                "SMTP not configured — password reset link for %s: %s",
+                "SMTP not configured — reset email for %s was not sent "
+                "(link suppressed from logs).",
                 to_email,
-                html,
             )
             return False
 

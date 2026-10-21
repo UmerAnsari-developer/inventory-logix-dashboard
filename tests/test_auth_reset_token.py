@@ -1,50 +1,65 @@
-"""Tests for password reset token not exposed in UI (H-001)."""
+"""Tests for password reset token not exposed in UI (H-001).
+
+Repaired: the previous version asserted HTTP 200 on a request for a
+nonexistent email — ``AuthService.request_password_reset`` exits early for
+unknown emails, so the test passed without ever generating a token (false
+green). It also had three assertion-free stubs and a sha256 tautology.
+
+These tests pin the real UI gate in ``app/routes/auth.py`` (``show_reset_link``)
+by stubbing the service result and checking the rendered page both ways.
+Token generation/hashing itself is covered end-to-end in
+``tests/test_password_reset_flow.py``.
+"""
 from __future__ import annotations
 
 import pytest
+
+from app.services.auth_service import AuthService
+
+SECRET_LINK = "http://localhost/auth/reset-password/SUPERSECRETTOKEN"
+
+
+def _stub_service(monkeypatch):
+    """Service returns an undelivered link (SMTP-unconfigured dev behavior)."""
+
+    def fake_request_password_reset(email, host_url, ip=None):
+        return {"delivered": False, "reset_link": SECRET_LINK, "user_found": True}
+
+    monkeypatch.setattr(
+        AuthService, "request_password_reset", staticmethod(fake_request_password_reset)
+    )
 
 
 class TestPasswordResetTokenExposure:
     """Test that password reset tokens are not exposed in UI."""
 
-    def test_forgot_password_does_not_show_token_in_production(self, client):
-        """Forgot password page should not show reset token in production."""
-        # In production (non-debug), the reset_link should not be passed to template
+    def test_forgot_password_hides_link_when_debug_gate_disabled(
+        self, app, client, monkeypatch
+    ):
+        """The reset link must not render outside the debug + env-flag gate."""
+        monkeypatch.delenv("SHOW_RESET_LINK_IN_UI", raising=False)
+        assert app.debug is False, "testing config must not be in debug mode"
+        _stub_service(monkeypatch)
+
         response = client.post(
-            "/auth/forgot-password",
-            data={"email": "admin@example.com"},
-            follow_redirects=True
+            "/auth/forgot-password", data={"email": "anyone@example.test"}
         )
+
         assert response.status_code == 200
-        
-        # In production mode, reset_link should not be in response
-        # The token should only be sent via email
-        # This test will need the app to be in production mode
+        assert b"/auth/reset-password/" not in response.data
+        assert b"SUPERSECRETTOKEN" not in response.data
 
-    def test_forgot_password_shows_token_only_in_debug(self, client):
-        """Forgot password page should only show reset token in debug mode."""
-        # This test verifies the current behavior - token is shown in debug
-        # After fix, it should only be shown when explicitly enabled for testing
-        pass
+    def test_forgot_password_shows_link_only_when_debug_gate_enabled(
+        self, app, client, monkeypatch
+    ):
+        """With debug + SHOW_RESET_LINK_IN_UI the dev link renders (gate works)."""
+        monkeypatch.setattr(app, "debug", True)
+        monkeypatch.setenv("SHOW_RESET_LINK_IN_UI", "true")
+        _stub_service(monkeypatch)
 
-    def test_reset_password_token_not_in_logs(self, client):
-        """Reset password token should not appear in logs."""
-        # Tokens should be hashed before logging
-        pass
+        response = client.post(
+            "/auth/forgot-password", data={"email": "anyone@example.test"}
+        )
 
-    def test_reset_token_hashed_in_database(self):
-        """Reset tokens should be stored as hashes in database."""
-        from app.services.auth_service import AuthService
-        import hashlib
-        
-        # The token should be hashed with SHA256 before storage
-        token = "test_token_123"
-        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        
-        # Verify the hashing is done correctly
-        assert len(token_hash) == 64  # SHA256 hex digest length
-
-    def test_reset_token_not_in_url_params(self, client):
-        """Reset token should not be exposed in URL parameters after use."""
-        # After password reset, the token should be consumed and invalidated
-        pass
+        assert response.status_code == 200
+        assert b"SUPERSECRETTOKEN" in response.data

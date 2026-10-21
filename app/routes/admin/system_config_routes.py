@@ -72,7 +72,7 @@ def create():
 @login_required
 @roles_required("admin")
 @limiter.limit("10 per minute")
-@audit_admin_action("admin.config.update", target_type="system_config", target_id_arg="key")
+@audit_admin_action("admin.config.update", target_type="system_config", detail_func=lambda r, *a, **kw: {"key": kw.get("key")})
 def edit(key: str):
     """Edit an existing system configuration override."""
     override = SystemConfigService.get_by_key(key)
@@ -117,7 +117,7 @@ def edit(key: str):
 @login_required
 @roles_required("admin")
 @limiter.limit("5 per minute")
-@audit_admin_action("admin.config.delete", target_type="system_config", target_id_arg="key")
+@audit_admin_action("admin.config.delete", target_type="system_config", detail_func=lambda r, *a, **kw: {"key": kw.get("key")})
 def delete(key: str):
     """Delete a system configuration override."""
     try:

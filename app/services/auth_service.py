@@ -279,7 +279,7 @@ class AuthService:
         token_plain = secrets.token_urlsafe(48)
         token_hash = hashlib.sha256(token_plain.encode("utf-8")).hexdigest()
         ttl = current_app.config["PASSWORD_RESET_TTL_MINUTES"]
-        expires_at = _utcnow() + timedelta(minutes=ttl)
+        expires_at = (_utcnow() + timedelta(minutes=ttl)).replace(tzinfo=None)  # naive UTC for TIMESTAMP column
 
         UserRepository.purge_reset_tokens(user["id"])
         UserRepository.create_reset_token(user["id"], token_hash, expires_at)
@@ -316,7 +316,7 @@ class AuthService:
             raise AuthError("This reset link is invalid or has already been used.")
         if row["used"]:
             raise AuthError("This reset link has already been used.")
-        if row["expires_at"] <= _utcnow():
+        if _as_utc(row["expires_at"]) <= _utcnow():
             raise AuthError("This reset link has expired. Please request a new one.")
 
         user_id = row["user_id"]

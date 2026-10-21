@@ -1,7 +1,7 @@
 """Data export hub routes with audit logging."""
 from __future__ import annotations
 
-from flask import Blueprint, current_app, flash, redirect, render_template, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, stream_with_context, url_for
 from flask_login import current_user, login_required
 
 from app.security import write_roles_required
@@ -9,6 +9,12 @@ from app.security.audit import audit_admin_action
 from app.services import ExportService
 
 admin_export_bp = Blueprint("admin_export", __name__, url_prefix="/admin/export")
+
+
+def _streamed(response):
+    """Re-attach the request context so the CSV generator survives teardown (F-V1)."""
+    response.response = stream_with_context(response.response)
+    return response
 
 
 @admin_export_bp.route("/")
@@ -27,7 +33,7 @@ def index():
 def export_products():
     """Export products to CSV."""
     try:
-        return ExportService.export_products()
+        return _streamed(ExportService.export_products())
     except Exception as e:
         flash(f"Error exporting products: {str(e)}", "error")
         return redirect(url_for("admin_export.index"))
@@ -40,7 +46,7 @@ def export_products():
 def export_inventory():
     """Export inventory to CSV."""
     try:
-        return ExportService.export_inventory()
+        return _streamed(ExportService.export_inventory())
     except Exception as e:
         flash(f"Error exporting inventory: {str(e)}", "error")
         return redirect(url_for("admin_export.index"))
@@ -53,7 +59,7 @@ def export_inventory():
 def export_movements():
     """Export movements to CSV."""
     try:
-        return ExportService.export_movements()
+        return _streamed(ExportService.export_movements())
     except Exception as e:
         flash(f"Error exporting movements: {str(e)}", "error")
         return redirect(url_for("admin_export.index"))
@@ -66,7 +72,7 @@ def export_movements():
 def export_suppliers():
     """Export suppliers to CSV."""
     try:
-        return ExportService.export_suppliers()
+        return _streamed(ExportService.export_suppliers())
     except Exception as e:
         flash(f"Error exporting suppliers: {str(e)}", "error")
         return redirect(url_for("admin_export.index"))
@@ -79,7 +85,7 @@ def export_suppliers():
 def export_purchase_orders():
     """Export purchase orders to CSV."""
     try:
-        return ExportService.export_purchase_orders()
+        return _streamed(ExportService.export_purchase_orders())
     except Exception as e:
         flash(f"Error exporting purchase orders: {str(e)}", "error")
         return redirect(url_for("admin_export.index"))

@@ -33,6 +33,23 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = _bool(os.environ.get("SESSION_COOKIE_SECURE"), True)
 
+    # Host-header allowlist (Flask 3.1): rejects forged Host values, which
+    # would otherwise poison password-reset links built from request.host_url.
+    # Render injects RENDER_EXTERNAL_HOSTNAME; custom domains go in TRUSTED_HOSTS.
+    TRUSTED_HOSTS = sorted(
+        {"localhost", "127.0.0.1", "testserver"}
+        | {
+            host.strip()
+            for host in os.environ.get("TRUSTED_HOSTS", "").split(",")
+            if host.strip()
+        }
+        | (
+            {os.environ["RENDER_EXTERNAL_HOSTNAME"]}
+            if os.environ.get("RENDER_EXTERNAL_HOSTNAME")
+            else set()
+        )
+    )
+
     # Admin session timeout (shorter than regular session for security)
     ADMIN_SESSION_TIMEOUT_MINUTES = int(os.environ.get("ADMIN_SESSION_TIMEOUT_MINUTES", "30"))
 
