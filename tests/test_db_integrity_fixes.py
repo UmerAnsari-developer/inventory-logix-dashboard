@@ -457,7 +457,8 @@ def test_db009_duplicate_po_number_returns_409(app, auth_client):
             product_id = _mk_product(cur)
             # Create a supplier for the test
             cur.execute(
-                "INSERT INTO suppliers (name, initials, location, lead_days) VALUES ('Test Supplier', 'TS', 'Test', 3) RETURNING id"
+                "INSERT INTO suppliers (name, initials, location, lead_days) VALUES (%s, 'TS', 'Test', 3) RETURNING id",
+                (f"Test Supplier {RUN}-409",),
             )
             supplier_id = cur.fetchone()["id"]
             po_number = _mk_po(cur, product_id, qty=5)
@@ -484,7 +485,8 @@ def test_db009_create_purchase_order_success(app, auth_client):
             product_id = _mk_product(cur)
             # Create a supplier for the test
             cur.execute(
-                "INSERT INTO suppliers (name, initials, location, lead_days) VALUES ('Test Supplier', 'TS', 'Test', 3) RETURNING id"
+                "INSERT INTO suppliers (name, initials, location, lead_days) VALUES (%s, 'TS', 'Test', 3) RETURNING id",
+                (f"Test Supplier {RUN}-OK",),
             )
             supplier_id = cur.fetchone()["id"]
 

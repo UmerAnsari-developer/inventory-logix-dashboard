@@ -118,11 +118,11 @@ class TestDataImportRaceCondition:
                 mock_get_cursor.return_value.__enter__.return_value = mock_cur
                 
                 # Make the insert fail
-                mock_cur.execute.side_effect = [
-                    None,  # pg_advisory_lock
-                    Exception("Simulated DB error"),  # INSERT
-                    None,  # pg_advisory_unlock (should still be called)
-                ]
+                def _side_effect(*args, **kwargs):
+                    if "INSERT INTO products" in str(args[0]):
+                        raise Exception("Simulated DB error")
+                    return None
+                mock_cur.execute.side_effect = _side_effect
                 
                 rows = [{"sku": "TEST_EXCEPTION", "product_name": "Test", "unit_price": "10.00",
                          "current_stock": "5", "reorder_point": "10", "category": "Test", "supplier_id": ""}]

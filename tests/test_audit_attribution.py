@@ -338,10 +338,7 @@ def test_full_flow_api_create_update_delete(app, auth_client):
         with get_cursor(commit=True) as cur:
             cur.execute("DELETE FROM audit_log WHERE action LIKE 'api.product.%'")
             # Create a supplier for the test
-            cur.execute(
-                "INSERT INTO suppliers (name, initials, location, lead_days) VALUES ('Test Supplier', 'TS', 'Test', 3) RETURNING id"
-            )
-            supplier_id = cur.fetchone()["id"]
+            supplier_id = _mk_supplier(cur)
 
     sku = f"AT-CRUD-{RUN}-{uuid.uuid4().hex[:6].upper()}"
     payload = {"sku": sku, "name": "CRUD Test", "warehouse": "WH-Test", "unit_price": 10.0, "supplier_id": supplier_id}
@@ -400,10 +397,7 @@ def test_full_flow_ui_create_product(app, auth_client):
         with get_cursor(commit=True) as cur:
             cur.execute("DELETE FROM audit_log WHERE action IN ('product_created', 'api.product.create')")
             # Create a supplier for the test
-            cur.execute(
-                "INSERT INTO suppliers (name, initials, location, lead_days) VALUES ('Test Supplier', 'TS', 'Test', 3) RETURNING id"
-            )
-            supplier_id = cur.fetchone()["id"]
+            supplier_id = _mk_supplier(cur)
 
     sku = f"AT-UI-{RUN}-{uuid.uuid4().hex[:6].upper()}"
     form_data = {
@@ -452,7 +446,7 @@ def test_full_flow_ui_create_product(app, auth_client):
 # 9. Concurrent users isolation
 # ---------------------------------------------------------------------------
 
-def test_concurrent_users_isolation(app):
+def test_concurrent_users_isolation(app, admin_user_id):
     """Concurrent transactions from different users don't leak user_id."""
     results = {"user1": [], "user2": []}
     errors = []
@@ -494,17 +488,23 @@ def test_concurrent_users_isolation(app):
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{user_label}: {exc}")
 
+    with app.app_context():
+        viewer = UserRepository.find_by_username("viewer")
+        assert viewer is not None, "viewer user must exist"
+        viewer_user_id = viewer.id
+    assert admin_user_id != viewer_user_id
+
     # Run two threads with different user_ids
-    t1 = threading.Thread(target=worker, args=("user1", 100))
-    t2 = threading.Thread(target=worker, args=("user2", 200))
+    t1 = threading.Thread(target=worker, args=("user1", admin_user_id))
+    t2 = threading.Thread(target=worker, args=("user2", viewer_user_id))
     t1.start()
     t2.start()
     t1.join(timeout=30)
     t2.join(timeout=30)
 
     assert not errors, f"Thread errors: {errors}"
-    assert results["user1"] == [100], f"User1 audit leaked: {results['user1']}"
-    assert results["user2"] == [200], f"User2 audit leaked: {results['user2']}"
+    assert results["user1"] == [admin_user_id], f"User1 audit leaked: {results['user1']}"
+    assert results["user2"] == [viewer_user_id], f"User2 audit leaked: {results['user2']}"
 
 
 # ---------------------------------------------------------------------------
@@ -594,12 +594,12 @@ def test_audit_repository_uses_guc_when_user_id_none(app, admin_user_id):
 # Additional: sp_audit_record uses current_app_user_id default
 # ---------------------------------------------------------------------------
 
-def test_sp_audit_record_uses_guc_default(app):
+def test_sp_audit_record_uses_guc_default(app, admin_user_id):
     """sp_audit_record should use current_app_user_id() as default for p_user_id."""
     with app.app_context():
         with get_cursor(commit=True) as cur:
             # Set GUC (use set_config for custom GUC)
-            cur.execute("SELECT set_config('app.current_user_id', %s, true)", (str(888),))
+            cur.execute("SELECT set_config('app.current_user_id', %s, true)", (str(admin_user_id),))
 
             # Call sp_audit_record without explicit user_id (NULL)
             cur.execute(
@@ -617,7 +617,7 @@ def test_sp_audit_record_uses_guc_default(app):
             )
             audit = cur.fetchone()
             assert audit is not None, "Audit entry not created"
-            assert audit["user_id"] == 888, (
+            assert audit["user_id"] == admin_user_id, (
                 f"sp_audit_record should use GUC default, got {audit['user_id']}"
             )
 
