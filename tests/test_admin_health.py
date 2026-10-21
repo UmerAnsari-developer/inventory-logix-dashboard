@@ -27,8 +27,8 @@ class TestAdminHealthEndpoint:
         assert "database" in data["checks"]
         assert data["checks"]["database"]["status"] in ("healthy", "unhealthy", "ok", "error", "degraded", "warning", "critical")
 
-    def test_admin_health_includes_redis_check(self, auth_client):
-        """Admin health should include Redis/cache check."""
+    def test_admin_health_includes_cache_check(self, auth_client):
+        """Admin health should include cache check."""
         response = auth_client.get("/admin/dashboard/health")
         data = response.get_json()
         

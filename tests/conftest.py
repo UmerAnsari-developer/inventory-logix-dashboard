@@ -32,8 +32,6 @@ os.environ.setdefault("DB_PASSWORD", _env.get("DB_PASSWORD", ""))
 os.environ.setdefault("DB_SSLMODE", "")
 # .env may carry a Render DATABASE_URL; tests must use the local DB_* fields.
 os.environ.setdefault("DATABASE_URL", "")
-# Use in-memory rate limiting for tests (no Redis required)
-os.environ.setdefault("RATELIMIT_STORAGE_URI", "memory://")
 
 
 @pytest.fixture(scope="session")

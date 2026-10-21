@@ -238,28 +238,6 @@ def _ensure_database_configured(config_cls) -> None:
         )
 
 
-def _check_redis_connectivity(uri: str, timeout: float = 2.0) -> tuple[bool, str | None]:
-    """Check Redis connectivity with timeout.
-    
-    Args:
-        uri: Redis connection URI
-        timeout: Connection timeout in seconds
-        
-    Returns:
-        Tuple of (success: bool, error_message: str | None)
-    """
-    if not uri.startswith("redis://"):
-        return False, "URI must start with redis://"
-    
-    try:
-        import redis
-        client = redis.from_url(uri, socket_connect_timeout=timeout)
-        client.ping()
-        return True, None
-    except Exception as e:
-        return False, str(e)
-
-
 def _init_extensions(app: Flask) -> None:
     csrf.init_app(app)
     limiter.init_app(app)

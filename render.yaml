@@ -21,13 +21,6 @@ databases:
     databaseName: inventory_db_2ov0
 
 services:
-  - type: redis
-    name: inventorylogix-redis
-    plan: free
-    region: oregon
-    maxmemoryPolicy: allkeys-lru
-
-services:
   - type: web
     name: inventory-logix
     runtime: python
@@ -54,8 +47,3 @@ services:
         value: "true"
       - key: PASSWORD_RESET_TTL_MINUTES
         value: "5"
-      - key: RATELIMIT_STORAGE_URI
-        fromService:
-          name: inventorylogix-redis
-          type: redis
-          property: connectionString

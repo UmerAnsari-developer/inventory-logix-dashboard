@@ -23,8 +23,8 @@ LOGGER = logging.getLogger(__name__)
 
 # DB-006 (resolved): lockout counters are shared across workers — persisted in
 # the PostgreSQL rate_limit_state table guarded by pg_advisory_lock, so the
-# threshold holds with workers>1. Flask-Limiter route limits use Redis
-# (RATELIMIT_STORAGE_URI); this per-account lockout stays on PostgreSQL.
+# threshold holds with workers>1. Flask-Limiter route limits use the built-in
+# in-process store (memory://); this per-account lockout stays on PostgreSQL.
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
 

@@ -149,7 +149,7 @@ class AdminDashboardService:
             health["checks"]["database"] = {"status": "unhealthy", "message": str(e)}
             health["status"] = "degraded"
         
-        # Cache/Redis check
+        # Cache check
         try:
             from app.utils.cache import global_cache
             global_cache.set("health_check", "ok", ttl=10)

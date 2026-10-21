@@ -392,7 +392,7 @@ and dimension-table joins when filters are applied).
   next run (`_validate_warehouse_consistency` is the backstop). Intentional.
 - **Per-process login lockout (DB-007):** failed-login counters live in process
   memory, so the threshold multiplies per worker. Keep `WORKERS=1` (current
-  Render setup); a shared store (Redis or DB table) is a follow-up.
+  Render setup); a shared store (DB table) is a follow-up.
 - **Accepted as-is (DB-015/016):** ETL state keys are negligible in size; the
   seed-time trigger disable is dev-only and wrapped in `try/finally`.
 - **Cache invalidation granularity (DB-017):** `cache_bust_products()` clears

@@ -3,10 +3,10 @@
 Every test pins a consolidated code-review finding (#1-#9) or the review's
 test-gap list, written against the APPROVED first-pass review contract:
 
-* Redis / shared limiter store is DEFERRED (1 worker x 1 instance pinned on
-  the Render free tier). No test requires Redis; memory:// must keep working.
-  Revisit trigger: ``workers>1 or instances>1`` (finding #4 — untested by
-  design, nothing here talks to a remote store).
+* A shared limiter store is OUT OF SCOPE (1 worker x 1 instance pinned on
+  the Render free tier). Limiter storage is the built-in in-process
+  memory://; no test talks to a remote store. Revisit trigger:
+  ``workers>1 or instances>1`` (finding #4 — untested by design).
 * Finding #1 trust model: opt-in ``TRUST_PROXY`` env/config, default OFF.
   When truthy the app installs ``ProxyFix(x_for=1, x_proto=1)`` (or an
   equivalent X-Forwarded-For aware key_func) so flask-limiter keys on the
@@ -45,10 +45,10 @@ Gap/finding -> test -> expected status against CURRENT code:
   #7         test_api_429_is_json_envelope         RED (the shared
      errorhandler(429) always renders templates/errors/429.html — /api/*
      must return the JSON envelope {success: false, error: {...}})
-  #5         test_ratelimit_storage_uri_wired      RED (RATELIMIT_STORAGE_URI
-     is fully shadowed: settings.py defines no such Config attribute and
-     extensions.py hardcodes storage_uri="memory://" on the constructor,
-     which wins over flask-limiter's config lookup in init_app)
+  #5         test_ratelimit_storage_uri_wired      GREEN (history: the env
+     var was once fully shadowed; it was later wired, then REMOVED by
+     design in the Redis purge — the key is now pinned to built-in
+     memory:// and any env override must be ignored)
   #6         test_settings_put_429_after_30        RED (PUT /api/settings
      has no explicit limit — non-blocking parity fix: 30 per minute,
      matching the other API writes)
@@ -401,30 +401,29 @@ def test_api_429_is_json_envelope(app):
 # ---------------------------------------------------------------------------
 
 def test_ratelimit_storage_uri_wired(app, monkeypatch):
-    """#5 RED: RATELIMIT_STORAGE_URI must flow env -> Config -> app.config.
+    """#5: RATELIMIT_STORAGE_URI is exposed on app.config as the built-in
+    in-process store (memory://).
 
-    Part (a): the session app's config must expose the key at all — today
-    settings.py defines no such attribute, so the key is missing entirely.
-    Part (b): the Config class body must read the env var (reload seam:
-    class attributes are evaluated at import time). A memory://-style probe
-    value only — no remote store connection is ever attempted here (finding
-    #4 remains deferred). finally restores env AND pristine Config classes.
+    History: the env var was once fully shadowed (RED), was wired through,
+    then the override was REMOVED by design in the Redis purge — the app
+    ships built-in memory:// and requirements.txt no longer installs a
+    Redis client. This pins that an env value can never silently
+    reintroduce an external store (setting one must be ignored).
     """
     assert "RATELIMIT_STORAGE_URI" in app.config, (
-        "Config must define RATELIMIT_STORAGE_URI (env-backed, default "
-        "memory://) so flask-limiter can read it from app.config — the key "
-        "is missing entirely today (finding #5: extensions.py hardcodes "
-        'storage_uri="memory://" and settings.py has no such attribute)'
+        "Config must define RATELIMIT_STORAGE_URI so flask-limiter can read "
+        "it from app.config"
     )
+    assert app.config["RATELIMIT_STORAGE_URI"] == "memory://"
 
     import app.config.settings as settings_mod
 
-    monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://issue04-probe")
+    monkeypatch.setenv("RATELIMIT_STORAGE_URI", "redis://ignored:6379/0")
     importlib.reload(settings_mod)
     try:
-        assert settings_mod.Config.RATELIMIT_STORAGE_URI == "memory://issue04-probe", (
-            "Config.RATELIMIT_STORAGE_URI must be read from the "
-            "RATELIMIT_STORAGE_URI environment variable at class-body time"
+        assert settings_mod.Config.RATELIMIT_STORAGE_URI == "memory://", (
+            "Config.RATELIMIT_STORAGE_URI must stay the built-in memory://; "
+            "the env override was removed with the Redis purge"
         )
     finally:
         monkeypatch.delenv("RATELIMIT_STORAGE_URI", raising=False)

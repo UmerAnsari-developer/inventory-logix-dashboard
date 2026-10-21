@@ -71,16 +71,11 @@ class Config:
     SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
     ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "")
 
-    # GAP-003: shared Redis cache (multi-worker). Opt-in; every cache
-    # silently falls back to in-memory when the flag is off or Redis is
-    # unreachable. Use a different Redis DB than the rate limiter (/0).
-    USE_REDIS_CACHE = _bool(os.environ.get("USE_REDIS_CACHE"), False)
-    REDIS_CACHE_URL = os.environ.get("REDIS_CACHE_URL", "redis://localhost:6379/1")
-
-    # Rate limiting (flask-limiter) storage backend — memory:// default;
-    # For multi-worker deployments, set RATELIMIT_STORAGE_URI to redis://... or postgresql://...
-    # (requires flask-limiter-postgres package for PostgreSQL).
-    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+    # Rate limiting (flask-limiter) uses its built-in in-process store.
+    # The deployment is pinned to a single gunicorn worker (render.yaml
+    # --workers 1), so memory:// is exact; the per-account login lockout is
+    # persisted in PostgreSQL (auth_service) and holds regardless of workers.
+    RATELIMIT_STORAGE_URI = "memory://"
     # Opt-in reverse-proxy trust (Render etc.). When truthy the factory
     # installs ProxyFix so the limiter keys on the X-Forwarded-For client
     # hop instead of the shared proxy IP. Default OFF keeps XFF
@@ -131,11 +126,6 @@ class TestingConfig(Config):
     TESTING = True
     DEBUG = False
     WTF_CSRF_ENABLED = False
-    # Tests stay hermetic: in-memory rate limiting regardless of .env so the
-    # suite never depends on a running Redis container.
-    RATELIMIT_STORAGE_URI = "memory://"
-    # Hermetic caches too — never touch Redis from the test suite.
-    USE_REDIS_CACHE = False
     # Hermetic: the test suite never starts the worker thread or takes the
     # queue code paths unless a test explicitly flips this per-test.
     JOB_QUEUE_ENABLED = False
