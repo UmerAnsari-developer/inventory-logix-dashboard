@@ -13,7 +13,7 @@ from flask_login import current_user, login_required
 from app.database import get_cursor
 from app.extensions import limiter
 from app.repositories import MovementRepository
-from app.security import write_roles_required
+from app.security import WRITE_ROLES, write_roles_required
 from app.security.audit import audit_admin_action
 from app.security.dberrors import db_error_message, is_guard_error
 from app.services import DataImportService
@@ -149,7 +149,7 @@ def _get_import_stats() -> dict:
 @admin_data_import_bp.route("/")
 @login_required
 @write_roles_required
-@audit_admin_action("admin.data_import.list", target_type="data_import")
+@audit_admin_action("admin.data_import.list", target_type="data_import", roles=WRITE_ROLES)
 def index():
     """Data Import dashboard with entity tabs."""
     tab = request.args.get("tab", "products")
@@ -225,7 +225,10 @@ def preview(entity: str):
 @login_required
 @write_roles_required
 @limiter.limit("10 per minute")
-@audit_admin_action("admin.data_import.upload", target_type="data_import", detail_func=lambda r, *a, **kw: {"entity": kw.get("entity")})
+@audit_admin_action(
+    "admin.data_import.upload", target_type="data_import", roles=WRITE_ROLES,
+    detail_func=lambda r, *a, **kw: {"entity": kw.get("entity")},
+)
 def upload(entity: str):
     """Handle CSV upload for a given entity."""
     allowed = {"products", "suppliers", "warehouses", "movements", "purchase_orders"}

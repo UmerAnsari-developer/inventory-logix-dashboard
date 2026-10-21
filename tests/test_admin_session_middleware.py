@@ -237,20 +237,19 @@ class TestAdminSessionMiddlewareIntegration:
         assert response.status_code == 200
 
     def test_manager_user_on_admin_export_no_admin_timeout(self, manager_client):
-        """Manager user on /admin/export/ should not get admin timeout (regular session).
-        
-        Note: Manager cannot access /admin/export/ routes because they use
-        @audit_admin_action which requires admin role. This is existing behavior.
-        Manager can access other write_roles_required routes like /products/new.
+        """Manager on /admin/export/ gets 200 and no admin timeout tracking.
+
+        Manager-allowed audited routes: the route gate is @write_roles_required
+        (admin+manager) and @audit_admin_action now also allows managers
+        (roles=WRITE_ROLES), so the request succeeds. Only admins get
+        admin_last_activity set by the timeout middleware.
         """
-        # Manager accessing write_roles_required routes (not audit_admin_action)
-        response = manager_client.get("/products/new")
+        response = manager_client.get("/admin/export/", buffered=True)
         assert response.status_code == 200
-        
+
         # Manager should NOT have admin_last_activity set (no admin timeout)
         with manager_client.session_transaction() as sess:
-            # Manager might not have admin_last_activity or it should not be enforced
-            pass
+            assert "admin_last_activity" not in sess
 
     def test_viewer_user_on_admin_routes_returns_403(self, viewer_client):
         """Viewer user on /admin/* should get 403 (role check unchanged)."""
@@ -398,8 +397,9 @@ class TestAdminSessionMiddlewareRegression:
     def test_manager_access_to_admin_routes_still_works(self, manager_client):
         """Manager access to write_roles_required routes should still work (no admin timeout).
         
-        Note: Manager cannot access routes with @audit_admin_action (requires admin).
-        This tests routes that only use @write_roles_required.
+        Note: Manager denials on true admin-only routes come from
+        @roles_required("admin") (e.g. /admin/users/), not from the audit
+        decorator — the 14 manager-allowed audited routes pass roles=WRITE_ROLES.
         """
         # Manager can access write_roles_required routes
         response = manager_client.get("/products/new")

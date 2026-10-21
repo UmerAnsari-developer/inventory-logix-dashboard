@@ -1,4 +1,11 @@
-"""Centralized audit decorator for admin routes."""
+"""Centralized audit decorator for admin routes.
+
+``audit_admin_action`` requires ``current_user.role`` to be in ``roles``
+(default ``("admin",)``).  Routes that intentionally allow managers must pass
+``roles=WRITE_ROLES``; the passed set must be equal to or broader than the
+route's own authorization gate, otherwise a narrower set raises
+``PermissionError`` (a 500) even after the gate passed.
+"""
 from __future__ import annotations
 
 import functools
@@ -109,22 +116,26 @@ def audit_admin_action(
     action: str,
     target_type: str = "",
     target_id_arg: str = "",
-    detail_func: Optional[Callable] = None
+    detail_func: Optional[Callable] = None,
+    roles: tuple[str, ...] = ("admin",)
 ):
     """
     Decorator to audit admin actions with role check.
-    
-    Requires current_user to have admin role.
+
+    Requires current_user.role to be in ``roles`` (default: admin only).
+    Routes that intentionally allow managers pass ``roles=WRITE_ROLES``;
+    ``roles`` must be equal to or broader than the route's authorization gate,
+    else a narrower set raises PermissionError (500) after the gate passed.
     """
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> Any:
-            # Check admin role
+            # Check role
             if not current_user.is_authenticated:
                 raise PermissionError("Authentication required")
             
-            if current_user.role != "admin":
-                raise PermissionError("Admin role required")
+            if current_user.role not in roles:
+                raise PermissionError(f"Role required: {roles}")
             
             # Apply audit_action decorator
             audited_func = audit_action(action, target_type, target_id_arg, detail_func)(func)

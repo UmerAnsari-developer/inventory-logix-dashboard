@@ -9,7 +9,7 @@ from flask_login import current_user, login_required
 
 from app.extensions import limiter
 from app.database import get_cursor
-from app.security import write_roles_required
+from app.security import WRITE_ROLES, write_roles_required
 from app.security.audit import audit_admin_action
 from app.services import AuditReportService
 from app.repositories import ScheduledAuditReportRepository
@@ -61,7 +61,7 @@ def _queue_job_to_tracker_dict(job: Job) -> dict:
 @admin_audit_report_bp.route("/")
 @login_required
 @write_roles_required
-@audit_admin_action("admin.audit_report.list", target_type="audit_report")
+@audit_admin_action("admin.audit_report.list", target_type="audit_report", roles=WRITE_ROLES)
 def index():
     """List scheduled audit reports with pagination."""
     page = request.args.get("page", default=1, type=int)
@@ -86,7 +86,10 @@ def index():
 @login_required
 @write_roles_required
 @limiter.limit("10 per minute")
-@audit_admin_action("admin.audit_report.create", target_type="audit_report", detail_func=lambda r, *a, **kw: {"name": request.form.get("name")})
+@audit_admin_action(
+    "admin.audit_report.create", target_type="audit_report", roles=WRITE_ROLES,
+    detail_func=lambda r, *a, **kw: {"name": request.form.get("name")},
+)
 def create():
     """Create a new scheduled audit report."""
     if request.method == "GET":
@@ -146,7 +149,10 @@ def create():
 @login_required
 @write_roles_required
 @limiter.limit("10 per minute")
-@audit_admin_action("admin.audit_report.update", target_type="audit_report", target_id_arg="report_id")
+@audit_admin_action(
+    "admin.audit_report.update", target_type="audit_report", roles=WRITE_ROLES,
+    target_id_arg="report_id",
+)
 def edit(report_id: int):
     """Edit a scheduled audit report."""
     report = ScheduledAuditReportRepository.get_by_id(report_id)
@@ -218,7 +224,10 @@ def edit(report_id: int):
 @login_required
 @write_roles_required
 @limiter.limit("5 per minute")
-@audit_admin_action("admin.audit_report.delete", target_type="audit_report", target_id_arg="report_id")
+@audit_admin_action(
+    "admin.audit_report.delete", target_type="audit_report", roles=WRITE_ROLES,
+    target_id_arg="report_id",
+)
 def delete(report_id: int):
     """Delete a scheduled audit report."""
     report = ScheduledAuditReportRepository.get_by_id(report_id)
@@ -238,7 +247,10 @@ def delete(report_id: int):
 @login_required
 @write_roles_required
 @limiter.limit("10 per minute")
-@audit_admin_action("admin.audit_report.run", target_type="audit_report", target_id_arg="report_id")
+@audit_admin_action(
+    "admin.audit_report.run", target_type="audit_report", roles=WRITE_ROLES,
+    target_id_arg="report_id",
+)
 def run_report(report_id: int):
     """Run a scheduled audit report on demand (async)."""
     job_id = AuditReportService.generate_report_async(
@@ -254,7 +266,9 @@ def run_report(report_id: int):
 @login_required
 @write_roles_required
 @limiter.limit("5 per minute")
-@audit_admin_action("admin.audit_report.run_due", target_type="audit_report")
+@audit_admin_action(
+    "admin.audit_report.run_due", target_type="audit_report", roles=WRITE_ROLES,
+)
 def run_due_reports():
     """Run all due scheduled audit reports."""
     result = AuditReportService.run_due_reports()
