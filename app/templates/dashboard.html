@@ -23,7 +23,7 @@
   {% endif %}
 </section>
 
-<section class="dashboard-grid">
+<section class="dashboard-grid charts-row">
   <article class="panel">
     <div class="panel-header">
       <div>
@@ -200,33 +200,13 @@
       </div>
     </div>
     <div class="panel-content">
-      <div class="table-scroll compact">
-        <table>
-          <thead>
-            <tr><th scope="col">Product</th><th scope="col">Days idle</th><th scope="col">Stock</th><th scope="col">Value</th></tr>
-          </thead>
-          <tbody>
-            {% for p in slow_movers %}
-            <tr>
-              <td>
-                <div class="product-cell">
-                  <span class="product-icon">{{ p.name[:1] }}</span>
-                  <div>
-                    <div class="product-name"><a href="{{ url_for('ui.product_detail', product_id=p.id) }}">{{ p.name }}</a></div>
-                    <div class="product-meta">{{ p.sku }} &middot; {{ p.warehouse }}</div>
-                  </div>
-                </div>
-              </td>
-              <td><span class="status {{ 'critical' if p.days_idle >= 60 else 'warning' if p.days_idle >= 30 else 'good' }}">{{ p.days_idle }}d</span></td>
-              <td><span class="number">{{ p.current_stock }}</span></td>
-              <td><span class="number">{{ format_money(p.current_stock * (p.unit_price or 0)) }}</span></td>
-            </tr>
-            {% else %}
-            <tr><td colspan="4"><div class="empty-state">No movement data yet</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      {% if slow_movers %}
+      <div class="panel-chart-wrap">
+        <canvas id="slowMoversChart" role="img" aria-label="Horizontal bar chart of the products with the longest time since their last sale"></canvas>
       </div>
+      {% else %}
+      <p class="empty-state">No movement data yet</p>
+      {% endif %}
     </div>
   </article>
 
@@ -238,31 +218,13 @@
       </div>
     </div>
     <div class="panel-content">
-      <div class="table-scroll compact">
-        <table>
-          <thead>
-            <tr><th scope="col">#</th><th scope="col">Product</th><th scope="col">Units</th></tr>
-          </thead>
-          <tbody>
-            {% for p in top_demand %}
-            <tr>
-              <td><span class="sku">{{ '%02d'|format(loop.index) }}</span></td>
-              <td>
-                <div class="product-cell">
-                  <div>
-                    <div class="product-name">{{ p.name }}</div>
-                    <div class="product-meta">{{ p.sku }} &middot; {{ p.category or "-" }}</div>
-                  </div>
-                </div>
-              </td>
-              <td><span class="number">{{ '{:,}'.format(p.units) }}</span></td>
-            </tr>
-            {% else %}
-            <tr><td colspan="3"><div class="empty-state">No sales yet</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      {% if top_demand %}
+      <div class="panel-chart-wrap">
+        <canvas id="topDemandChart" role="img" aria-label="Horizontal bar chart of products with the highest unit sales in the last 90 days"></canvas>
       </div>
+      {% else %}
+      <p class="empty-state">No sales yet</p>
+      {% endif %}
     </div>
   </article>
 </section>
@@ -276,31 +238,13 @@
       </div>
     </div>
     <div class="panel-content">
-      <div class="table-scroll compact">
-        <table>
-          <thead>
-            <tr><th scope="col">#</th><th scope="col">Product</th><th scope="col">Revenue</th></tr>
-          </thead>
-          <tbody>
-            {% for p in top_sales %}
-            <tr>
-              <td><span class="sku">{{ '%02d'|format(loop.index) }}</span></td>
-              <td>
-                <div class="product-cell">
-                  <div>
-                    <div class="product-name">{{ p.name }}</div>
-                    <div class="product-meta">{{ p.sku }} &middot; {{ p.category or "-" }}</div>
-                  </div>
-                </div>
-              </td>
-              <td><span class="number">{{ format_money(p.value) }}</span></td>
-            </tr>
-            {% else %}
-            <tr><td colspan="3"><div class="empty-state">No sales yet</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      {% if top_sales %}
+      <div class="panel-chart-wrap">
+        <canvas id="topSalesChart" role="img" aria-label="Horizontal bar chart of products with the highest revenue in the last 90 days"></canvas>
       </div>
+      {% else %}
+      <p class="empty-state">No sales yet</p>
+      {% endif %}
     </div>
   </article>
 
@@ -312,33 +256,13 @@
       </div>
     </div>
     <div class="panel-content">
-      <div class="table-scroll compact">
-        <table>
-          <thead>
-            <tr><th scope="col">#</th><th scope="col">Supplier</th><th scope="col">Units supplied</th><th scope="col">SKUs</th></tr>
-          </thead>
-          <tbody>
-            {% for s in top_suppliers %}
-            <tr>
-              <td><span class="sku">{{ '%02d'|format(loop.index) }}</span></td>
-              <td>
-                <div class="product-cell">
-                  <span class="product-icon">{{ s.name[:1] }}</span>
-                  <div>
-                    <div class="product-name">{{ s.name }}</div>
-                    <div class="product-meta">Supplier</div>
-                  </div>
-                </div>
-              </td>
-              <td><span class="number">{{ '{:,}'.format(s.units_in) }}</span></td>
-              <td><span class="number">{{ s.skus }}</span></td>
-            </tr>
-            {% else %}
-            <tr><td colspan="4"><div class="empty-state">No supplier deliveries yet</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      {% if top_suppliers %}
+      <div class="panel-chart-wrap">
+        <canvas id="topSuppliersChart" role="img" aria-label="Horizontal bar chart of suppliers ranked by units delivered this year"></canvas>
       </div>
+      {% else %}
+      <p class="empty-state">No supplier deliveries yet</p>
+      {% endif %}
     </div>
   </article>
 </section>
@@ -369,24 +293,13 @@
       </div>
     </div>
     <div class="panel-content">
-      <div class="table-scroll compact">
-        <table>
-          <thead><tr><th scope="col">Category</th><th scope="col">COGS (₹)</th><th scope="col">Avg Inv Value (₹)</th><th scope="col">Turnover Rate</th><th scope="col">SKUs</th></tr></thead>
-          <tbody>
-            {% for t in turnover_by_category %}
-            <tr>
-              <td>{{ t.category }}</td>
-              <td>{{ format_money(t.cogs) }}</td>
-              <td>{{ format_money(t.avg_inv_value) }}</td>
-              <td><span class="status {{ 'good' if t.turnover_rate >= 4 else 'warning' if t.turnover_rate >= 2 else 'critical' }}">{{ t.turnover_rate }}x</span></td>
-              <td>{{ t.sku_count }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="5"><div class="empty-state">No turnover data yet</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      {% if turnover_by_category %}
+      <div class="panel-chart-wrap">
+        <canvas id="turnoverChart" role="img" aria-label="Vertical bar chart of stock turnover rate by category"></canvas>
       </div>
+      {% else %}
+      <p class="empty-state">No turnover data yet</p>
+      {% endif %}
     </div>
   </article>
 
@@ -398,26 +311,13 @@
       </div>
     </div>
     <div class="panel-content">
-      <div class="table-scroll compact">
-        <table>
-          <thead><tr><th scope="col">Class</th><th scope="col">#</th><th scope="col">SKU</th><th scope="col">Product</th><th scope="col">Category</th><th scope="col">Value (₹)</th><th scope="col">Cumulative %</th></tr></thead>
-          <tbody>
-            {% for a in abc_data[:30] %}
-            <tr class="{{ 'abc-a' if a.class == 'A' else 'abc-b' if a.class == 'B' else 'abc-c' }}">
-              <td><span class="status {{ 'good' if a.class == 'A' else 'warning' if a.class == 'B' else 'critical' }}">{{ a.class }}</span></td>
-              <td><span class="sku">{{ a.rank }}</span></td>
-              <td>{{ a.sku }}</td>
-              <td>{{ a.name }}</td>
-              <td>{{ a.category or '—' }}</td>
-              <td>{{ format_money(a.value) }}</td>
-              <td>{{ a.cum_pct }}%</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="7"><div class="empty-state">No ABC data yet</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      {% if abc_data %}
+      <div class="panel-chart-wrap">
+        <canvas id="abcChart" role="img" aria-label="Pareto chart of SKU inventory value with cumulative percentage line"></canvas>
       </div>
+      {% else %}
+      <p class="empty-state">No ABC data yet</p>
+      {% endif %}
     </div>
   </article>
 </section>
@@ -426,6 +326,12 @@
 <script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', function () {
   var profileData = {{ (warehouse_profile|tojson) if warehouse_profile else 'null' }};
+  var slowMovers = {{ (slow_movers|tojson) if slow_movers else '[]' }};
+  var topDemand = {{ (top_demand|tojson) if top_demand else '[]' }};
+  var topSales = {{ (top_sales|tojson) if top_sales else '[]' }};
+  var topSuppliers = {{ (top_suppliers|tojson) if top_suppliers else '[]' }};
+  var turnoverRows = {{ (turnover_by_category|tojson) if turnover_by_category else '[]' }};
+  var abcRows = {{ (abc_data|tojson) if abc_data else '[]' }};
   var profEl = document.getElementById('warehouseProfileChart');
   if (profileData && profEl && window.Chart) {
     var labels = profileData.map(function (w) { return w.warehouse; });
@@ -449,6 +355,283 @@ document.addEventListener('DOMContentLoaded', function () {
           y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Avg Price' } },
         },
         plugins: { legend: { labels: { boxWidth: 10 } } },
+      },
+    });
+  }
+
+  // --- Display charts --------------------------------------------------------
+  // Canvas cannot resolve CSS custom properties, so resolve the theme here.
+  var themeDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  var C = {
+    ink: themeDark ? '#e6edf3' : '#1f2937',
+    muted: themeDark ? '#a3b3c2' : '#57606a',
+    grid: themeDark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(15, 23, 42, 0.08)',
+    green: '#3d997c',
+    amber: '#e3a43c',
+    red: '#dc2626',
+    accent: themeDark ? '#38bdf8' : '#0369a1',
+  };
+
+  function num(n) { return Number(n || 0).toLocaleString('en-IN'); }
+  function money(n) { return '₹' + Number(n || 0).toLocaleString('en-IN'); }
+  function moneyShort(n) {
+    n = Number(n || 0);
+    if (n >= 1e7) return '₹' + (n / 1e7).toFixed(1) + 'Cr';
+    if (n >= 1e5) return '₹' + (n / 1e5).toFixed(1) + 'L';
+    if (n >= 1e3) return '₹' + Math.round(n / 1e3) + 'k';
+    return '₹' + n;
+  }
+  function shortName(name, max) {
+    name = String(name || '');
+    return name.length > max ? name.slice(0, max - 1) + '…' : name;
+  }
+  function tooltipOpts(callbacks) {
+    return {
+      backgroundColor: themeDark ? '#1e293b' : '#0f172a',
+      titleColor: '#f8fafc',
+      bodyColor: '#e2e8f0',
+      padding: 10,
+      cornerRadius: 8,
+      displayColors: false,
+      callbacks: callbacks,
+    };
+  }
+
+  function hbarChart(id, rows, opts) {
+    var el = document.getElementById(id);
+    if (!rows || !rows.length || !el || !window.Chart) return;
+    new window.Chart(el, {
+      type: 'bar',
+      data: {
+        labels: rows.map(opts.label),
+        datasets: [{
+          data: rows.map(opts.value),
+          backgroundColor: opts.colors,
+          borderRadius: 4,
+          maxBarThickness: 16,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          datalabels: { display: false },
+          tooltip: tooltipOpts({
+            title: function (items) { return opts.title(rows[items[0].dataIndex]); },
+            label: function (items) { return opts.body(rows[items[0].dataIndex]); },
+          }),
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            grid: { color: C.grid },
+            border: { display: false },
+            ticks: { color: C.muted, font: { size: 10 }, callback: opts.tick, maxRotation: 0, autoSkip: true },
+          },
+          y: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: C.ink, font: { size: 10 }, autoSkip: false },
+          },
+        },
+      },
+    });
+  }
+
+  // Slow-moving products: top 8 by days idle
+  var slowRows = slowMovers.slice()
+    .sort(function (a, b) { return Number(b.days_idle || 0) - Number(a.days_idle || 0); })
+    .slice(0, 8);
+  hbarChart('slowMoversChart', slowRows, {
+    label: function (p) { return shortName(p.name, 16); },
+    value: function (p) { return Number(p.days_idle || 0); },
+    colors: slowRows.map(function (p) {
+      var days = Number(p.days_idle || 0);
+      return days >= 60 ? C.red : days >= 30 ? C.amber : C.green;
+    }),
+    title: function (p) { return p.name; },
+    body: function (p) {
+      return [
+        p.days_idle + ' days idle · ' + num(p.current_stock) + ' in stock',
+        'Idle value ' + money(Number(p.current_stock || 0) * Number(p.unit_price || 0)),
+        p.sku + ' · ' + (p.warehouse || '—'),
+      ];
+    },
+    tick: function (v) { return v + 'd'; },
+  });
+
+  // Top demand: top 10 by units sold
+  hbarChart('topDemandChart', topDemand, {
+    label: function (p) { return shortName(p.name, 16); },
+    value: function (p) { return Number(p.units || 0); },
+    colors: C.accent,
+    title: function (p) { return p.name; },
+    body: function (p) { return [num(p.units) + ' units sold', p.sku + ' · ' + (p.category || '—')]; },
+    tick: function (v) { return num(v); },
+  });
+
+  // Top sales: top 10 by revenue
+  hbarChart('topSalesChart', topSales, {
+    label: function (p) { return shortName(p.name, 16); },
+    value: function (p) { return Number(p.value || 0); },
+    colors: C.green,
+    title: function (p) { return p.name; },
+    body: function (p) { return [money(p.value) + ' revenue', p.sku + ' · ' + (p.category || '—')]; },
+    tick: function (v) { return money(v); },
+  });
+
+  // Top suppliers: top 5 by units delivered
+  hbarChart('topSuppliersChart', topSuppliers, {
+    label: function (s) { return shortName(s.name, 16); },
+    value: function (s) { return Number(s.units_in || 0); },
+    colors: C.accent,
+    title: function (s) { return s.name; },
+    body: function (s) { return [num(s.units_in) + ' units supplied', Number(s.skus || 0) + ' SKUs']; },
+    tick: function (v) { return num(v); },
+  });
+
+  // Stock turnover rate by category (thresholds mirror the former table)
+  var turnoverEl = document.getElementById('turnoverChart');
+  if (turnoverRows.length && turnoverEl && window.Chart) {
+    new window.Chart(turnoverEl, {
+      type: 'bar',
+      data: {
+        labels: turnoverRows.map(function (t) { return t.category; }),
+        datasets: [{
+          data: turnoverRows.map(function (t) { return Number(t.turnover_rate || 0); }),
+          backgroundColor: turnoverRows.map(function (t) {
+            var rate = Number(t.turnover_rate || 0);
+            return rate >= 4 ? C.green : rate >= 2 ? C.amber : C.red;
+          }),
+          borderRadius: 4,
+          maxBarThickness: 40,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          datalabels: { display: false },
+          tooltip: tooltipOpts({
+            title: function (items) { return turnoverRows[items[0].dataIndex].category; },
+            label: function (items) {
+              var t = turnoverRows[items[0].dataIndex];
+              return [
+                Number(t.turnover_rate || 0).toFixed(2) + 'x turnover',
+                'COGS ' + money(t.cogs),
+                'Avg inventory ' + money(t.avg_inv_value),
+                Number(t.sku_count || 0) + ' SKUs',
+              ];
+            },
+          }),
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+              color: C.ink,
+              font: { size: 10 },
+              autoSkip: true,
+              maxRotation: 45,
+              minRotation: 45,
+              callback: function (value, index) { return shortName(this.getLabelForValue(value), 14); },
+            },
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: C.grid },
+            border: { display: false },
+            ticks: { color: C.muted, font: { size: 10 }, callback: function (v) { return v + 'x'; } },
+          },
+        },
+      },
+    });
+  }
+
+  // ABC Pareto: bars = value for top 12 SKUs, line = cumulative %
+  var abcTop = abcRows.slice(0, 12);
+  var abcEl = document.getElementById('abcChart');
+  if (abcTop.length && abcEl && window.Chart) {
+    new window.Chart(abcEl, {
+      type: 'bar',
+      data: {
+        labels: abcTop.map(function (a) { return String(a.rank).padStart(2, '0'); }),
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Inventory value',
+            data: abcTop.map(function (a) { return Number(a.value || 0); }),
+            backgroundColor: abcTop.map(function (a) {
+              return a.class === 'A' ? C.green : a.class === 'B' ? C.amber : C.red;
+            }),
+            borderRadius: 4,
+            maxBarThickness: 30,
+            yAxisID: 'y',
+            order: 2,
+          },
+          {
+            type: 'line',
+            label: 'Cumulative %',
+            data: abcTop.map(function (a) { return Number(a.cum_pct || 0); }),
+            borderColor: C.ink,
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 2,
+            pointBackgroundColor: C.ink,
+            tension: 0.25,
+            yAxisID: 'y1',
+            order: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: C.muted, boxWidth: 10, font: { size: 10 } } },
+          datalabels: { display: false },
+          tooltip: tooltipOpts({
+            title: function (items) {
+              var a = abcTop[items[0].dataIndex];
+              return a.sku + ' · ' + a.name;
+            },
+            label: function (item) {
+              var a = abcTop[item.dataIndex];
+              return item.datasetIndex === 0
+                ? ['Class ' + a.class + ' · ' + (a.category || '—'), money(a.value)]
+                : ['Cumulative ' + a.cum_pct + '%'];
+            },
+          }),
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: C.muted, font: { size: 10 }, autoSkip: false },
+          },
+          y: {
+            beginAtZero: true,
+            position: 'left',
+            grid: { color: C.grid },
+            border: { display: false },
+            ticks: { color: C.muted, font: { size: 9 }, callback: function (v) { return moneyShort(v); } },
+            title: { display: true, text: 'Value', color: C.muted, font: { size: 10 } },
+          },
+          y1: {
+            beginAtZero: true,
+            max: 100,
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            border: { display: false },
+            ticks: { color: C.muted, font: { size: 9 }, callback: function (v) { return v + '%'; } },
+            title: { display: true, text: 'Cum %', color: C.muted, font: { size: 10 } },
+          },
+        },
       },
     });
   }
