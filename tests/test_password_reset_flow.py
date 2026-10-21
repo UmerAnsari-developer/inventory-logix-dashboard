@@ -76,6 +76,15 @@ def _request_reset(client, email):
     return response
 
 
+def _active_session_count(app, user_id):
+    with app.app_context():
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM user_sessions WHERE user_id = %s AND is_active",
+                (user_id,),
+            )
+            return cur.fetchone()["n"]
+
 
 def test_forgot_password_http_creates_naive_utc_token(app, client, throwaway_user, captured_mail):
     _request_reset(client, throwaway_user["email"])
@@ -177,3 +186,99 @@ def test_mailer_fallback_log_omits_reset_link(app, caplog, monkeypatch):
     assert "SUPERSECRETTOKEN" not in caplog.text
     assert "victim@example.test" in caplog.text
 
+
+# ── F2: password reset / admin revoke must invalidate live sessions ──────────
+
+def test_reset_password_revokes_live_session(app, throwaway_user, captured_mail):
+    victim = app.test_client()
+    login = victim.post(
+        "/auth/login",
+        data={"username": throwaway_user["username"], "password": OLD_PASSWORD},
+    )
+    assert login.status_code == 302
+    # Pre-state (anti-false-green): this cookie really authenticates pre-reset.
+    assert victim.get("/inventory").status_code == 200
+
+    # Separate cookie jar: the reset route redirects authenticated users away.
+    reset_client = app.test_client()
+    _request_reset(reset_client, throwaway_user["email"])
+    token = captured_mail["link"].rsplit("/", 1)[-1]
+    reset = reset_client.post(
+        f"/auth/reset-password/{token}",
+        data={"password": NEW_PASSWORD, "confirm": NEW_PASSWORD},
+    )
+    assert reset.status_code == 302
+
+    evicted = victim.get("/inventory")
+    assert evicted.status_code == 302
+    assert "/auth/login" in evicted.headers["Location"]
+    assert _active_session_count(app, throwaway_user["id"]) == 0
+
+
+def test_reset_then_login_with_new_password_still_works(
+    app, throwaway_user, captured_mail
+):
+    reset_client = app.test_client()
+    _request_reset(reset_client, throwaway_user["email"])
+    token = captured_mail["link"].rsplit("/", 1)[-1]
+    assert (
+        reset_client.post(
+            f"/auth/reset-password/{token}",
+            data={"password": NEW_PASSWORD, "confirm": NEW_PASSWORD},
+        ).status_code
+        == 302
+    )
+
+    client = app.test_client()
+    login = client.post(
+        "/auth/login",
+        data={"username": throwaway_user["username"], "password": NEW_PASSWORD},
+    )
+    assert login.status_code == 302
+    assert client.get("/inventory").status_code == 200
+
+
+def test_delete_sessions_for_user_evicts_live_cookie(app, throwaway_user):
+    victim = app.test_client()
+    assert (
+        victim.post(
+            "/auth/login",
+            data={"username": throwaway_user["username"], "password": OLD_PASSWORD},
+        ).status_code
+        == 302
+    )
+    # Pre-state (anti-false-green): logged in before the revocation.
+    assert victim.get("/inventory").status_code == 200
+
+    # throwaway_user only: its teardown removes the audit rows the
+    # trg_session_end trigger writes when sessions are revoked.
+    with app.app_context():
+        UserRepository.delete_sessions_for_user(throwaway_user["id"])
+
+    evicted = victim.get("/inventory")
+    assert evicted.status_code == 302
+    assert "/auth/login" in evicted.headers["Location"]
+
+
+def test_legacy_cookie_without_token_is_allowed(app, throwaway_user):
+    from flask_login.utils import _create_identifier
+
+    client = app.test_client()
+    box: dict = {}
+
+    def _capture():
+        box["id"] = _create_identifier()
+
+    app.before_request_funcs.setdefault(None, []).append(_capture)
+    try:
+        assert client.get("/static/img/favicon.svg").status_code == 200
+    finally:
+        app.before_request_funcs[None].remove(_capture)
+
+    with client.session_transaction() as sess:
+        sess["_user_id"] = str(throwaway_user["id"])
+        sess["_fresh"] = True
+        # _id is mandatory: strong session protection wipes the cookie without it.
+        sess["_id"] = box["id"]
+
+    assert client.get("/inventory").status_code == 200

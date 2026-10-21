@@ -321,6 +321,8 @@ class AuthService:
 
         user_id = row["user_id"]
         UserRepository.set_password(user_id, new_password)
+        # F2: every live cookie for this account dies with the old password.
+        UserRepository.delete_sessions_for_user(user_id)
         UserRepository.consume_reset_token(row["id"])
         UserRepository.purge_reset_tokens(user_id)
         AuditRepository.record(

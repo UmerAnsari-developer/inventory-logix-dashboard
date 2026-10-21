@@ -246,9 +246,19 @@ def _init_extensions(app: Flask) -> None:
     @login_manager.user_loader
     def _load_user(user_id: str):
         try:
-            return UserRepository.find_by_id(int(user_id))
+            uid = int(user_id)
         except (TypeError, ValueError):
             return None
+
+        user = UserRepository.find_by_id(uid)
+        token = session.get("session_token")
+        if user and token and not UserRepository.is_session_active(user.id, token):
+            # F2: password reset / admin revoke must not keep authenticating.
+            # Token-less legacy cookies stay valid until the browser closes.
+            for key in ("_user_id", "_fresh", "session_token"):
+                session.pop(key, None)
+            return None
+        return user
 
     app.teardown_appcontext(close_connection)
     init_security_headers(app)

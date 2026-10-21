@@ -130,6 +130,18 @@ class UserRepository:
             cur.execute("SELECT sp_session_end(%s)", (token,))
 
     @staticmethod
+    def is_session_active(user_id: int, token: str) -> bool:
+        """True while ``token`` is an active session row for ``user_id``."""
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM user_sessions "
+                "WHERE user_id = %s AND session_token = %s AND is_active "
+                "LIMIT 1",
+                (user_id, token),
+            )
+            return cur.fetchone() is not None
+
+    @staticmethod
     def delete_sessions_for_user(user_id: int) -> None:
         """Invalidate all active sessions for a user (ADM-016: role change / deactivation)."""
         with get_cursor(commit=True) as cur:
