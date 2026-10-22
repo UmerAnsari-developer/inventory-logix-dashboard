@@ -60,7 +60,7 @@ registrations (ui 23, api 15, auth 5, ai 7); indexes = 49.
 | 27 | Zero f-string SQL; reports builds SQL from hardcoded fragments only (user values stay in %s tuples) | E1 | grep; ui.py:789-826, 858-884 |
 | 28 | Reset tokens: urlsafe(48), SHA-256-stored, single-active (purge), 5-min TTL, DB-level used/expiry check; consume lacks WHERE used=FALSE (race window) | E1/E2 | auth_service.py:127-133; procedures.sql:400-427 |
 | 29 | .env gitignored; SECRET_KEY generated on Render; fallback "change-me-in-production" has no prod fail-fast | E1 | .gitignore:16-18; render.yaml:40-41; settings.py:17 |
-| 30 | **Committed live Supabase DSN (password) in alembic.ini:7** | E1 | alembic.ini (value redacted; rotate) |
+| 30 | **Historical committed Supabase DSN (password) in alembic.ini:7** | E1 | commit `582585e`; current file sanitized; rotate/purge |
 | 31 | render.yaml DB name mismatch (declared `inventory_db_2ov0` :19 vs fromDatabase `inventory-logix-db` :38) | E1 | render.yaml |
 | 32 | AI portfolio endpoints unthrottled; horizon/contamination user-controlled in cache keys | E1 | ai.py:55-66, 105-118 |
 | 33 | Reset link logged at WARNING when no mail transport | E1 | mailer.py:125-131 |

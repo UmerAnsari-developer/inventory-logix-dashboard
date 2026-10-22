@@ -264,8 +264,8 @@ the sp_* convention, E1).
 
 ## 8. Security Threat Findings (ranked, E1 unless noted)
 
-1. **Committed credential** — live Supabase DSN with password in
-   alembic.ini:7. Rotate + remove.
+1. **Historical committed credential** - live Supabase DSN with password in
+   `alembic.ini:7` (commit `582585e`). Current file is sanitized; rotate/purge.
 2. **Unthrottled AI portfolio endpoints** — user-controlled cache keys
    (`horizon` int, `contamination` float embedded in keys, ai.py:58-60,
    109-112) → unique key per request → model fit per request → CPU
@@ -330,7 +330,7 @@ var) → multi-worker + PgBouncer → read replicas/CDN. [E2/E3]
 
 ## 11. Recommendations (evidence-backed)
 
-1. Rotate + remove the committed DSN; add a SECRET_KEY prod fail-fast.
+1. Rotate the historically committed DSN (commit `582585e`) and purge history; add a SECRET_KEY prod fail-fast.
 2. `@limiter.limit` + clamp horizon/contamination on portfolio routes.
 3. Push app context into the ETL thread; add a module-level ETL lock.
 4. Delete the uncached app-level context processor (keep the blueprint one).

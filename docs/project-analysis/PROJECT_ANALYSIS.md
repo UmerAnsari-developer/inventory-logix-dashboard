@@ -215,7 +215,7 @@ InventoryLogix/
 ├── run.py                    # Entry: create_app() + Werkzeug dev / Gunicorn prod
 ├── migrate.py                # CLI: etl | alembic migrate/upgrade
 ├── render.yaml                # Blueprint: free Postgres + web service
-├── alembic.ini                # Alembic config (gitignored for security)
+├── alembic.ini                # Alembic config (placeholder URL; credentials via env)
 ├── app/
 │   ├── __init__.py              # Application factory + context processor
 │   ├── extensions.py            # Flask-Limiter and other extensions
@@ -662,8 +662,8 @@ triggers; .env gitignored; prod fail-fast on missing DB; RLS
 deny-by-default.
 
 **Gaps (E1, ranked):**
-1. **Committed credential** — live Supabase DSN with password in
-   alembic.ini:7 (rotate + remove).
+1. **Historical committed credential** — live Supabase DSN with password in
+   `alembic.ini:7` (commit `582585e`). Current file is sanitized; rotate/purge.
 2. **Unthrottled AI portfolio endpoints** — user-controlled cache keys
    (horizon/contamination) → unbounded model fits → CPU exhaustion by
    any authenticated viewer (ai.py:55-66, 105-118).
@@ -717,7 +717,7 @@ read replicas/CDN. [E2/E3]
 **Technical:** single-process state (§26.3); ui.py 2051 lines /
 reports() 1156 lines with ~56 inline SQL sites bypassing the SP
 discipline; duplicate uncached context processor; likely-broken
-background ETL; render.yaml DB name mismatch (19 vs 38); committed DSN;
+background ETL; render.yaml DB name mismatch (19 vs 38); historical committed DSN (commit `582585e`);
 dead code (trg_cleanup_stale_sessions, fact_product_daily,
 landing_cache, flask-migrate, pip plotly, orphaned JS files); multiple
 audit rows per movement; misleading trigger name
@@ -734,7 +734,7 @@ unmeasured (in-sample MAPE only).
 
 ## 30. Future Enhancements (priority-ordered)
 
-1. Rotate + remove the committed DSN; fix render.yaml names; add
+1. Rotate the historically committed DSN (commit `582585e`) and purge history; fix render.yaml names; add
    SECRET_KEY prod fail-fast.
 2. Rate-limit + clamp portfolio endpoints.
 3. Push app context into the ETL thread + concurrency guard.
@@ -769,7 +769,7 @@ build `pip install -r requirements.txt`; start
 health check `/api/health`; autoDeploy on push. Env: FLASK_ENV,
 DATABASE_URL (fromDatabase — **name mismatch at render.yaml:19 vs 38**),
 generated SECRET_KEY, manual SENDGRID_API_KEY, MAIL_FROM, TLS, 5-min
-reset TTL. ⚠ alembic.ini contains a committed live Supabase DSN.
+reset TTL. ⚠ alembic.ini historically contained a live Supabase DSN (commit `582585e`); current file sanitized.
 
 **Local:** venv → pip install → copy .env → `python run.py` →
 http://localhost:5000. Schema + seed + optional ETL run automatically on

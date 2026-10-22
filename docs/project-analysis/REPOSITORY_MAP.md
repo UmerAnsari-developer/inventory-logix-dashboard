@@ -14,7 +14,7 @@ Inventory Logistics Optimization Dashboard/
 ├── .env.example                    # Environment variable template
 ├── .env                            # Active environment (gitignored)
 ├── .gitignore                      # Git ignore rules
-├── alembic.ini                     # Alembic migration configuration (gitignored)
+├── alembic.ini                     # Alembic config (placeholder URL; credentials via env)
 ├── pytest.ini                      # Pytest configuration (testpaths=tests)
 ├── render.yaml                     # Render.com deployment Blueprint
 ├── opencode.json                   # OpenCode agent configuration

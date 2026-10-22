@@ -88,7 +88,7 @@ tokens; audit logging via triggers.
 - **Single-process assumptions** — lockout, rate limits, and caches are
   in-process memory; the deployment is deliberately 1 worker × 2 threads.
   Adding workers without Redis silently weakens auth protections.
-- **Known risks** — a database credential is committed in `alembic.ini`
+- **Known risks** - a database credential was historically committed in `alembic.ini` (commit `582585e`; current file sanitized, rotate/purge)
   (flagged for rotation); the AI portfolio endpoints lack rate limits; the
   background ETL button likely fails silently (app-context bug);
   `render.yaml` has a database-name mismatch.

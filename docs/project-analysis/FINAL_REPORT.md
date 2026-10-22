@@ -271,7 +271,7 @@ InventoryLogix/
 ├── run.py                    # Entry: create_app() + Werkzeug dev / Gunicorn prod
 ├── migrate.py                # CLI: etl | alembic migrate/upgrade
 ├── render.yaml               # Blueprint: free Postgres + web service
-├── alembic.ini               # Alembic config (gitignored for security)
+├── alembic.ini               # Alembic config (placeholder URL; credentials via env)
 ├── app/
 │   ├── __init__.py              # Application factory + context processor
 │   ├── extensions.py            # Flask-Limiter and other extensions
@@ -685,7 +685,7 @@ Single-developer, iterative hardening. Git evidence: auth polish -> real data/RB
 
 ### 21.2 Gaps (E1, ranked)
 
-1. **Committed credential** — live Supabase DSN with password in alembic.ini:7 (rotate + remove).
+1. **Committed credential (historical)** — live Supabase DSN with password in `alembic.ini:7` (commit `582585e`). Current `HEAD` is sanitized; rotate the Supabase password and purge history if required.
 2. **Unthrottled AI portfolio endpoints** — user-controlled cache keys (horizon/contamination) -> unbounded model fits -> CPU exhaustion by any authenticated viewer (ai.py:55-66, 105-118).
 3. **Multi-worker fragility** — lockout dict, memory:// limiter, 9 caches, bootstrap flag all per-process; a second worker silently multiplies auth limits and splits cache invalidation. Masked by 1-worker deploy.
 4. **Reset link in logs** — full reset link logged at WARNING when no mail transport configured (mailer.py:125-131).
@@ -754,7 +754,7 @@ venv -> pip install -> copy .env -> `python run.py` -> http://localhost:5000. Sc
 - Duplicate uncached context processor
 - Likely-broken background ETL thread (app context bug)
 - render.yaml DB name mismatch (19 vs 38)
-- Committed DSN in alembic.ini
+- Historical committed DSN in `alembic.ini` (commit `582585e`; current file sanitized; rotate/purge)
 - Dead code: trg_cleanup_stale_sessions, fact_product_daily, landing_cache, flask-migrate, pip plotly, orphaned JS files
 - Multiple audit rows per movement
 - Misleading trigger name (trg_movement_stock_update only logs)
@@ -887,7 +887,7 @@ The Economic Order Quantity model (Harris, 1913) minimizes total inventory cost 
 | 15 | CSRF app-wide, 8h TTL, disabled in tests | E1 | extensions.py:14; settings.py:27,98 |
 | 16 | Per-request CSP nonce; no unsafe-inline scripts; 3 CDNs whitelisted | E1 | headers.py:17-43; base.html:11,43-46 |
 | 17 | Lockout 5/15min in-memory + threading.Lock | E1 | auth_service.py:28-29, 66-86 |
-| 18 | Committed live Supabase DSN (password) in alembic.ini:7 | E1 | alembic.ini (value redacted) |
+| 18 | Historical committed Supabase DSN (password) in alembic.ini:7 | E1 | commit `582585e`; current file sanitized; rotate/purge |
 | 19 | render.yaml DB name mismatch | E1 | render.yaml |
 | 20 | AI portfolio endpoints unthrottled | E1 | ai.py:55-66, 105-118 |
 | 21 | Background ETL thread calls current_app outside app context | E1/E2 | ui.py:1981-1986; etl.py:37-45 |
