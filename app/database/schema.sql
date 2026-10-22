@@ -331,6 +331,9 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_user_sessions_active ON user_sessions(is_active) WHERE is_active;
 
+CREATE INDEX IF NOT EXISTS idx_user_sessions_active_user
+    ON user_sessions(user_id, is_active) WHERE is_active = TRUE;
+
 -- ETL pipeline bookkeeping (high-water mark for incremental runs).
 CREATE TABLE IF NOT EXISTS etl_state (
     state_key       VARCHAR(60) PRIMARY KEY,
@@ -350,7 +353,7 @@ CREATE TABLE IF NOT EXISTS rate_limit_state (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rate_limit_expires ON rate_limit_state(expires_at);
-CREATE INDEX IF NOT EXISTS idx_rate_limit_key ON rate_limit_state(key);
+-- No explicit key index: the UNIQUE constraint already creates one.
 
 -- ─────────────────────────────────────────────────────────────────
 -- System Alerts
