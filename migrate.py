@@ -66,11 +66,11 @@ def apply_upgrade():
             capture_output=True, text=True, timeout=300
         )
         print(result.stdout)
-        if result.returncode != 0:
-            print(f"ERROR: {result.stderr}")
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
         return result.returncode
     except subprocess.TimeoutExpired:
-        print("ERROR: Migration timed out after 300 seconds")
+        print("ERROR: Migration timed out after 300 seconds", file=sys.stderr)
         return 1
 
 
@@ -83,16 +83,16 @@ def apply_downgrade():
             capture_output=True, text=True, timeout=300
         )
         print(result.stdout)
-        if result.returncode != 0:
-            print(f"ERROR: {result.stderr}")
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
         return result.returncode
     except subprocess.TimeoutExpired:
-        print("ERROR: Migration timed out after 300 seconds")
+        print("ERROR: Migration timed out after 300 seconds", file=sys.stderr)
         return 1
 
 
 def show_current():
-    """Show current migration state."""
+    """Show current migration state; nonzero on failure."""
     import subprocess
     try:
         result = subprocess.run(
@@ -100,8 +100,12 @@ def show_current():
             capture_output=True, text=True, timeout=30
         )
         print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+        return result.returncode
     except subprocess.TimeoutExpired:
-        print("ERROR: Command timed out after 30 seconds")
+        print("ERROR: Command timed out after 30 seconds", file=sys.stderr)
+        return 1
 
 
 def show_history():
@@ -113,8 +117,12 @@ def show_history():
             capture_output=True, text=True, timeout=30
         )
         print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+        return result.returncode
     except subprocess.TimeoutExpired:
-        print("ERROR: Command timed out after 30 seconds")
+        print("ERROR: Command timed out after 30 seconds", file=sys.stderr)
+        return 1
 
 
 def run_etl():
@@ -150,15 +158,16 @@ if __name__ == "__main__":
             sys.exit(1)
         create_migration(sys.argv[2])
     elif cmd == "upgrade":
-        apply_upgrade()
+        sys.exit(apply_upgrade())
     elif cmd == "downgrade":
-        apply_downgrade()
+        sys.exit(apply_downgrade())
     elif cmd == "current":
-        show_current()
+        sys.exit(show_current())
     elif cmd == "history":
-        show_history()
+        sys.exit(show_history())
     elif cmd == "etl":
         sys.exit(run_etl())
     else:
         print(f"Unknown command: {cmd}")
         print(__doc__)
+        sys.exit(1)

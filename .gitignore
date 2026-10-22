@@ -58,7 +58,6 @@ InventoryLogix_Project_Report.docx
 PRODUCT.md
 AGENTS.md
 opencode.json
-alembic.ini
 
 # Non-project / scratch (keep out of repo)
 Agents_test/
@@ -91,3 +90,16 @@ SUPABASE_SETUP.md
 *.bak
 /bump_js_versions.py
 /bump_versions.py
+
+# Local working files (kept in folder, never tracked)
+/TODO.md
+/check_db.py
+/check_db2.py
+/check_detect.py
+/check_warehouses.py
+/cleanup_test_data.py
+/detect_files.py
+/list_tables.py
+/run_ast_extraction.py
+/run_semantic_extraction.py
+/run_semantic_extraction2.py
