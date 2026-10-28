@@ -15,18 +15,12 @@
 {# ── Entity tabs ───────────────────────────────────────────────────────── #}
 <div class="panel" style="margin-top:0;">
   <div class="panel-header" style="gap:0;padding-bottom:0;border-bottom:none;">
-    {% set tabs = [
-      ('products', 'Products'),
-      ('suppliers', 'Suppliers'),
-      ('warehouses', 'Warehouses'),
-      ('movements', 'Movements'),
-      ('purchase_orders', 'Purchase Orders')
-    ] %}
-    {% for key, label in tabs %}
+    {% set tabs = ['products', 'suppliers', 'warehouses', 'movements', 'purchase_orders'] %}
+    {% for key in tabs %}
     <a href="{{ url_for('admin_data_import.index', tab=key) }}"
        class="btn {% if active_tab == key %}btn-primary{% else %}btn-outline{% endif %}"
        style="border-radius:var(--radius-md) var(--radius-md) 0 0;margin-right:2px;">
-      {{ label }}
+      {{ import_guide[key].label }}
     </a>
     {% endfor %}
   </div>
@@ -39,15 +33,57 @@
     <span class="status good">{{ stats[active_tab].count }} records in database</span>
   </div>
   <div class="panel-content">
-    {% set descriptions = {
-      'products': 'Import products with SKU, name, price, stock levels, category, and supplier. CSV must have columns: sku, product_name, unit_price, current_stock, reorder_point, category, supplier_id.',
-      'suppliers': 'Import suppliers with name, location, and lead days. CSV must have columns: supplier_name, location, lead_days.',
-      'warehouses': 'Import warehouse locations. CSV must have columns: warehouse_name, location.',
-      'movements': 'Import inventory movements. CSV must have columns: product_id, quantity, movement_type (in/out/adjustment), reason.',
-      'purchase_orders': 'Import purchase orders. CSV must have columns: supplier_id, product_id, quantity, status.'
-    } %}
+    {% set guide = import_guide[active_tab] %}
+    {% set aliases = column_aliases.get(active_tab, {}) %}
 
-    <p style="color:var(--muted);font-size:0.78rem;margin-bottom:16px;">{{ descriptions.get(active_tab, '') }}</p>
+    <p style="color:var(--muted);font-size:0.78rem;margin-bottom:12px;">{{ guide.description }}</p>
+
+    {# ── Canonical CSV contract for this tab (single source: IMPORT_GUIDE) ── #}
+    <div class="table-scroll" style="margin-bottom:10px;">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Column</th>
+            <th scope="col">Status / Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for column in guide.columns %}
+          <tr>
+            <td><code>{{ column }}</code></td>
+            <td>
+              {% if column in guide.natural_keys %}<span class="status good">natural key</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <ul style="margin:0 0 12px;padding-left:18px;font-size:0.75rem;color:var(--muted);line-height:1.6;">
+      {% for alias, target in aliases.items() if target in guide.columns %}
+      <li>accepted <code>{{ alias }}</code> → <code>{{ target }}</code></li>
+      {% endfor %}
+    </ul>
+
+    {% if active_tab in ('products', 'purchase_orders') %}
+    {# ── Create-missing policy (only these two tabs can auto-create) ─────── #}
+    <div class="alert-strip" style="margin-bottom:16px;">
+      <div class="alert-mark">info</div>
+      <div>
+        <div class="alert-title">Create missing suppliers</div>
+        <div class="alert-subtitle">
+          {% if active_tab == 'products' %}
+          Unchecked: a row naming an unknown supplier imports with a NULL supplier.
+          Checked: the supplier is auto-created when its name is 150 characters or fewer.
+          {% else %}
+          Unchecked: a row naming an unknown supplier is skipped.
+          Checked: the supplier is auto-created when its name is 150 characters or fewer —
+          but a row whose product is unknown is still skipped before any supplier is created.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
     {# ── Size & rate instructions ────────────────────────────────────────── #}
     <div class="alert-strip" style="margin-bottom:16px;">
@@ -58,6 +94,7 @@
           Max file size: <strong>5 MB</strong> (larger files are rejected with 413).
           Preview shows the first <strong>50 rows</strong> — the full file is imported.
           Limits: 30 previews/min, 10 imports/min.
+          Preview validates up to 10,000 rows; rows beyond that are not scanned (<code>rows_truncated</code>).
           Movements import runs one row at a time for stock safety — large files take longer.
           Tip: split big CSVs at ~5,000 rows per file.
         </div>
@@ -106,6 +143,18 @@
         <ul id="preview_warning_list"
             style="margin:8px 0 0;padding-left:18px;color:#a8751e;font-size:0.75rem;line-height:1.5;max-height:160px;overflow:auto;"></ul>
       </div>
+      {# FK normalization matches (informational): cells that resolved via normalization or a numeric id #}
+      <div id="preview_matches" style="display:none;margin-top:12px;">
+        <span id="preview_match_badge" class="status good"></span>
+        <ul id="preview_match_list"
+            style="margin:8px 0 0;padding-left:18px;color:var(--green);font-size:0.75rem;line-height:1.5;max-height:160px;overflow:auto;"></ul>
+      </div>
+      {# In-file duplicate natural keys (warning): later rows update or are skipped #}
+      <div id="preview_duplicates" style="display:none;margin-top:12px;">
+        <span id="preview_duplicate_badge" class="status warning"></span>
+        <ul id="preview_duplicate_list"
+            style="margin:8px 0 0;padding-left:18px;color:#a8751e;font-size:0.75rem;line-height:1.5;max-height:160px;overflow:auto;"></ul>
+      </div>
       {# Auto-created suppliers (armed create-missing preview): informational only #}
       <div id="preview_creates" style="display:none;margin-top:12px;">
         <span id="preview_create_badge" class="status good"></span>
@@ -129,10 +178,10 @@
 
 {# ── Quick stats grid ──────────────────────────────────────────────────── #}
 <div class="dashboard-grid" style="margin-top:16px;">
-  {% for key, label in tabs %}
+  {% for key in tabs %}
   <div class="panel">
     <div class="panel-header">
-      <h5 class="panel-title">{{ label }}</h5>
+      <h5 class="panel-title">{{ import_guide[key].label }}</h5>
     </div>
     <div class="panel-content">
       <div style="display:flex;align-items:baseline;gap:8px;">
@@ -174,6 +223,12 @@
     var previewCreates = document.getElementById('preview_creates');
     var previewCreateBadge = document.getElementById('preview_create_badge');
     var previewCreateList = document.getElementById('preview_create_list');
+    var previewMatches = document.getElementById('preview_matches');
+    var previewMatchBadge = document.getElementById('preview_match_badge');
+    var previewMatchList = document.getElementById('preview_match_list');
+    var previewDuplicates = document.getElementById('preview_duplicates');
+    var previewDuplicateBadge = document.getElementById('preview_duplicate_badge');
+    var previewDuplicateList = document.getElementById('preview_duplicate_list');
     var previewTableContainer = document.getElementById('preview_table_container');
     var createChk = document.getElementById('create_missing_' + activeTab);
 
@@ -232,6 +287,8 @@
             previewErrors.style.display = 'flex';
             previewTableContainer.style.display = 'none';
             previewWarnings.style.display = 'none';
+            previewMatches.style.display = 'none';
+            previewDuplicates.style.display = 'none';
             previewCreates.style.display = 'none';
             step1.style.display = 'none';
             step2.style.display = 'block';
@@ -288,6 +345,28 @@
               previewCreates.style.display = 'none';
             }
 
+            // In-file duplicate natural keys: later rows update the earlier
+            // product, or are skipped as already existing. Exact supplier /
+            // warehouse repeats are informational; variants are warnings.
+            var dupCount = preview.duplicate_count || 0;
+            if (preview.valid && dupCount > 0) {
+              previewDuplicateBadge.textContent = dupCount + ' duplicate natural key'
+                + (dupCount === 1 ? '' : 's');
+              previewDuplicateList.innerHTML = '';
+              var dupItems = preview.duplicates || [];
+              var dupHasWarning = false;
+              for (var di = 0; di < dupItems.length && di < 50; di++) {
+                if (dupItems[di].severity === 'warning') dupHasWarning = true;
+                var dli = document.createElement('li');
+                dli.textContent = dupItems[di].message || dupItems[di].value;
+                previewDuplicateList.appendChild(dli);
+              }
+              previewDuplicateBadge.className = 'status ' + (dupHasWarning ? 'warning' : 'good');
+              previewDuplicates.style.display = 'block';
+            } else {
+              previewDuplicates.style.display = 'none';
+            }
+
             if (preview.errors && preview.errors.length > 0) {
               previewErrors.style.display = 'flex';
               previewErrorMsg.textContent = preview.errors.join('; ');
@@ -331,6 +410,31 @@
               });
             }
 
+            // FK normalization matches (informational): exact matches are only
+            // counted; normalized / numeric-id matches are listed so the user
+            // can see the spelling drift. replaceChildren() keeps this list
+            // free of innerHTML writes (user data is text only).
+            var matchCount = preview.fk_match_count || 0;
+            if (preview.valid && matchCount > 0) {
+              var exactCount = preview.fk_exact_match_count || 0;
+              var normCount = preview.fk_normalized_match_count || 0;
+              var numCount = preview.fk_numeric_match_count || 0;
+              previewMatchBadge.textContent = matchCount + ' match' + (matchCount === 1 ? '' : 'es')
+                + ' (' + exactCount + ' exact, ' + normCount + ' normalized'
+                + (numCount > 0 ? ', ' + numCount + ' numeric' : '') + ')';
+              previewMatchList.replaceChildren();
+              var matchItems = preview.fk_matches || [];
+              for (var mi = 0; mi < matchItems.length && mi < 50; mi++) {
+                var mli = document.createElement('li');
+                mli.textContent = matchItems[mi].message
+                  || (matchItems[mi].field + ' "' + matchItems[mi].raw_value + '" matched');
+                previewMatchList.appendChild(mli);
+              }
+              previewMatches.style.display = 'block';
+            } else {
+              previewMatches.style.display = 'none';
+            }
+
             // Show step 2, hide step 1
             step1.style.display = 'none';
             step2.style.display = 'block';
@@ -339,6 +443,8 @@
             previewErrorMsg.textContent = data.error || 'Preview failed';
             previewTableContainer.style.display = 'none';
             previewWarnings.style.display = 'none';
+            previewMatches.style.display = 'none';
+            previewDuplicates.style.display = 'none';
             previewCreates.style.display = 'none';
             step1.style.display = 'none';
             step2.style.display = 'block';
@@ -351,6 +457,8 @@
           previewErrorMsg.textContent = 'Preview request failed: ' + err.message;
           previewTableContainer.style.display = 'none';
           previewWarnings.style.display = 'none';
+          previewMatches.style.display = 'none';
+          previewDuplicates.style.display = 'none';
           previewCreates.style.display = 'none';
           step1.style.display = 'none';
           step2.style.display = 'block';
