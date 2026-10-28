@@ -130,19 +130,19 @@ def _count_table(table: str) -> int:
 def _get_import_stats() -> dict:
     """Return row counts for each importable entity."""
     tables = {
-        "products": ("products", "Products"),
-        "suppliers": ("suppliers", "Suppliers"),
-        "warehouses": ("warehouses", "Warehouses"),
-        "movements": ("movements", "Movements"),
-        "purchase_orders": ("purchase_orders", "Purchase Orders"),
+        "products": "products",
+        "suppliers": "suppliers",
+        "warehouses": "warehouses",
+        "movements": "movements",
+        "purchase_orders": "purchase_orders",
     }
     stats = {}
-    for key, (table, label) in tables.items():
+    for key, table in tables.items():
         try:
             count = _count_table(table)
         except Exception:
             count = 0
-        stats[key] = {"label": label, "count": count}
+        stats[key] = {"label": DataImportService.IMPORT_GUIDE[key]["label"], "count": count}
     return stats
 
 
@@ -159,6 +159,8 @@ def index():
         stats=stats,
         active_tab=tab,
         active_page="data_import",
+        import_guide=DataImportService.IMPORT_GUIDE,
+        column_aliases=DataImportService.COLUMN_ALIASES,
     )
 
 
@@ -199,17 +201,19 @@ def preview(entity: str):
     # preview itself — degrade to "no FK validation" and flag it in errors.
     # Entities without FK fields (suppliers, warehouses) skip the DB entirely.
     fk_caches = None
+    fk_stored = None
     db_failed = False
     if DataImportService.FK_CHECK_FIELDS.get(entity):
         try:
             with get_cursor() as cur:
-                fk_caches = DataImportService.build_fk_caches(cur)
+                fk_caches, fk_stored = DataImportService.build_fk_preview_data(cur)
         except Exception:
             current_app.logger.warning("FK cache build failed during preview", exc_info=True)
             db_failed = True
 
     preview_result = DataImportService.preview_import(
-        csv_content, entity, fk_caches=fk_caches, create_missing=create_missing
+        csv_content, entity, fk_caches=fk_caches, create_missing=create_missing,
+        fk_stored=fk_stored,
     )
     if db_failed:
         # errors are plain strings elsewhere (template joins them with '; ');

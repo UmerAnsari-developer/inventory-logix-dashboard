@@ -17,14 +17,46 @@ MAX_PREVIEW_ROWS = 10_000
 class DataImportService:
     """Service for importing data with preview capability."""
 
+    # Ordered import guide: one source of truth for each entity's canonical
+    # headers, natural keys and short description (also shown in the UI).
+    IMPORT_GUIDE = {
+        "products": {
+            "label": "Products",
+            "columns": ("sku", "name", "unit_price", "current_stock", "reorder_point", "category", "supplier_name"),
+            "natural_keys": ("sku", "supplier_name"),
+            "description": "Product master data: one row per SKU with price, stock levels and supplier name.",
+        },
+        "suppliers": {
+            "label": "Suppliers",
+            "columns": ("supplier_name", "location", "lead_days"),
+            "natural_keys": ("supplier_name",),
+            "description": "Supplier master data: one row per supplier with location and lead time.",
+        },
+        "warehouses": {
+            "label": "Warehouses",
+            "columns": ("warehouse_name", "location"),
+            "natural_keys": ("warehouse_name",),
+            "description": "Warehouse master data: one row per warehouse with its location.",
+        },
+        "movements": {
+            "label": "Movements",
+            "columns": ("product_sku", "quantity", "movement_type", "reason"),
+            "natural_keys": ("product_sku",),
+            "description": "Stock movements: one row per IN/OUT/ADJUSTMENT/RETURN event on an existing product SKU.",
+        },
+        "purchase_orders": {
+            "label": "Purchase Orders",
+            "columns": ("supplier_name", "product_sku", "quantity", "status"),
+            "natural_keys": ("supplier_name", "product_sku"),
+            "description": "Purchase orders: one row per supplier/product order line.",
+        },
+    }
+
     # Expected columns for each entity (lowercase) — matches the real schema:
     # suppliers has NO contact_email/phone/address columns.
+    # Derived from IMPORT_GUIDE so there is one source of truth.
     EXPECTED_COLUMNS = {
-        "products": {"sku", "name", "unit_price", "current_stock", "reorder_point", "category", "supplier_name"},
-        "suppliers": {"supplier_name", "location", "lead_days"},
-        "warehouses": {"warehouse_name", "location"},
-        "movements": {"product_sku", "quantity", "movement_type", "reason"},
-        "purchase_orders": {"supplier_name", "product_sku", "quantity", "status"},
+        entity: set(spec["columns"]) for entity, spec in IMPORT_GUIDE.items()
     }
 
     # Column aliases for flexible matching
@@ -56,34 +88,54 @@ class DataImportService:
         },
     }
 
+    # Natural-key fields checked for duplicates inside one CSV preview.
+    # Products/suppliers/warehouses only: movements and purchase orders have
+    # no in-file duplicate semantics (every row is its own event/order line).
+    DUPLICATE_KEY_FIELDS: dict[str, tuple[str, ...]] = {
+        "products": ("sku",),
+        "suppliers": ("supplier_name",),
+        "warehouses": ("warehouse_name",),
+    }
+
     @staticmethod
     def _normalize_key(value: str) -> str:
         """Normalize for case-insensitive, whitespace-tolerant matching."""
         return value.strip().lower() if isinstance(value, str) else ""
 
     @staticmethod
+    def _fk_rows(cur, entity: str) -> list[dict]:
+        """Bulk-load active natural keys with id + stored spelling.
+
+        ``ORDER BY id`` makes case-collision resolution deterministic (the
+        highest id wins) and identical for preview and import caches.
+        """
+        queries = {
+            "suppliers": (
+                "SELECT id, LOWER(TRIM(name)) AS norm_key, name AS stored "
+                "FROM suppliers WHERE deleted_at IS NULL ORDER BY id"
+            ),
+            "products": (
+                "SELECT id, LOWER(TRIM(sku)) AS norm_key, sku AS stored "
+                "FROM products WHERE deleted_at IS NULL ORDER BY id"
+            ),
+            "warehouses": (
+                "SELECT id, LOWER(TRIM(warehouse_name)) AS norm_key, "
+                "warehouse_name AS stored FROM warehouses ORDER BY id"
+            ),
+        }
+        sql = queries.get(entity)
+        if sql is None:
+            return []
+        cur.execute(sql)
+        return cur.fetchall()
+
+    @staticmethod
     def _build_fk_cache(cur, entity: str) -> dict[str, int]:
         """Bulk-load all active natural keys -> IDs for an entity."""
-        queries = {
-            "suppliers": "SELECT id, LOWER(TRIM(name)) as norm_name FROM suppliers WHERE deleted_at IS NULL",
-            "products": "SELECT id, LOWER(TRIM(sku)) as norm_sku FROM products WHERE deleted_at IS NULL",
-            "warehouses": "SELECT id, LOWER(TRIM(warehouse_name)) as norm_name FROM warehouses",
+        return {
+            row["norm_key"]: row["id"]
+            for row in DataImportService._fk_rows(cur, entity)
         }
-        if entity not in queries:
-            return {}
-        cur.execute(queries[entity])
-        rows = cur.fetchall()
-        if not rows:
-            return {}
-        # RealDictCursor returns RealDictRow which only supports string key access
-        # Use column aliases from the query
-        if entity == "suppliers":
-            return {row["norm_name"]: row["id"] for row in rows}
-        elif entity == "products":
-            return {row["norm_sku"]: row["id"] for row in rows}
-        elif entity == "warehouses":
-            return {row["norm_name"]: row["id"] for row in rows}
-        return {}
 
     @staticmethod
     def build_fk_caches(cur) -> dict[str, dict[str, int]]:
@@ -96,6 +148,35 @@ class DataImportService:
             "suppliers": DataImportService._build_fk_cache(cur, "suppliers"),
             "products": DataImportService._build_fk_cache(cur, "products"),
         }
+
+    @staticmethod
+    def build_fk_stored_values(cur) -> dict[str, dict[str, str]]:
+        """Bulk-load normalized natural key -> stored spelling (active rows).
+
+        Same entity set as :meth:`build_fk_caches`. Lets the preview report a
+        case/whitespace-only FK match against the spelling actually stored in
+        the DB instead of only flagging it as normalized.
+        """
+        return {
+            entity: {
+                row["norm_key"]: row["stored"]
+                for row in DataImportService._fk_rows(cur, entity)
+            }
+            for entity in ("suppliers", "products")
+        }
+
+    @staticmethod
+    def build_fk_preview_data(
+        cur,
+    ) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, str]]]:
+        """Build id + stored-spelling maps in one scan per entity."""
+        caches: dict[str, dict[str, int]] = {}
+        stored: dict[str, dict[str, str]] = {}
+        for entity in ("suppliers", "products"):
+            rows = DataImportService._fk_rows(cur, entity)
+            caches[entity] = {row["norm_key"]: row["id"] for row in rows}
+            stored[entity] = {row["norm_key"]: row["stored"] for row in rows}
+        return caches, stored
 
     # Natural-key fields checked per entity at preview time.
     # Tuple shape: (csv field, cache key, error_code, action phrase,
@@ -209,6 +290,221 @@ class DataImportService:
                     "message": f"Row {idx}: {field} '{value}' not found — row will be {action}",
                 })
         return warnings
+
+    @staticmethod
+    def classify_fk_matches(
+        rows: list[dict], entity: str, fk_caches: dict[str, dict[str, int]],
+        fk_stored: dict[str, dict[str, str]] | None = None,
+        raw_rows: list[dict] | None = None,
+        display_cap: int = 50,
+    ) -> dict[str, Any]:
+        """Report FK field cells that resolve only via normalization.
+
+        Pure (no DB). Same field set and resolution order as
+        :meth:`validate_fk_rows` (natural key first, then the existence-checked
+        numeric-ID fallback), but non-blocking and informational only:
+
+        - ``exact``: the raw cell equals the spelling stored in the DB — counted,
+          never listed (nothing to fix).
+        - ``normalized``: the natural key matched after case/whitespace
+          normalization — listed with the raw cell so the user can see the drift.
+        - ``numeric_id``: a bare decimal resolved as an existing active id.
+
+        ``raw_rows`` (optional, 1:1 with ``rows``) supplies the pre-strip cell
+        so surrounding whitespace is visible; otherwise the stripped row value
+        is reported. The list is capped at ``display_cap``; all counts are not.
+
+        Returns {"matches", "match_count", "exact_count", "normalized_count",
+        "numeric_count"} where exact + normalized + numeric == match_count.
+        """
+        result = {
+            "matches": [],
+            "match_count": 0,
+            "exact_count": 0,
+            "normalized_count": 0,
+            "numeric_count": 0,
+        }
+        checks = DataImportService.FK_CHECK_FIELDS.get(entity, [])
+        if not checks:
+            return result
+
+        stored_by_cache = fk_stored or {}
+        id_sets = {key: set(cache.values()) for key, cache in fk_caches.items()}
+        matches: list[dict[str, Any]] = []
+        exact = normalized = numeric = 0
+
+        for idx, row in enumerate(rows):
+            row_no = idx + 1
+            raw_row = raw_rows[idx] if raw_rows is not None and idx < len(raw_rows) else None
+            for field, cache_key, _error_code, _action, allow_numeric in checks:
+                value = row.get(field)
+                if value is None:
+                    continue
+                value = value if isinstance(value, str) else str(value)
+                stripped = value.strip()
+                if not stripped:
+                    continue
+                raw_value = stripped
+                if raw_row is not None:
+                    raw = raw_row.get(field)
+                    if raw is not None:
+                        raw_value = raw if isinstance(raw, str) else str(raw)
+                norm = DataImportService._normalize_key(stripped)
+                cache = fk_caches.get(cache_key) or {}
+                if norm in cache:
+                    stored = (stored_by_cache.get(cache_key) or {}).get(norm)
+                    if stored is not None and raw_value == stored:
+                        exact += 1
+                        continue
+                    normalized += 1
+                    if len(matches) < display_cap:
+                        matches.append({
+                            "row": row_no,
+                            "field": field,
+                            "raw_value": raw_value,
+                            "normalized_value": norm,
+                            "match_type": "normalized",
+                            "error_code": "fk_normalized_match",
+                            "severity": "info",
+                            "message": (
+                                f"Row {row_no}: {field} '{raw_value}' -> '{norm}' (matched)"
+                            ),
+                        })
+                    continue
+                if allow_numeric and stripped.isdecimal() and int(stripped) in id_sets.get(cache_key, set()):
+                    numeric += 1
+                    if len(matches) < display_cap:
+                        target = "supplier" if cache_key == "suppliers" else "product"
+                        matches.append({
+                            "row": row_no,
+                            "field": field,
+                            "raw_value": raw_value,
+                            "normalized_value": norm,
+                            "match_type": "numeric_id",
+                            "error_code": "fk_numeric_match",
+                            "severity": "info",
+                            "message": (
+                                f"Row {row_no}: {field} '{raw_value}' resolved as "
+                                f"existing {target} id {int(stripped)}"
+                            ),
+                        })
+
+        result["matches"] = matches
+        result["exact_count"] = exact
+        result["normalized_count"] = normalized
+        result["numeric_count"] = numeric
+        result["match_count"] = exact + normalized + numeric
+        return result
+
+    @staticmethod
+    def detect_duplicates(
+        rows: list[dict], entity: str, display_cap: int = 50
+    ) -> dict[str, Any]:
+        """Group repeated natural keys inside one CSV preview (non-blocking).
+
+        Only entities in :data:`DUPLICATE_KEY_FIELDS` are checked. Values are
+        stripped and grouped case-insensitively (internal whitespace is NOT
+        collapsed). Groups with fewer than two occurrences are not duplicates.
+
+        Each group mirrors the importer's real behavior: an exact repeat on
+        products updates the earlier row; an exact repeat on suppliers /
+        warehouses is skipped as already existing; case variants create
+        separate rows. ``rows`` holds the later row numbers (capped at 50);
+        ``duplicate_count`` counts distinct groups uncapped.
+        """
+        fields = DataImportService.DUPLICATE_KEY_FIELDS.get(entity)
+        if not fields:
+            return {"duplicates": [], "duplicate_count": 0}
+
+        groups: dict[tuple[str, str], dict[str, Any]] = {}
+        for idx, row in enumerate(rows, start=1):
+            for field in fields:
+                raw = row.get(field)
+                if raw is None:
+                    continue
+                value = raw if isinstance(raw, str) else str(raw)
+                trimmed = value.strip()
+                if not trimmed:
+                    continue
+                key = (field, DataImportService._normalize_key(trimmed))
+                group = groups.get(key)
+                if group is None:
+                    groups[key] = {
+                        "field": field,
+                        "value": trimmed,
+                        "spellings": [trimmed],
+                        "rows": [idx],
+                    }
+                else:
+                    group["spellings"].append(trimmed)
+                    group["rows"].append(idx)
+
+        noun = DataImportService.IMPORT_GUIDE.get(entity, {}).get("label", "rows").lower()
+        duplicates: list[dict[str, Any]] = []
+        duplicate_count = 0
+        for group in groups.values():
+            if len(group["rows"]) < 2:
+                continue
+            duplicate_count += 1
+            if len(duplicates) >= display_cap:
+                continue
+            first = group["rows"][0]
+            later = len(group["rows"]) - 1
+            field = group["field"]
+            is_exact = all(spelling == group["value"] for spelling in group["spellings"])
+            if is_exact and entity in ("suppliers", "warehouses"):
+                severity = "info"
+                message = (
+                    f"Row {first}: {field} '{group['value']}' is repeated on "
+                    f"{later} later row(s) — later rows are skipped as already exists"
+                )
+            elif is_exact:
+                severity = "warning"
+                message = (
+                    f"Row {first}: {field} '{group['value']}' is repeated on "
+                    f"{later} later row(s) — later rows update the earlier product"
+                )
+            else:
+                severity = "warning"
+                later_spellings = group["spellings"][1:]
+                exact_later = sum(
+                    spelling == group["value"] for spelling in later_spellings
+                )
+                variant_count = len({
+                    spelling for spelling in later_spellings
+                    if spelling != group["value"]
+                })
+                if exact_later:
+                    exact_outcome = (
+                        "update the earlier product" if entity == "products"
+                        else "are skipped as already exists"
+                    )
+                    message = (
+                        f"Row {first}: {field} '{group['value']}' appears on {later} "
+                        f"later row(s) — {exact_later} exact repeat(s) {exact_outcome}, "
+                        f"{variant_count} distinct case variant spelling(s) "
+                        f"create separate {noun}"
+                    )
+                else:
+                    message = (
+                        f"Row {first}: {field} '{group['value']}' appears on {later} "
+                        f"later row(s) with different casing — {variant_count} distinct "
+                        f"case variant spelling(s) create separate {noun}; repeated "
+                        f"spellings follow the exact-repeat behavior"
+                    )
+            duplicates.append({
+                "field": field,
+                "value": group["value"],
+                "kind": "exact" if is_exact else "variant",
+                "row": first,
+                "row_count": len(group["rows"]),
+                "rows": group["rows"][1:1 + display_cap],
+                "error_code": "duplicate_key",
+                "severity": severity,
+                "message": message,
+            })
+
+        return {"duplicates": duplicates, "duplicate_count": duplicate_count}
 
     @staticmethod
     def classify_creatable_misses(
@@ -336,6 +632,7 @@ class DataImportService:
     def preview_import(
         csv_content: str, entity: str, fk_caches: dict[str, dict[str, int]] | None = None,
         create_missing: bool = False,
+        fk_stored: dict[str, dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Preview CSV import without committing changes.
 
@@ -352,6 +649,10 @@ class DataImportService:
                 list instead of warnings, plus advisory typo hints
                 (``fk_possible_typo``) when a miss closely matches an existing
                 supplier name — the supplier is still created either way.
+            fk_stored: Optional normalized key -> stored spelling map (from
+                :meth:`build_fk_preview_data` or :meth:`build_fk_stored_values`).
+                Used only by the advisory FK normalization report; omitted ->
+                every natural-key match is reported as normalized.
 
         Rows are parsed up to ``MAX_PREVIEW_ROWS`` (10,000) to bound memory;
         ``rows_truncated`` flags when the cap was hit (``total_row_count``
@@ -374,7 +675,9 @@ class DataImportService:
         Returns:
             Dict with keys: headers, rows, row_count, valid, errors, warnings,
             warning_count, will_create, will_create_count, total_row_count,
-            rows_truncated
+            rows_truncated, duplicates, duplicate_count, fk_matches,
+            fk_match_count, fk_exact_match_count, fk_normalized_match_count,
+            fk_numeric_match_count
         """
         result = {
             "headers": [],
@@ -388,6 +691,13 @@ class DataImportService:
             "will_create_count": 0,
             "total_row_count": 0,
             "rows_truncated": False,
+            "duplicates": [],
+            "duplicate_count": 0,
+            "fk_matches": [],
+            "fk_match_count": 0,
+            "fk_exact_match_count": 0,
+            "fk_normalized_match_count": 0,
+            "fk_numeric_match_count": 0,
         }
 
         if not csv_content or not csv_content.strip():
@@ -421,7 +731,14 @@ class DataImportService:
 
             # Read ALL rows (preview displays only the first 50) up to the
             # MAX_PREVIEW_ROWS cap that bounds memory on huge files.
+            # raw_rows is parallel to all_rows (1:1, same cap) and keeps the
+            # pre-strip cells the advisory FK report compares against the DB
+            # spelling; it is never returned in the response.
+            raw_keys = {
+                field for field, *_rest in DataImportService.FK_CHECK_FIELDS.get(entity, [])
+            } | set(DataImportService.DUPLICATE_KEY_FIELDS.get(entity, ()))
             all_rows = []
+            raw_rows = []
             rows_truncated = False
             for row in reader:
                 if len(all_rows) >= MAX_PREVIEW_ROWS:
@@ -429,11 +746,15 @@ class DataImportService:
                     break
                 # Normalize row keys
                 normalized_row = {}
+                raw_row = {}
                 for k, v in row.items():
                     key = k.strip().lower()
                     key = DataImportService.COLUMN_ALIASES.get(entity, {}).get(key, key)
                     normalized_row[key] = v.strip() if isinstance(v, str) else v
+                    if key in raw_keys:
+                        raw_row[key] = v
                 all_rows.append(normalized_row)
+                raw_rows.append(raw_row)
 
             rows = all_rows[:50]
 
@@ -444,7 +765,31 @@ class DataImportService:
             result["rows_truncated"] = rows_truncated
             result["valid"] = True
 
+            # Advisory duplicate report: non-blocking, never touches
+            # valid/warnings/errors — a failure only logs.
+            try:
+                duplicate_report = DataImportService.detect_duplicates(all_rows, entity)
+                result["duplicates"] = duplicate_report["duplicates"]
+                result["duplicate_count"] = duplicate_report["duplicate_count"]
+            except Exception:
+                _logger.exception("Duplicate detection failed during preview_import")
+
             if fk_caches is not None:
+                # Advisory FK normalization report: separate try/except from the
+                # validation block below so it can never invalidate the preview.
+                try:
+                    fk_report = DataImportService.classify_fk_matches(
+                        all_rows, entity, fk_caches,
+                        fk_stored=fk_stored, raw_rows=raw_rows,
+                    )
+                    result["fk_matches"] = fk_report["matches"]
+                    result["fk_match_count"] = fk_report["match_count"]
+                    result["fk_exact_match_count"] = fk_report["exact_count"]
+                    result["fk_normalized_match_count"] = fk_report["normalized_count"]
+                    result["fk_numeric_match_count"] = fk_report["numeric_count"]
+                except Exception:
+                    _logger.exception("FK match classification failed during preview_import")
+
                 # Validation failure = incomplete preview -> blocking (valid
                 # must not stay true when we cannot vouch for the rows).
                 # Details go to the server log only; never leak str(e).
