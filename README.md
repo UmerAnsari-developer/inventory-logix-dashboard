@@ -140,6 +140,7 @@ dark-mode design with glassmorphism, GSAP animations, and Three.js 3D background
 │       └── 003_enable_rls.py
 ├── docs/                        # Documentation
 │   ├── Testing.md               # Test plan + code + results
+│   ├── data-import.md           # CSV import contract (columns, preview, limits)
 │   └── project-analysis/        # Academic reports (architecture, business, …)
 ├── tests/                       # pytest suite
 │   ├── conftest.py              # Fixtures (app, client, auth_client)
@@ -284,6 +285,14 @@ All CRUD goes through `sp_*` functions to prevent SQL injection. Examples:
 - `dim_product` (SCD Type 2), `dim_supplier`, `dim_date`
 - `fact_inventory_daily`, `fact_movement_monthly`
 - ETL pipeline: `python migrate.py etl` or `/monitoring` → Run ETL
+
+### Data import (CSV)
+
+Admins and managers can bulk-load products, suppliers, warehouses, movements
+and purchase orders from CSV at `/admin/data-import/`. Import is preview-first:
+the preview reports FK misses, duplicate natural keys and the suppliers it will
+auto-create, without blocking the import. Column contract, value rules, limits
+and troubleshooting: **[docs/data-import.md](docs/data-import.md)**.
 
 ---
 
