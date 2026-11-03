@@ -6,7 +6,6 @@ from unittest.mock import patch, MagicMock
 
 from app.routes.admin.user_management_routes import admin_user_management_bp
 from app.routes.admin.backup_routes import admin_backup_bp
-from app.routes.admin.data_import_routes import admin_data_import_bp
 from app.routes.admin.export_routes import admin_export_bp
 from app.routes.admin.audit_report_routes import admin_audit_report_bp
 from app.repositories import AuditRepository
@@ -58,12 +57,6 @@ class TestAdminAuditTrail:
         with app.app_context():
             import app.routes.admin.backup_routes as backup_routes
             assert hasattr(backup_routes, 'audit_admin_action') or 'audit' in dir(backup_routes)
-
-    def test_data_import_routes_have_audit(self, app):
-        """Test that data import routes are audited."""
-        with app.app_context():
-            import app.routes.admin.data_import_routes as di_routes
-            assert hasattr(di_routes, 'audit_admin_action') or 'audit' in dir(di_routes)
 
     def test_export_routes_have_audit(self, app):
         """Test that export routes are audited."""
@@ -138,34 +131,6 @@ class TestAdminAuditTrail:
                 assert row["action"] == "admin.user.delete"
                 assert row["detail"]["error"] == "Cannot delete"
                 assert row["detail"]["success"] is False
-                assert row["user_id"] == admin_user.id
-
-    def test_audit_logs_data_import(self, app, admin_user):
-        """Test that data import actions are logged."""
-        with app.app_context():
-            with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM audit_log")
-            
-            from app.security.audit import audit_admin_action
-            
-            @audit_admin_action("admin.data.import", target_type="data_import")
-            def import_data(filename: str):
-                return {"imported": 10}
-            
-            with app.test_request_context():
-                login_user(admin_user)
-                result = import_data("test.csv")
-            
-            with get_cursor() as cur:
-                cur.execute("""
-                    SELECT * FROM audit_log 
-                    WHERE action = %s
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                """, ("admin.data.import",))
-                row = cur.fetchone()
-                assert row is not None
-                assert row["action"] == "admin.data.import"
                 assert row["user_id"] == admin_user.id
 
     def test_audit_logs_backup_restore(self, app, admin_user):

@@ -2,8 +2,7 @@
 
 Spec (user-approved menu, labels corrected against actual page titles):
   1  Backup & Restore           /admin/backup/               admin-only
-  2  Data Import Hub            /admin/data-import/          write roles
-  3  System Config              /admin/system_config/        admin-only
+  2  System Config              /admin/system_config/        admin-only
   4  User Activity Analytics    /admin/user_activity_analytics/  write roles
   5  User Management            /admin/users/                admin-only
   6  Log Viewer                 /admin/logs/                 write roles
@@ -23,7 +22,6 @@ from __future__ import annotations
 # (label, href, admin_only) — hrefs verified against blueprint url_prefixes
 MENU_ITEMS = [
     ("Backup & Restore", "/admin/backup/", True),
-    ("Data Import Hub", "/admin/data-import/", False),
     ("System Config", "/admin/system_config/", True),
     ("User Activity Analytics", "/admin/user_activity_analytics/", False),
     ("User Management", "/admin/users/", True),

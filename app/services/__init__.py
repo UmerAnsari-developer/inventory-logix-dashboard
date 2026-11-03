@@ -11,7 +11,6 @@ from .log_viewer_service import LogViewerService
 from .user_activity_analytics_service import UserActivityAnalyticsService
 from .export_service import ExportService
 from .audit_report_service import AuditReportService
-from .data_import_service import DataImportService
 from .po_service import POService, POServiceError
 from .job_queue_service import JobQueueService, Job
 
@@ -29,7 +28,6 @@ __all__ = [
     "UserActivityAnalyticsService",
     "ExportService",
     "AuditReportService",
-    "DataImportService",
     "POService",
     "POServiceError",
     "JobQueueService",

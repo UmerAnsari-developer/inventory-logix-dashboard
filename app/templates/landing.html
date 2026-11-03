@@ -12,7 +12,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=f4d430c1" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=234b4639" />
   <script type="importmap" nonce="{{ csp_nonce }}">
   { "imports": {
     "three": "/static/js/vendor/three.module.js?v=a762b858"
@@ -75,13 +75,7 @@
     <section class="hero">
       <div class="wrap">
         <div class="hero-copy">
-          <span class="badge glass" data-anim>
-            <i class="dot ok"></i> Live Production Dataset &middot; {{ '{:,}'.format(stats.movements) }} stock movements
-            &middot; EOQ optimization &middot; live reporting
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M5 12h14m-6-6 6 6-6 6" />
-            </svg>
-          </span>
+
           <h1 data-anim>Turn real stock data into <span class="grad">revenue-ready decisions.</span></h1>
           <p class="lede" data-anim>A full production dataset — {{ stats.total_skus }} real-world products across {{
             stats.warehouses }} warehouses, supplied by {{ stats.suppliers }} vendors, with {{
@@ -140,7 +134,8 @@
                 <path d="M12 12 18.5 5.5" opacity=".7" />
               </svg></div>
             <h3>Real-Time Stock Control</h3>
-            <p>Every SKU tracked across warehouses with live KPIs, reorder-point alerts, and instant stock movements.</p>
+            <p>Every SKU tracked across warehouses with live KPIs, reorder-point alerts, and instant stock movements.
+            </p>
           </div>
           <div class="card feature reveal" style="--d:.08s">
             <div class="f-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"

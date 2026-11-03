@@ -25,11 +25,12 @@ def json_safe(value: Any) -> Any:
     return value
 
 
-def api_response(data: Any = None, *, status: int = 200, message: str | None = None):
+def api_response(data: Any = None, *, status: int = 200, message: str | None = None, **extra):
     """Return a consistent JSON envelope."""
     payload = {"success": 200 <= status < 400, "data": json_safe(data)}
     if message:
         payload["message"] = message
+    payload.update(extra)
     return jsonify(payload), status
 
 

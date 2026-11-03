@@ -56,7 +56,7 @@ class Config:
     WTF_CSRF_TIME_LIMIT = 60 * 60 * 8
     WTF_CSRF_ENABLED = True
 
-    # Upload size limit (CSV import, etc.). Flask rejects larger bodies with
+    # Upload size limit. Flask rejects larger bodies with
     # 413 before the bytes are read into memory. Default 5 MB.
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH_MB", "5")) * 1024 * 1024
 

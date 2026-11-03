@@ -519,23 +519,6 @@ header.scrolled .nav-inner {
   max-width: 640px
 }
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px 16px;
-  border-radius: 999px;
-  font: 500 13px var(--font-b);
-  color: var(--text-secondary);
-  margin-bottom: 28px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-}
-
-.badge svg {
-  flex: none
-}
-
 h1 {
   font: 600 clamp(42px, 7vw, 84px)/1.04 var(--font-d);
   letter-spacing: -.035em;
@@ -941,8 +924,8 @@ html[data-theme="light"] .kpi {
 }
 
 .d.down {
-    color: var(--success, #166534)
-  }
+  color: var(--success, #166534)
+}
 
 .d.risk {
   color: var(--warning)
@@ -1584,9 +1567,17 @@ html[data-theme="light"] .icon-moon {
 
 /* ── Mobile Performance: disable blur on landing ──────────────── */
 @media (max-width: 768px) {
-  .glass, .stat-card, .step-card, .feature-card,
-  .hero-badge, .hero-cta, .nav-float, footer,
-  .auth-card, .auth-theme-toggle {
+
+  .glass,
+  .stat-card,
+  .step-card,
+  .feature-card,
+  .hero-badge,
+  .hero-cta,
+  .nav-float,
+  footer,
+  .auth-card,
+  .auth-theme-toggle {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }

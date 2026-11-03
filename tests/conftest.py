@@ -135,3 +135,218 @@ def auth_client(client):
         follow_redirects=False,
     )
     return client
+
+
+@pytest.fixture()
+def viewer_client(client):
+    """Returns a logged-in read-only viewer test client."""
+    client.post(
+        "/auth/login",
+        data={"username": "viewer", "password": "Viewer@123"},
+        follow_redirects=False,
+    )
+    return client
+
+
+# ============================================================
+# BATCH 1 FIXTURES — Purchase Orders & Goods Receiving
+# ============================================================
+
+import pytest
+import uuid
+from app.database.connection import get_cursor
+
+
+@pytest.fixture
+def db_session(app):
+    """Provide a database session for fixtures."""
+    with app.app_context():
+        with get_cursor(commit=True) as cur:
+            yield cur
+
+
+@pytest.fixture
+def sample_supplier(db_session):
+    """Create a test supplier with unique name."""
+    import uuid
+    from app.repositories import SupplierRepository
+    token = uuid.uuid4().hex[:8]
+    supplier_id = SupplierRepository.create({
+        'name': f'Test Supplier {token}',
+        'contact_email': f'supplier-{token}@test.com',
+        'phone': '555-0100',
+        'address': '123 Supply St',
+        'payment_terms': 'Net 30',
+        'is_active': True
+    })
+    # Fetch the created supplier object
+    from app.repositories import SupplierRepository
+    return SupplierRepository.find(supplier_id)
+
+
+@pytest.fixture
+def sample_product(db_session, sample_supplier):
+    """Create a test product with stock."""
+    import uuid
+    from app.repositories import ProductRepository
+    product_id = ProductRepository.create({
+        'sku': f'TEST-SKU-{uuid.uuid4().hex[:8].upper()}',
+        'name': 'Test Product',
+        'description': 'Test product for receiving',
+        'unit_cost': 10.00,
+        'sale_price': 25.00,
+        'reorder_point': 10,
+        'reorder_quantity': 50,
+        'supplier_id': sample_supplier['id'],
+        'current_stock': 100,
+        'on_order': 0,
+        'is_active': True
+    })
+    return {'id': product_id}
+
+
+@pytest.fixture
+def sample_po_draft(db_session, sample_supplier, sample_product):
+    """Create a PO in draft status."""
+    import uuid
+    from app.repositories import PurchaseOrderRepository
+    po_id = PurchaseOrderRepository.create({
+        'po_number': f'PO-TEST-{uuid.uuid4().hex[:8].upper()}',
+        'supplier_id': sample_supplier['id'],
+        'product_id': sample_product['id'],
+        'quantity': 10,
+        'unit_cost': 10.00,
+        'status': 'draft',
+        'eta_date': '2026-12-01'
+    })
+    return po_id
+
+
+@pytest.fixture
+def sample_po_approved(db_session, sample_po_draft):
+    """Transition PO to approved."""
+    from app.repositories import PurchaseOrderRepository
+    PurchaseOrderRepository.transition(sample_po_draft, 'approved')
+    po = PurchaseOrderRepository.list_by_status('approved')[0]
+    return po['id']
+
+
+@pytest.fixture
+def sample_po_in_transit(db_session, sample_po_approved):
+    """Transition PO to in_transit — PRIMARY FIXTURE for receive tests."""
+    from app.repositories import PurchaseOrderRepository
+    PurchaseOrderRepository.transition(sample_po_approved, 'in_transit')
+    po = PurchaseOrderRepository.list_by_status('in_transit')[0]
+    return po['id']
+
+
+@pytest.fixture
+def sample_po_received(db_session, sample_po_in_transit):
+    """Transition PO to received (full receipt)."""
+    from app.repositories import PurchaseOrderRepository
+    PurchaseOrderRepository.transition(sample_po_in_transit, 'received')
+    po = PurchaseOrderRepository.list_by_status('received')[0]
+    return po['id']
+
+
+@pytest.fixture
+def sample_po_cancelled(db_session, sample_po_approved):
+    """Transition PO to cancelled."""
+    from app.repositories import PurchaseOrderRepository
+    PurchaseOrderRepository.transition(sample_po_approved, 'cancelled')
+    po = PurchaseOrderRepository.list_by_status('cancelled')[0]
+    return po['id']
+
+
+@pytest.fixture
+def sample_po_partial_received(db_session, sample_po_in_transit, admin_user):
+    """PO with partial receipt (received_quantity=8 of 10)."""
+    from app.repositories import PurchaseOrderRepository
+    PurchaseOrderRepository.receive(
+        po_id=sample_po_in_transit,
+        quantity=8,
+        user_id=admin_user['id'],
+        notes='Partial delivery',
+        location='WH1'
+    )
+    po = PurchaseOrderRepository.list_by_status('in_transit')[0]
+    return po['id']
+
+
+@pytest.fixture
+def sample_goods_receipt(db_session, sample_po_in_transit, admin_user):
+    """Create a goods receipt via procedure (for list_receipts tests)."""
+    with get_cursor(commit=True) as cur:
+        cur.execute("""
+            SELECT sp_goods_receipt_create(%s, %s, %s, %s, %s, %s)
+        """, (sample_po_in_transit, 5, admin_user['id'], 'Test receipt', 'WH1', 'idem-key-1'))
+        receipt_id = cur.fetchone()[0]
+    
+    with get_cursor() as cur:
+        cur.execute("SELECT * FROM goods_receipts WHERE id = %s", (receipt_id,))
+        row = cur.fetchone()
+        return dict(zip([d[0] for d in cur.description], row))
+
+
+@pytest.fixture
+def multiple_goods_receipts(db_session, sample_po_in_transit, admin_user, manager_user):
+    """Create multiple receipts for query filter tests."""
+    from app.database.connection import get_cursor
+    receipts = []
+    with get_cursor(commit=True) as cur:
+        for i, (qty, user, notes, loc, key) in enumerate([
+            (3, admin_user['id'], 'First', 'WH1', 'idem-1'),
+            (4, manager_user['id'], 'Second', 'WH2', 'idem-2'),
+            (3, admin_user['id'], 'Third', 'WH1', 'idem-3'),
+        ]):
+            cur.execute("""
+                SELECT sp_goods_receipt_create(%s, %s, %s, %s, %s, %s)
+            """, (sample_po_in_transit, qty, user, notes, loc, key))
+            receipt_id = cur.fetchone()[0]
+            receipts.append(receipt_id)
+    return receipts
+
+
+@pytest.fixture
+def admin_user(db_session):
+    """Admin user for receiving."""
+    import uuid
+    from app.repositories import UserRepository
+    token = uuid.uuid4().hex[:8]
+    user_id = UserRepository.create(
+        f'admin_{token}',
+        f'admin_{token}@test.com',
+        'Admin@123',
+        'admin'
+    )
+    return {'id': user_id, 'username': f'admin_{token}', 'role': 'admin'}
+
+
+@pytest.fixture
+def manager_user(db_session):
+    """Manager user for receiving."""
+    import uuid
+    from app.repositories import UserRepository
+    token = uuid.uuid4().hex[:8]
+    user_id = UserRepository.create(
+        f'manager_{token}',
+        f'manager_{token}@test.com',
+        'Manager@123',
+        'manager'
+    )
+    return {'id': user_id, 'username': f'manager_{token}', 'role': 'manager'}
+
+
+@pytest.fixture
+def viewer_user(db_session):
+    """Viewer user (should NOT have receive permission)."""
+    import uuid
+    from app.repositories import UserRepository
+    token = uuid.uuid4().hex[:8]
+    user_id = UserRepository.create(
+        f'viewer_{token}',
+        f'viewer_{token}@test.com',
+        'Viewer@123',
+        'viewer'
+    )
+    return {'id': user_id, 'username': f'viewer_{token}', 'role': 'viewer'}

@@ -1,7 +1,8 @@
 """REST API blueprint — JSON CRUD for products, suppliers, movements."""
 from __future__ import annotations
 
-from flask import Blueprint, request
+from datetime import datetime
+from flask import Blueprint, request, Response, stream_with_context, current_app
 from flask_login import current_user, login_required
 
 from ..extensions import limiter
@@ -14,6 +15,7 @@ from ..repositories import (
 )
 from ..security import write_roles_required
 from ..services import MovementService, ProductService, ProductError, SupplierService, POService, POServiceError
+from ..services.movement_service import MovementError
 from ..utils import api_error, api_response
 from ..utils.cache import (
     api_cache,
@@ -34,7 +36,7 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 def health():
     from ..database import get_cursor
     import psycopg2
-    
+
     try:
         with get_cursor() as cur:
             cur.execute("SELECT 1")
@@ -309,6 +311,215 @@ def create_movement():
     return api_response({"id": movement_id}, status=201, message="Movement recorded.")
 
 
+@api_bp.route("/movements", methods=["GET"])
+@login_required
+@limiter.limit("60 per minute")
+def list_movements():
+    """List movements with filters, pagination, and sorting."""
+    try:
+        # Parse query parameters
+        type_filter = request.args.getlist("type")
+        if type_filter and len(type_filter) == 1 and "," in type_filter[0]:
+            type_filter = type_filter[0].split(",")
+
+        date_from = request.args.get("date_from")
+        date_to = request.args.get("date_to")
+        int_args = {}
+        for name in ("product_id", "user_id", "page", "per_page"):
+            raw = request.args.get(name)
+            value = request.args.get(name, type=int)
+            if raw is not None and value is None:
+                return api_error("VALIDATION_ERROR", f"{name} must be an integer", status=400)
+            int_args[name] = value
+        product_id = int_args["product_id"]
+        user_id = int_args["user_id"]
+        page = 1 if int_args["page"] is None else int_args["page"]
+        per_page = 20 if int_args["per_page"] is None else min(int_args["per_page"], 100)
+        sort_by = request.args.get("sort_by", default="created_at", type=str)
+        sort_order = request.args.get("sort_order", default="desc", type=str)
+
+        result = MovementService.list_movements(
+            type_filter=type_filter if type_filter else None,
+            date_from=date_from,
+            date_to=date_to,
+            product_id=product_id,
+            user_id=user_id,
+            page=page,
+            per_page=per_page,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+        # Get total count for pagination
+        total_count = MovementService.get_movement_count(
+            type_filter=type_filter if type_filter else None,
+            date_from=date_from,
+            date_to=date_to,
+            product_id=product_id,
+            user_id=user_id,
+        )
+
+        return api_response(
+            result,
+            total_count=total_count,
+            page=page,
+            per_page=per_page,
+        )
+    except MovementError as exc:
+        return api_error("VALIDATION_ERROR", str(exc), status=400)
+    except Exception as exc:
+        current_app.logger.error(f"List movements error: {exc}", exc_info=True)
+        return api_error("INTERNAL_ERROR", "Failed to list movements", status=500)
+
+
+@api_bp.route("/products/<int:product_id>/movements", methods=["GET"])
+@login_required
+@limiter.limit("60 per minute")
+def list_product_movements(product_id: int):
+    """List movements for a specific product."""
+    try:
+        type_filter = request.args.getlist("type")
+        if type_filter and len(type_filter) == 1 and "," in type_filter[0]:
+            type_filter = type_filter[0].split(",")
+
+        date_from = request.args.get("date_from")
+        date_to = request.args.get("date_to")
+        int_args = {}
+        for name in ("user_id", "page", "per_page"):
+            raw = request.args.get(name)
+            value = request.args.get(name, type=int)
+            if raw is not None and value is None:
+                return api_error("VALIDATION_ERROR", f"{name} must be an integer", status=400)
+            int_args[name] = value
+        user_id = int_args["user_id"]
+        page = 1 if int_args["page"] is None else int_args["page"]
+        per_page = 20 if int_args["per_page"] is None else min(int_args["per_page"], 100)
+        sort_by = request.args.get("sort_by", default="created_at", type=str)
+        sort_order = request.args.get("sort_order", default="desc", type=str)
+
+        result = MovementService.get_product_movements(
+            product_id=product_id,
+            type_filter=type_filter if type_filter else None,
+            date_from=date_from,
+            date_to=date_to,
+            user_id=user_id,
+            page=page,
+            per_page=per_page,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+        return api_response(result)
+    except MovementError as exc:
+        status = 404 if "not found" in str(exc).lower() else 400
+        return api_error("NOT_FOUND" if status == 404 else "VALIDATION_ERROR", str(exc), status=status)
+    except Exception as exc:
+        current_app.logger.error(f"List product movements error: {exc}", exc_info=True)
+        return api_error("INTERNAL_ERROR", "Failed to list product movements", status=500)
+
+
+@api_bp.route("/movements/export", methods=["GET"])
+@login_required
+@limiter.limit("30 per minute")
+def export_movements():
+    """Export movements as CSV stream."""
+    try:
+        type_filter = request.args.getlist("type")
+        if type_filter and len(type_filter) == 1 and "," in type_filter[0]:
+            type_filter = type_filter[0].split(",")
+
+        date_from = request.args.get("date_from")
+        date_to = request.args.get("date_to")
+        int_args = {}
+        for name in ("product_id", "user_id", "limit"):
+            raw = request.args.get(name)
+            value = request.args.get(name, type=int)
+            if raw is not None and value is None:
+                return api_error("VALIDATION_ERROR", f"{name} must be an integer", status=400)
+            int_args[name] = value
+        product_id = int_args["product_id"]
+        user_id = int_args["user_id"]
+        limit = 5000 if int_args["limit"] is None else int_args["limit"]
+        if limit < 1:
+            return api_error("VALIDATION_ERROR", "limit must be >= 1", status=400)
+        limit = min(limit, 5000)
+        sort_by = request.args.get("sort_by", default="created_at", type=str)
+        sort_order = request.args.get("sort_order", default="desc", type=str)
+
+        from flask import Response, stream_with_context
+        import io
+        import csv
+
+        def generate():
+            # Stream CSV using MovementService.export_movements
+            try:
+                for chunk in MovementService.export_movements(
+                    type_filter=type_filter if type_filter else None,
+                    date_from=date_from,
+                    date_to=date_to,
+                    product_id=product_id,
+                    user_id=user_id,
+                    sort_by=sort_by,
+                    sort_order=sort_order,
+                    limit=limit,
+                ):
+                    yield chunk
+            except MovementError as exc:
+                yield f"Error: {exc}\n"
+
+        resp = Response(stream_with_context(generate()), mimetype="text/csv")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        resp.headers["Content-Disposition"] = f"attachment; filename=movements_{timestamp}.csv"
+        return resp
+    except MovementError as exc:
+        return api_error("VALIDATION_ERROR", str(exc), status=400)
+    except Exception as exc:
+        current_app.logger.error(f"Export movements error: {exc}", exc_info=True)
+        return api_error("INTERNAL_ERROR", "Failed to export movements", status=500)
+
+
+@api_bp.route("/products/<int:product_id>/movements/export", methods=["GET"])
+@login_required
+@limiter.limit("30 per minute")
+def export_product_movements(product_id: int):
+    """Export movements for a specific product as CSV."""
+    try:
+        sort_by = request.args.get("sort_by", default="created_at", type=str)
+        sort_order = request.args.get("sort_order", default="desc", type=str)
+        raw_limit = request.args.get("limit")
+        limit = request.args.get("limit", default=5000, type=int)
+        if raw_limit is not None and limit is None:
+            return api_error("VALIDATION_ERROR", "limit must be an integer", status=400)
+        limit = 5000 if limit is None else limit
+        if limit < 1:
+            return api_error("VALIDATION_ERROR", "limit must be >= 1", status=400)
+        limit = min(limit, 5000)
+
+        from flask import Response, stream_with_context
+
+        def generate():
+            try:
+                for chunk in MovementService.export_movements(
+                    product_id=product_id,
+                    sort_by=sort_by,
+                    sort_order=sort_order,
+                    limit=limit,
+                ):
+                    yield chunk
+            except MovementError as exc:
+                yield f"Error: {exc}\n"
+
+        resp = Response(stream_with_context(generate()), mimetype="text/csv")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        resp.headers["Content-Disposition"] = f"attachment; filename=product_{product_id}_movements_{timestamp}.csv"
+        return resp
+    except MovementError as exc:
+        return api_error("VALIDATION_ERROR", str(exc), status=400)
+    except Exception as exc:
+        current_app.logger.error(f"Export product movements error: {exc}", exc_info=True)
+        return api_error("INTERNAL_ERROR", "Failed to export product movements", status=500)
+
+
 @api_bp.route("/movements/recent")
 @login_required
 def recent_movements():
@@ -366,6 +577,7 @@ def mark_all_notifications_read():
     NotificationRepository.mark_all_read(current_user.id)
     return api_response({"ok": True})
 
+
 @api_bp.route("/notifications", methods=["GET"])
 @limiter.limit("60 per minute")
 @login_required
@@ -374,3 +586,33 @@ def list_notifications():
     notifs = NotificationRepository.list_for_user(current_user.id, limit=50)
     return api_response({"notifications": notifs, "unread": NotificationRepository.count_unread(current_user.id)})
 
+
+# ----- Exports -----
+
+@api_bp.route("/export/products", methods=["GET"])
+@login_required
+@write_roles_required
+def export_products():
+    from ..services.export_service import ExportService
+    return ExportService.export_products_csv()
+
+@api_bp.route("/export/purchase_orders", methods=["GET"])
+@login_required
+@write_roles_required
+def export_purchase_orders():
+    from ..services.export_service import ExportService
+    return ExportService.export_purchase_orders_csv()
+
+@api_bp.route("/export/suppliers", methods=["GET"])
+@login_required
+@write_roles_required
+def export_suppliers():
+    from ..services.export_service import ExportService
+    return ExportService.export_suppliers_csv()
+
+@api_bp.route("/export/inventory", methods=["GET"])
+@login_required
+@write_roles_required
+def export_inventory():
+    from ..services.export_service import ExportService
+    return ExportService.export_inventory_csv()

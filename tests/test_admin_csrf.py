@@ -55,12 +55,6 @@ class TestAdminCSRFProtection:
         assert response.status_code == 200
         assert b'name="csrf_token"' in response.data
 
-    def test_data_import_upload_form_has_csrf(self, auth_client):
-        """Data import upload form should include CSRF token."""
-        response = auth_client.get("/admin/data-import/")
-        assert response.status_code == 200
-        assert b'name="csrf_token"' in response.data
-
     def test_csrf_token_validation_on_post(self, auth_client):
         """POST requests without CSRF token should be rejected."""
         response = auth_client.post("/admin/backup/restore/1", data={})
@@ -91,7 +85,3 @@ class TestAdminCSRFProtection:
         response = auth_client.post("/admin/audit_reports/run/1", data={})
         assert response.status_code in (400, 403, 302)
 
-    def test_csrf_token_validation_on_data_import(self, auth_client):
-        """POST to data import without CSRF should be rejected."""
-        response = auth_client.post("/admin/data-import/upload/products", data={})
-        assert response.status_code in (400, 403, 302)

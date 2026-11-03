@@ -37,7 +37,7 @@ EXPORTS = [
 ]
 
 # Only rows created by the routes under test are ever deleted.
-_AUDITED_PREFIXES = ("admin.export.%", "admin.data_import.%", "admin.audit_report.%")
+_AUDITED_PREFIXES = ("admin.export.%", "admin.audit_report.%")
 
 
 def _session_client(app, username: str):
@@ -97,7 +97,7 @@ def _purge(app, mark: int, user_id: int) -> None:
         with get_cursor(commit=True) as cur:
             cur.execute(
                 "DELETE FROM audit_log WHERE id > %s AND user_id = %s AND ("
-                "action LIKE %s OR action LIKE %s OR action LIKE %s)",
+                "action LIKE %s OR action LIKE %s)",
                 (mark, user_id, *_AUDITED_PREFIXES),
             )
 
@@ -123,19 +123,6 @@ def test_manager_export_hub_200_and_audited(app, manager):
         rows = _rows(app, mark, uid, "admin.export.list")
         assert len(rows) == 1, f"expected 1 audit row, got {len(rows)}"
         assert rows[0]["target_type"] == "export"
-    finally:
-        _purge(app, mark, uid)
-
-
-def test_manager_data_import_hub_200_and_audited(app, manager):
-    mark = _mark(app)
-    uid = _uid(app, "manager")
-    try:
-        resp = manager.get("/admin/data-import/", buffered=True)
-        assert resp.status_code == 200
-        rows = _rows(app, mark, uid, "admin.data_import.list")
-        assert len(rows) == 1, f"expected 1 audit row, got {len(rows)}"
-        assert rows[0]["target_type"] == "data_import"
     finally:
         _purge(app, mark, uid)
 
@@ -189,41 +176,6 @@ def test_manager_export_streams_outside_context(app, manager):
 
 # ── manager: POSTs ────────────────────────────────────────────────────
 
-def test_manager_data_import_upload_audited(app, manager):
-    mark = _mark(app)
-    uid = _uid(app, "manager")
-    wh_name = f"F3-WH-{uuid.uuid4().hex[:10]}"
-    csv_data = f"warehouse_name,location\n{wh_name},F3 City\n".encode()
-    try:
-        resp = manager.post(
-            "/admin/data-import/upload/warehouses",
-            data={"csv_file": (io.BytesIO(csv_data), "f3_warehouses.csv")},
-            content_type="multipart/form-data",
-            follow_redirects=False,
-        )
-        assert resp.status_code == 302, f"expected redirect, got {resp.status_code}"
-
-        rows = _rows(app, mark, uid, "admin.data_import.upload")
-        assert len(rows) == 1, f"expected 1 audit row, got {len(rows)}"
-        assert rows[0]["target_type"] == "data_import"
-        assert rows[0]["detail"]["entity"] == "warehouses"
-
-        # 302 + one audit row look identical for an accepted import and a
-        # silent rejection (detail_func hides the default detail), so prove
-        # the row landed.
-        with app.app_context():
-            with get_cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM warehouses WHERE warehouse_name = %s", (wh_name,)
-                )
-                assert cur.fetchone() is not None
-    finally:
-        with app.app_context():
-            with get_cursor(commit=True) as cur:
-                cur.execute("DELETE FROM warehouses WHERE warehouse_name = %s", (wh_name,))
-        _purge(app, mark, uid)
-
-
 def test_manager_audit_report_create_get_200(app, manager):
     mark = _mark(app)
     uid = _uid(app, "manager")
@@ -267,7 +219,7 @@ def test_manager_audit_report_create_post_audited(app, manager):
 
 @pytest.mark.parametrize(
     "route",
-    ["/admin/export/", "/admin/data-import/", "/admin/audit_reports/"],
+    ["/admin/export/", "/admin/audit_reports/"],
 )
 def test_viewer_forbidden(app, viewer, route):
     assert viewer.get(route, buffered=True).status_code == 403

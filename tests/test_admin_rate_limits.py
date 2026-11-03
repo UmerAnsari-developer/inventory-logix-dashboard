@@ -154,19 +154,6 @@ class TestAdminRateLimits:
         else:
             pytest.fail("System config delete endpoint not rate limited")
 
-    def test_data_import_upload_rate_limited(self, auth_client):
-        """Data import upload endpoint should be rate limited."""
-        for i in range(35):
-            response = auth_client.post(
-                "/admin/data-import/upload/products",
-                data={"csrf_token": "test"},
-                follow_redirects=True
-            )
-            if response.status_code == 429:
-                break
-        else:
-            pytest.fail("Data import upload endpoint not rate limited")
-
     def test_audit_report_create_rate_limited(self, auth_client):
         """Audit report create endpoint should be rate limited."""
         import time

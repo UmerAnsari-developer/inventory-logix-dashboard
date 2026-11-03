@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from flask import Flask, render_template, request, g, session, abort
+from flask import Flask, render_template, request, g, session, abort, redirect, url_for
 from flask_compress import Compress
 from flask_login import current_user
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -38,7 +38,6 @@ from .routes.admin.export_routes import admin_export_bp
 from .routes.admin.audit_report_routes import admin_audit_report_bp
 from .routes.admin.dashboard_routes import admin_dashboard_bp
 from .routes.admin.user_management_routes import admin_user_management_bp
-from .routes.admin.data_import_routes import admin_data_import_bp
 from .security.headers import init_security_headers
 
 LOGGER = logging.getLogger(__name__)
@@ -243,6 +242,14 @@ def _init_extensions(app: Flask) -> None:
     limiter.init_app(app)
     login_manager.init_app(app)
 
+    @login_manager.unauthorized_handler
+    def _unauthorized():
+        if request.path.startswith("/api/"):
+            from .utils import api_error
+
+            return api_error("UNAUTHORIZED", "Authentication required", status=401)
+        return redirect(url_for("auth.login", next=request.url))
+
     @login_manager.user_loader
     def _load_user(user_id: str):
         try:
@@ -286,7 +293,6 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(admin_audit_report_bp)
     app.register_blueprint(admin_dashboard_bp)
     app.register_blueprint(admin_user_management_bp)
-    app.register_blueprint(admin_data_import_bp)
 
 
 def _register_context(app: Flask) -> None:
@@ -377,13 +383,13 @@ def _register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(413)
     def _file_too_large(err):
-        # CSV import etc.: body exceeded MAX_CONTENT_LENGTH (default 5 MB).
+        # Body exceeded MAX_CONTENT_LENGTH (default 5 MB).
         if request.path.startswith("/api"):
             from .utils import api_error
 
             return api_error(
                 "FILE_TOO_LARGE",
-                "Uploaded file exceeds the 5 MB size limit. Split the CSV into smaller files.",
+                "Uploaded file exceeds the 5 MB size limit.",
                 status=413,
             )
         return _render("errors/413.html", 413)

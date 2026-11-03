@@ -41,7 +41,7 @@
   {% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=ab96da6d" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=42b4e60c" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=f4d430c1" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=234b4639" />
   <script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}?v=ddb8b099" defer></script>
   <script src="{{ url_for('static', filename='js/vendor/chartjs-plugin-datalabels.min.js') }}?v=f3adb031"
     defer></script>
@@ -181,10 +181,6 @@
                 <span class="nav-text">Backup & Restore</span>
               </a>
               {% endif %}
-              <a href="{{ url_for('admin_data_import.index') }}"
-                class="menu-item {{ 'active' if active_page == 'data_import' else '' }}">
-                <span class="nav-text">Data Import Hub</span>
-              </a>
               {% if current_user.role == 'admin' %}
               <a href="{{ url_for('admin_system_config.index') }}"
                 class="menu-item {{ 'active' if active_page == 'system_config' else '' }}">
