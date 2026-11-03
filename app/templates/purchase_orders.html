@@ -30,7 +30,7 @@
               <option value="draft" selected>Draft</option>
               <option value="approved">Approved</option>
               <option value="in_transit">In transit</option>
-              <option value="received">Received</option>
+              
             </select></label>
           <label><span>ETA date</span><input type="date" name="eta_date" value="{{ today }}"></label>
         </div>
@@ -66,6 +66,15 @@
               {% endfor %}
             </select>
           </form>
+          {% if po.status == 'in_transit' %}
+          <button type="button" class="btn btn-primary btn-sm receive-btn" 
+                  data-po-id="{{ po.id }}"
+                  data-po-number="{{ po.po_number }}"
+                  data-outstanding="{{ po.quantity - (po.received_quantity or 0) }}"
+                  aria-label="Receive goods for PO {{ po.po_number }}">
+            Receive
+          </button>
+          {% endif %}
           {% endif %}
         </div>
         {% endfor %}
@@ -77,4 +86,198 @@
     {% endfor %}
   </div>
 </section>
+
+{# ===== RECEIVE MODAL ===== #}
+<div class="modal-backdrop" id="receive-modal" role="dialog" aria-modal="true" aria-labelledby="receive-modal-title" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="receive-modal-title">Receive Goods</h3>
+      <button type="button" class="modal-close" aria-label="Close modal">&times;</button>
+    </div>
+    <form method="post" id="receive-form" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="idempotency_key" id="receive-idempotency" value="" />
+      <input type="hidden" name="po_id" id="receive-po-id" value="" />
+      <div class="form-grid">
+        <div class="form-field">
+          <label for="receive-po-number">PO Number <span class="required">*</span></label>
+          <input type="text" id="receive-po-number" readonly class="form-input-static" />
+        </div>
+        <div class="form-field">
+          <label for="receive-outstanding">Outstanding <span class="required">*</span></label>
+          <input type="text" id="receive-outstanding" readonly class="form-input-static" />
+        </div>
+        <div class="form-field">
+          <label for="receive-quantity">Quantity to Receive <span class="required">*</span></label>
+          <input type="number" name="quantity" id="receive-quantity" min="1" required
+                 aria-describedby="receive-qty-help" />
+          <span class="form-help" id="receive-qty-help">Max: <span id="receive-max-qty"></span></span>
+        </div>
+        <div class="form-field">
+          <label for="receive-location">Location</label>
+          <input type="text" name="location" id="receive-location" placeholder="e.g., WH1, Dock A" maxlength="100" />
+        </div>
+        <div class="form-field">
+          <label for="receive-notes">Notes</label>
+          <textarea name="notes" id="receive-notes" rows="3" placeholder="Optional notes about this receipt..."></textarea>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary modal-close">Cancel</button>
+        <button type="submit" class="btn btn-primary">Receive</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ===== RECEIPT HISTORY SECTION ===== #}
+<section id="receipt-history" style="margin-top: 32px;">
+  <div class="page-heading"><div><div class="eyebrow">Procurement</div><h1>Receipt History</h1></div></div>
+  
+  <div class="panel">
+    <div class="panel-content">
+      <div class="table-scroll" role="region" aria-label="Goods receipts table" tabindex="0">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">PO Number</th>
+              <th scope="col">Product</th>
+              <th scope="col">Supplier</th>
+              <th scope="col">Qty Received</th>
+              <th scope="col">Received By</th>
+              <th scope="col">Location</th>
+              <th scope="col">Notes</th>
+            </tr>
+          </thead>
+          <tbody id="receipt-history-body">
+            {% if receipts %}
+              {% for r in receipts %}
+              <tr>
+                <td>{{ r.received_at.strftime('%d %b %Y %H:%M') if r.received_at else '' }}</td>
+                <td>{{ r.po_number }}</td>
+                <td>{{ r.product_name }}</td>
+                <td>{{ r.supplier_name }}</td>
+                <td>{{ r.quantity }}</td>
+                <td>{{ r.received_by_name }}</td>
+                <td>{{ r.location or '' }}</td>
+                <td>{{ r.notes or '' }}</td>
+              </tr>
+              {% endfor %}
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      {% if not receipts %}<p class="text-center text-muted" id="receipt-empty">No receipts found.</p>{% endif %}
+    </div>
+  </div>
+</section>
+
+{# ===== INLINE MODAL CONTROLLER ===== #}
+<script nonce="{{ csp_nonce }}">
+(function() {
+  const modal = document.getElementById('receive-modal');
+  const form = document.getElementById('receive-form');
+  const closeBtns = modal.querySelectorAll('.modal-close');
+  let lastFocused = null;
+
+  function getFocusableElements() {
+    return modal.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+  }
+
+  function trapFocus(e) {
+    if (e.key !== 'Tab') return;
+    var focusable = getFocusableElements();
+    if (focusable.length === 0) return;
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  function openModal(poId, poNumber, outstanding) {
+    lastFocused = document.activeElement;
+    document.getElementById('receive-po-id').value = poId;
+    document.getElementById('receive-po-number').value = poNumber;
+    document.getElementById('receive-outstanding').textContent = outstanding;
+    document.getElementById('receive-quantity').max = outstanding;
+    document.getElementById('receive-quantity').value = outstanding;
+    document.getElementById('receive-max-qty').textContent = outstanding;
+    document.getElementById('receive-location').value = '';
+    document.getElementById('receive-notes').value = '';
+    // crypto.randomUUID needs a secure context (HTTPS/localhost) - fallback for plain-HTTP LAN
+    var uuid = 'recv-' + poId + '-';
+    if (window.crypto && typeof crypto.randomUUID === "function") {
+      uuid += crypto.randomUUID().slice(0, 16);
+    } else {
+      uuid += "xxxxxxxxxxxxxxxx".replace(/x/g, function() { return Math.floor(Math.random()*16).toString(16); });
+    }
+    document.getElementById('receive-idempotency').value = uuid;
+    modal.style.display = 'flex';
+    modal.querySelector('[name="quantity"]').focus();
+    document.body.style.overflow = 'hidden';
+    modal.addEventListener('keydown', trapFocus);
+  }
+
+  function closeModal() {
+    modal.style.display = 'none';
+    document.body.style.overflow = '';
+    modal.removeEventListener('keydown', trapFocus);
+    if (lastFocused) lastFocused.focus();
+  }
+
+  // Open modal from Receive buttons
+  document.querySelectorAll('.receive-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openModal(
+        btn.dataset.poId,
+        btn.dataset.poNumber,
+        parseInt(btn.dataset.outstanding, 10)
+      );
+    });
+  });
+
+  // Close handlers
+  closeBtns.forEach(btn => btn.addEventListener('click', closeModal));
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal.style.display === 'flex') closeModal(); });
+
+  // Form submit
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    const poId = document.getElementById('receive-po-id').value;
+    const formData = new FormData(form);
+    formData.append('csrf_token', document.querySelector('[name="csrf_token"]').value);
+    
+    fetch('{{ url_for("ui.receive_po", po_id=0) }}'.replace('/0', '/' + poId), {
+      method: 'POST',
+      body: formData,
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(r => {
+      if (r.redirected || r.ok) {
+        window.location.reload();
+      } else {
+        return r.text().then(t => { throw new Error(t); });
+      }
+    })
+    .catch(err => {
+      alert('Error: ' + err.message);
+    });
+  });
+})();
+</script>
+
 {% endblock %}

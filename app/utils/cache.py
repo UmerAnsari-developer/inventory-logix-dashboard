@@ -174,8 +174,10 @@ def cache_bust_purchase_orders() -> int:
     n = products_cache.invalidate("")          # PO delivery updates stock
     n += dashboard_cache.invalidate("dashboard:")
     n += reports_cache.invalidate("reports:")
-    n += global_cache.invalidate("")          # reorder_count changes with stock
+    n += global_cache.invalidate("")           # reorder_count changes with stock
     n += api_cache.invalidate("purchase_orders")
+    # Also bust the board key used by purchase_orders() route
+    n += api_cache.invalidate("purchase_orders:board")
     return n
 
 

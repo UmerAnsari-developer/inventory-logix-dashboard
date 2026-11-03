@@ -623,19 +623,24 @@ $$ LANGUAGE plpgsql;
 
 -- ── PURCHASE ORDERS ──────────────────────────────────────────────────────────
 
+-- P0 (Batch1): received_quantity added so the kanban shows the outstanding
+-- quantity after partial receipts. Return-shape change requires DROP + recreate.
+DROP FUNCTION IF EXISTS sp_po_list_by_status(varchar);
 CREATE OR REPLACE FUNCTION sp_po_list_by_status(p_status VARCHAR DEFAULT NULL)
 RETURNS TABLE (
     id INT, po_number VARCHAR, supplier_id INT, product_id INT,
     quantity INT, unit_cost NUMERIC, status VARCHAR, eta_date DATE,
     created_at TIMESTAMP, updated_at TIMESTAMP,
-    supplier_name VARCHAR, product_name VARCHAR, sku VARCHAR
+    supplier_name VARCHAR, product_name VARCHAR, sku VARCHAR,
+    received_quantity INT
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT po.id, po.po_number, po.supplier_id, po.product_id,
            po.quantity, po.unit_cost, po.status, po.eta_date,
            po.created_at, po.updated_at,
-           s.name AS supplier_name, p.name AS product_name, p.sku
+           s.name AS supplier_name, p.name AS product_name, p.sku,
+           po.received_quantity
     FROM purchase_orders po
     LEFT JOIN suppliers s ON s.id = po.supplier_id
     LEFT JOIN products p ON p.id = po.product_id
@@ -667,6 +672,13 @@ BEGIN
     INSERT INTO purchase_orders (po_number, supplier_id, product_id, quantity, unit_cost, status, eta_date)
     VALUES (p_po_number, p_supplier_id, p_product_id, p_quantity, p_unit_cost, p_status, p_eta_date)
     RETURNING id INTO new_id;
+    -- P0 (Batch1): POs born approved/in_transit contribute to on_order here;
+    -- draft POs count only when sp_po_transition moves them to approved.
+    IF p_status IN ('approved', 'in_transit') THEN
+        UPDATE products
+        SET on_order = on_order + p_quantity, updated_at = NOW()
+        WHERE id = p_product_id;
+    END IF;
     RETURN new_id;
 END;
 $$ LANGUAGE plpgsql;
@@ -677,13 +689,28 @@ $$ LANGUAGE plpgsql;
 --   approved -> in_transit | cancelled
 --   in_transit -> received | cancelled
 --   received / cancelled are terminal.
--- DB-024: on 'received', insert a movement via sp_movement_record (ledger + stock delta)
--- instead of direct stock UPDATE. This ensures the ledger row exists and reuses
--- the atomic stock adjustment logic (row lock, delta, negative guard).
-CREATE OR REPLACE FUNCTION sp_po_transition(p_id INT, p_new_status VARCHAR)
+-- Batch1 P0: extended receive-aware form (partial receipts, goods receipts,
+-- threaded idempotency key). The legacy 2-arg signature is DROPPED — keeping
+-- both overloads makes 2-arg calls ambiguous (PostgreSQL function-overloading
+-- rules). Legacy 2-arg calls resolve here with defaults: full-quantity receive
+-- with stock/movement effects but no receipt row (p_received_by IS NULL).
+-- on_order contract: +quantity at draft->approved (or at create for POs born
+-- approved/in_transit), -(quantity - received) at cancel of open POs, nothing
+-- at draft cancel, -received_qty at receive.
+CREATE OR REPLACE FUNCTION sp_po_transition(
+    p_id INT,
+    p_new_status VARCHAR,
+    p_received_quantity INT DEFAULT NULL,
+    p_received_by INT DEFAULT NULL,
+    p_notes TEXT DEFAULT NULL,
+    p_location VARCHAR(100) DEFAULT NULL,
+    p_idempotency_key VARCHAR(64) DEFAULT NULL
+)
 RETURNS VOID AS $$
 DECLARE
     po purchase_orders%ROWTYPE;
+    v_receive_qty INT;
+    v_receipt_id BIGINT;
 BEGIN
     SELECT * INTO po FROM purchase_orders
     WHERE id = p_id AND deleted_at IS NULL
@@ -702,22 +729,83 @@ BEGIN
         RAISE EXCEPTION 'Invalid PO transition: % -> %', po.status, p_new_status;
     END IF;
 
-    IF po.product_id IS NOT NULL AND p_new_status = 'received' THEN
-        -- DB-024: route through the atomic movement funnel (ledger + stock delta)
-        PERFORM sp_movement_record(po.product_id, 'IN', po.quantity,
-                                   po.po_number, 'PO received', NULL);
+    IF po.product_id IS NOT NULL AND p_new_status = 'approved' THEN
+        -- on_order counts approved/in_transit open POs only.
         UPDATE products
-        SET on_order = GREATEST(on_order - po.quantity, 0),
+        SET on_order = on_order + po.quantity,
+            updated_at = NOW()
+        WHERE id = po.product_id;
+    ELSIF po.product_id IS NOT NULL AND p_new_status = 'received' THEN
+        v_receive_qty := COALESCE(p_received_quantity, po.quantity);
+
+        -- Validate: positive and not exceeding outstanding
+        IF v_receive_qty <= 0 THEN
+            RAISE EXCEPTION 'Receive quantity must be positive';
+        END IF;
+        IF v_receive_qty > (po.quantity - COALESCE(po.received_quantity, 0)) THEN
+            RAISE EXCEPTION 'Receive quantity % exceeds outstanding %',
+                v_receive_qty, (po.quantity - COALESCE(po.received_quantity, 0));
+        END IF;
+
+        -- Receipt insert FIRST: a duplicate idempotency key aborts here,
+        -- before any stock/movement/on_order effect is applied.
+        IF p_received_by IS NOT NULL THEN
+            v_receipt_id := sp_goods_receipt_create(
+                po.id, v_receive_qty, p_received_by,
+                p_notes, p_location, p_idempotency_key
+            );
+            IF p_idempotency_key IS NOT NULL AND v_receipt_id IS NULL THEN
+                -- Key exists: verify it's a true replay (same PO + qty).
+                -- If payload differs, it's a client bug, not a replay.
+                PERFORM 1 FROM goods_receipts gr
+                WHERE gr.idempotency_key = p_idempotency_key
+                  AND gr.po_id = po.id
+                  AND gr.quantity = v_receive_qty;
+                IF NOT FOUND THEN
+                    RAISE EXCEPTION 'Idempotency key % reused with different PO/quantity', p_idempotency_key;
+                END IF;
+                RETURN;  -- true replay: nothing applied yet, so nothing to undo
+            END IF;
+        END IF;
+
+        UPDATE purchase_orders
+        SET received_quantity = COALESCE(received_quantity, 0) + v_receive_qty
+        WHERE id = p_id;
+
+        -- DB-024: route through the atomic movement funnel (ledger + stock delta)
+        PERFORM sp_movement_record(
+            po.product_id, 'IN', v_receive_qty,
+            po.po_number, 'PO received', p_received_by
+        );
+
+        UPDATE products
+        SET on_order = GREATEST(on_order - v_receive_qty, 0),
             updated_at = NOW()
         WHERE id = po.product_id;
     ELSIF po.product_id IS NOT NULL AND p_new_status = 'cancelled' THEN
-        UPDATE products
-        SET on_order = GREATEST(on_order - po.quantity, 0),
-            updated_at = NOW()
-        WHERE id = po.product_id;
+        -- Only open (approved/in_transit) POs contributed to on_order: a draft
+        -- cancel must not steal another PO's contribution, and a cancel after
+        -- a partial receipt releases only the unreceived remainder.
+        IF po.status IN ('approved', 'in_transit') THEN
+            UPDATE products
+            SET on_order = GREATEST(on_order - (po.quantity - COALESCE(po.received_quantity, 0)), 0),
+                updated_at = NOW()
+            WHERE id = po.product_id;
+        END IF;
     END IF;
 
-    UPDATE purchase_orders SET status = p_new_status, updated_at = NOW() WHERE id = p_id;
+    -- Conditional status update: partial receipt stays in_transit, full receipt becomes received
+    IF po.status = 'in_transit' AND p_new_status = 'received' THEN
+        UPDATE purchase_orders
+        SET status = CASE
+            WHEN COALESCE(received_quantity, 0) >= quantity THEN 'received'
+            ELSE 'in_transit'
+        END,
+        updated_at = NOW()
+        WHERE id = p_id;
+    ELSE
+        UPDATE purchase_orders SET status = p_new_status, updated_at = NOW() WHERE id = p_id;
+    END IF;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -1224,3 +1312,226 @@ BEGIN
     VALUES (p_task_name, p_payload, p_priority, p_max_attempts, v_next_run)
     RETURNING job_queue.id;
 END $$;
+-- ----- Movement ledger (list / count / export) -----
+CREATE OR REPLACE FUNCTION sp_movement_count(
+    p_type_filter TEXT[] DEFAULT NULL,
+    p_date_from DATE DEFAULT NULL,
+    p_date_to DATE DEFAULT NULL,
+    p_product_id INT DEFAULT NULL,
+    p_user_id INT DEFAULT NULL
+) RETURNS BIGINT AS $$
+    SELECT COUNT(*)
+    FROM movements m
+    WHERE m.deleted_at IS NULL
+      AND (p_type_filter IS NULL OR m.type = ANY(p_type_filter))
+      AND (p_date_from IS NULL OR m.created_at::date >= p_date_from)
+      AND (p_date_to IS NULL OR m.created_at::date <= p_date_to)
+      AND (p_product_id IS NULL OR m.product_id = p_product_id)
+      AND (p_user_id IS NULL OR m.user_id = p_user_id);
+$$ LANGUAGE sql STABLE;
+
+CREATE OR REPLACE FUNCTION sp_movement_list(
+    p_type_filter TEXT[] DEFAULT NULL,
+    p_date_from DATE DEFAULT NULL,
+    p_date_to DATE DEFAULT NULL,
+    p_product_id INT DEFAULT NULL,
+    p_user_id INT DEFAULT NULL,
+    p_page INT DEFAULT 1,
+    p_per_page INT DEFAULT 20,
+    p_sort_by TEXT DEFAULT 'created_at',
+    p_sort_order TEXT DEFAULT 'desc'
+) RETURNS TABLE (
+    id BIGINT,
+    product_id INT,
+    type TEXT,
+    quantity INT,
+    reference TEXT,
+    notes TEXT,
+    user_id INT,
+    created_at TIMESTAMP,
+    product_name TEXT,
+    sku TEXT,
+    user_name TEXT,
+    total_count BIGINT
+) AS $$
+DECLARE
+    v_order TEXT;
+    v_dir TEXT;
+    v_offset INT;
+BEGIN
+    IF p_page < 1 THEN p_page := 1; END IF;
+    IF p_per_page < 1 THEN p_per_page := 20;
+    ELSIF p_per_page > 100 THEN p_per_page := 100; END IF;
+    IF p_sort_order NOT IN ('asc', 'desc') THEN p_sort_order := 'desc'; END IF;
+
+    v_order := CASE p_sort_by
+        WHEN 'type' THEN 'm.type'
+        WHEN 'product' THEN 'p.name'
+        WHEN 'user' THEN 'u.username'
+        WHEN 'quantity' THEN 'm.quantity'
+        ELSE 'm.created_at'
+    END;
+    v_dir := CASE WHEN p_sort_order = 'asc' THEN 'ASC' ELSE 'DESC' END;
+    v_offset := (p_page - 1) * p_per_page;
+
+    RETURN QUERY EXECUTE format(
+        'SELECT m.id::BIGINT, m.product_id, m.type::TEXT, m.quantity, '
+        'm.reference::TEXT, m.notes::TEXT, m.user_id, m.created_at, '
+        'p.name::TEXT AS product_name, p.sku::TEXT, u.username::TEXT AS user_name, '
+        'COUNT(*) OVER() AS total_count '
+        'FROM movements m '
+        'LEFT JOIN products p ON p.id = m.product_id '
+        'LEFT JOIN users u ON u.id = m.user_id '
+        'WHERE m.deleted_at IS NULL '
+        'AND ($1::TEXT[] IS NULL OR m.type = ANY($1)) '
+        'AND ($2::DATE IS NULL OR m.created_at::date >= $2) '
+        'AND ($3::DATE IS NULL OR m.created_at::date <= $3) '
+        'AND ($4::INT IS NULL OR m.product_id = $4) '
+        'AND ($5::INT IS NULL OR m.user_id = $5) '
+        'ORDER BY %s %s LIMIT $6 OFFSET $7',
+        v_order, v_dir)
+    USING p_type_filter, p_date_from, p_date_to, p_product_id, p_user_id,
+          p_per_page, v_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_movement_export_data(
+    p_type_filter TEXT[] DEFAULT NULL,
+    p_date_from DATE DEFAULT NULL,
+    p_date_to DATE DEFAULT NULL,
+    p_product_id INT DEFAULT NULL,
+    p_user_id INT DEFAULT NULL,
+    p_limit INT DEFAULT 5000,
+    p_sort_by TEXT DEFAULT 'created_at',
+    p_sort_order TEXT DEFAULT 'desc'
+) RETURNS TABLE (
+    id BIGINT,
+    type TEXT,
+    quantity INT,
+    reference TEXT,
+    notes TEXT,
+    created_at TIMESTAMP,
+    user_id INT,
+    product_name TEXT,
+    sku TEXT,
+    user_name TEXT
+) AS $$
+DECLARE
+    v_order TEXT;
+    v_dir TEXT;
+BEGIN
+    IF p_limit < 1 THEN p_limit := 1;
+    ELSIF p_limit > 5000 THEN p_limit := 5000; END IF;
+    IF p_sort_order NOT IN ('asc', 'desc') THEN p_sort_order := 'desc'; END IF;
+
+    v_order := CASE p_sort_by
+        WHEN 'type' THEN 'm.type'
+        WHEN 'product' THEN 'p.name'
+        WHEN 'user' THEN 'u.username'
+        WHEN 'quantity' THEN 'm.quantity'
+        ELSE 'm.created_at'
+    END;
+    v_dir := CASE WHEN p_sort_order = 'asc' THEN 'ASC' ELSE 'DESC' END;
+
+    RETURN QUERY EXECUTE format(
+        'SELECT m.id::BIGINT, m.type::TEXT, m.quantity, m.reference::TEXT, '
+        'm.notes::TEXT, m.created_at, m.user_id, p.name::TEXT AS product_name, '
+        'p.sku::TEXT, u.username::TEXT AS user_name '
+        'FROM movements m '
+        'LEFT JOIN products p ON p.id = m.product_id '
+        'LEFT JOIN users u ON u.id = m.user_id '
+        'WHERE m.deleted_at IS NULL '
+        'AND ($1::TEXT[] IS NULL OR m.type = ANY($1)) '
+        'AND ($2::DATE IS NULL OR m.created_at::date >= $2) '
+        'AND ($3::DATE IS NULL OR m.created_at::date <= $3) '
+        'AND ($4::INT IS NULL OR m.product_id = $4) '
+        'AND ($5::INT IS NULL OR m.user_id = $5) '
+        'ORDER BY %s %s LIMIT $6',
+        v_order, v_dir)
+    USING p_type_filter, p_date_from, p_date_to, p_product_id, p_user_id, p_limit;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION sp_goods_receipt_create(
+    p_po_id INT,
+    p_quantity INT,
+    p_received_by INT DEFAULT NULL,
+    p_notes TEXT DEFAULT NULL,
+    p_location VARCHAR(100) DEFAULT NULL,
+    p_idempotency_key VARCHAR(64) DEFAULT NULL
+)
+RETURNS BIGINT AS $$
+DECLARE
+    v_receipt_id BIGINT;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM purchase_orders
+        WHERE id = p_po_id AND deleted_at IS NULL AND status = 'in_transit'
+    ) THEN
+        RAISE EXCEPTION 'Purchase order % not found or not in_transit', p_po_id;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_received_by) THEN
+        RAISE EXCEPTION 'User % not found', p_received_by;
+    END IF;
+
+    INSERT INTO goods_receipts (po_id, quantity, received_by, notes, location, idempotency_key)
+    VALUES (p_po_id, p_quantity, p_received_by, p_notes, p_location, p_idempotency_key)
+    ON CONFLICT (idempotency_key) DO NOTHING
+    RETURNING id INTO v_receipt_id;
+
+    RETURN v_receipt_id;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE OR REPLACE FUNCTION sp_goods_receipt_list(
+    p_po_id INT DEFAULT NULL,
+    p_received_by INT DEFAULT NULL,
+    p_date_from DATE DEFAULT NULL,
+    p_date_to DATE DEFAULT NULL
+)
+RETURNS TABLE (
+    id BIGINT,
+    po_id INT,
+    quantity INT,
+    received_by INT,
+    received_at TIMESTAMP,
+    notes TEXT,
+    location VARCHAR(100),
+    idempotency_key VARCHAR(64),
+    created_at TIMESTAMP,
+    po_number VARCHAR(40),
+    product_name VARCHAR,
+    sku VARCHAR,
+    supplier_name VARCHAR,
+    received_by_name VARCHAR
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        gr.id::BIGINT,
+        gr.po_id,
+        gr.quantity,
+        gr.received_by,
+        gr.received_at,
+        gr.notes,
+        gr.location,
+        gr.idempotency_key,
+        gr.created_at,
+        po.po_number,
+        p.name AS product_name,
+        p.sku,
+        s.name AS supplier_name,
+        u.username AS received_by_name
+    FROM goods_receipts gr
+    JOIN purchase_orders po ON po.id = gr.po_id
+    JOIN products p ON p.id = po.product_id
+    JOIN suppliers s ON s.id = po.supplier_id
+    JOIN users u ON u.id = gr.received_by
+    WHERE (p_po_id IS NULL OR gr.po_id = p_po_id)
+      AND (p_received_by IS NULL OR gr.received_by = p_received_by)
+      AND (p_date_from IS NULL OR gr.received_at >= p_date_from)
+      AND (p_date_to IS NULL OR gr.received_at < (p_date_to + interval '1 day'))
+    ORDER BY gr.received_at DESC;
+END;
+$$ LANGUAGE plpgsql;

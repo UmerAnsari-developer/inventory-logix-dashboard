@@ -76,3 +76,62 @@ class POService:
     def transition(cls, po_id: int, status: str) -> None:
         """Transition PO through state machine."""
         PurchaseOrderRepository.transition(po_id, status)
+
+    @classmethod
+    def receive(
+        cls,
+        po_id: int,
+        quantity: int,
+        user_id: int,
+        notes: str = "",
+        location: str = "",
+        idempotency_key: str | None = None
+    ) -> None:
+        """Receive goods for a PO with validation."""
+        # Validate quantity > 0
+        if quantity <= 0:
+            raise POServiceError("Quantity must be positive.")
+        
+        # Validate user exists
+        from ..repositories import UserRepository
+        user = UserRepository.find_by_id(user_id)
+        if not user:
+            raise POServiceError(f"User {user_id} not found.")
+        
+        # Validate PO exists and is in_transit
+        from ..database.connection import get_cursor
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT id, status, quantity, received_quantity FROM purchase_orders WHERE id = %s AND deleted_at IS NULL",
+                (po_id,)
+            )
+            po = cur.fetchone()
+            if not po:
+                raise POServiceError(f"Purchase order {po_id} not found.")
+            if po["status"] != "in_transit":
+                raise POServiceError(f"Invalid PO transition: {po['status']} -> received")
+            outstanding = po["quantity"] - (po["received_quantity"] or 0)
+            if quantity > outstanding:
+                raise POServiceError(f"Receive quantity {quantity} exceeds outstanding {outstanding}.")
+        
+        # Delegate to repository (handles idempotency key generation/forwarding)
+        try:
+            PurchaseOrderRepository.receive(po_id, quantity, user_id, notes, location, idempotency_key)
+        except POError as exc:
+            raise POServiceError(str(exc)) from exc
+        except Exception as exc:
+            # Wrap SP-level idempotency conflict
+            if "Idempotency key" in str(exc) and "reused with different" in str(exc):
+                raise POServiceError(str(exc)) from exc
+            raise
+
+    @classmethod
+    def list_receipts(
+        cls,
+        po_id: int | None = None,
+        received_by: int | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None
+    ) -> list[dict]:
+        """List goods receipts with optional filters."""
+        return PurchaseOrderRepository.list_receipts(po_id, received_by, date_from, date_to)

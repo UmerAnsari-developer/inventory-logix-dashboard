@@ -694,6 +694,9 @@ def purchase_orders():
             all_pos = list(cur.fetchall())
             cur.execute("SELECT * FROM sp_po_counts_by_status()")
             counts = {row["status"]: int(row["cnt"]) for row in cur.fetchall()}
+            # Receipt history for the history section (P0 receipt history wiring)
+            cur.execute("SELECT * FROM sp_goods_receipt_list(NULL, NULL, NULL, NULL) LIMIT 50")
+            receipts = list(cur.fetchall())
         by_status = {"draft": [], "approved": [], "in_transit": [], "received": []}
         for pos in all_pos:
             s = pos.get("status")
@@ -707,9 +710,11 @@ def purchase_orders():
             "approved": by_status["approved"],
             "in_transit": by_status["in_transit"],
             "received": by_status["received"],
+            "receipts": receipts,
         }
 
-    board = api_cache.get_or_set("po_board", _load_board)
+    # Cache key uses the prefix that cache_bust_purchase_orders() invalidates
+    board = api_cache.get_or_set("purchase_orders:board", _load_board)
     return render_template("purchase_orders.html",
                            counts=board["counts"],
                            suppliers=board["suppliers"],
@@ -718,7 +723,8 @@ def purchase_orders():
                            draft=board["draft"],
                            approved=board["approved"],
                            in_transit=board["in_transit"],
-                           received=board["received"])
+                           received=board["received"],
+                           receipts=board["receipts"])
 
 
 @ui_bp.route("/purchase-orders", methods=["POST"])
@@ -810,6 +816,60 @@ def update_po_status(po_id: int):
                 )
             except Exception:
                 pass
+    return redirect(url_for("ui.purchase_orders"))
+
+
+@ui_bp.route("/purchase-orders/<int:po_id>/receive", methods=["POST"])
+@login_required
+@write_roles_required
+@idempotent()
+def receive_po(po_id: int):
+    """Receive goods for a purchase order (partial or full)."""
+    quantity = request.form.get("quantity", type=int)
+    notes = request.form.get("notes", "").strip()
+    location = request.form.get("location", "").strip()
+    # Thread the HTTP idempotency key through to the DB (P0 idempotency fix)
+    idem_key = (
+        request.headers.get("Idempotency-Key")
+        or request.headers.get("X-Idempotency-Key")
+        or request.form.get("idempotency_key")
+    )
+    
+    # If quantity not provided, default to full outstanding quantity
+    if quantity is None:
+        from ..database.connection import get_cursor
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT quantity, COALESCE(received_quantity, 0) AS received_qty FROM purchase_orders WHERE id = %s AND deleted_at IS NULL",
+                (po_id,)
+            )
+            po = cur.fetchone()
+            if not po:
+                flash("Purchase order not found.", "error")
+                return redirect(url_for("ui.purchase_orders"))
+            quantity = po["quantity"] - po["received_qty"]
+    
+    if quantity is None or quantity <= 0:
+        flash("Quantity must be a positive integer.", "error")
+        return redirect(url_for("ui.purchase_orders"))
+    
+    try:
+        from ..services import POService
+        POService.receive(po_id, quantity, current_user.id, notes, location, idempotency_key=idem_key)
+        flash(f"Received {quantity} unit(s) for PO.", "success")
+    except Exception as exc:
+        from ..repositories import POError
+        from ..services import POServiceError
+        if isinstance(exc, (POError, POServiceError)):
+            flash(str(exc), "error")
+        else:
+            current_app.logger.error(f"Receive PO error: {exc}", exc_info=True)
+            flash("Failed to receive goods. Please try again.", "error")
+    
+    # Bust the kanban/board cache so the UI shows the updated outstanding qty + receipt history
+    from ..utils.cache import cache_bust_purchase_orders
+    cache_bust_purchase_orders()
+    
     return redirect(url_for("ui.purchase_orders"))
 
 

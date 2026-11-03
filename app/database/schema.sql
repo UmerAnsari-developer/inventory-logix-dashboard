@@ -215,6 +215,26 @@ ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
 CREATE INDEX IF NOT EXISTS idx_po_active
     ON purchase_orders (status, created_at) WHERE deleted_at IS NULL;
 
+-- Batch1 P0: goods-receiving parity for fresh installs (matches
+-- migrations/versions/20261029125134_add_received_quantity_and_goods_receipts.py)
+ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS received_quantity INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS goods_receipts (
+    id              BIGSERIAL PRIMARY KEY,
+    po_id           INTEGER NOT NULL REFERENCES purchase_orders(id) ON DELETE RESTRICT,
+    quantity        INTEGER NOT NULL,
+    received_by     INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    received_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+    notes           TEXT,
+    location        VARCHAR(100),
+    idempotency_key VARCHAR(64),
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_gr_quantity_positive CHECK (quantity > 0)
+);
+CREATE INDEX IF NOT EXISTS idx_gr_po ON goods_receipts(po_id);
+CREATE INDEX IF NOT EXISTS idx_gr_received_at ON goods_receipts(received_at);
+CREATE INDEX IF NOT EXISTS idx_gr_received_by ON goods_receipts(received_by);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gr_idempotency ON goods_receipts(idempotency_key) WHERE idempotency_key IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS user_settings (
     id              SERIAL PRIMARY KEY,
     user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE,
