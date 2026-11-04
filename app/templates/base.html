@@ -39,7 +39,7 @@
     })();
   </script>
   {% endif %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=ab96da6d" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=da2948c4" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/ai-features.css') }}?v=42b4e60c" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=234b4639" />
   <script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}?v=ddb8b099" defer></script>
@@ -127,6 +127,10 @@
               <a href="{{ url_for('ui.warehouses') }}"
                 class="menu-item {{ 'active' if active_page == 'warehouses' else '' }}">
                 <span class="nav-text">Warehouse Operations</span>
+              </a>
+              <a href="{{ url_for('ui.movements') }}"
+                class="menu-item {{ 'active' if active_page == 'movements' else '' }}">
+                <span class="nav-text">Movement Ledger</span>
               </a>
               <a href="{{ url_for('ui.reports') }}"
                 class="menu-item {{ 'active' if active_page == 'reports' else '' }}">

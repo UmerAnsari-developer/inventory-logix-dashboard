@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+{% set active_page = "movements" %}
+{% block title %}Movement Ledger{% endblock %}
+{% block content %}
+<section>
+  <div class="page-heading">
+    <div>
+      <div class="eyebrow">Operations</div>
+      <h1>Movement Ledger</h1>
+      <p class="heading-note">Filter, search and audit all stock movements</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn-secondary" id="exportBtn" href="{{ url_for('api.export_movements', **export_args) }}">Export CSV</a>
+      {% if current_user.role in ['admin', 'manager'] %}
+      <a class="btn btn-primary" href="{{ url_for('ui.movement_form') }}">+ Add movement</a>
+      {% endif %}
+    </div>
+  </div>
+  <form class="filter-bar" method="get" id="mvFilterForm">
+    <label class="inv-filter-label">
+      <div class="multi-select-wrapper" id="mvTypeWrapper">
+        <button type="button" class="filter-button" id="mvTypeButton" aria-expanded="false" aria-controls="mvTypeMenu">
+          {% if not type_filter or type_filter == '' %}
+            All types
+          {% else %}
+            {{ type_filter }}
+          {% endif %}
+        </button>
+        <div class="filter-menu" id="mvTypeMenu">
+          <div class="filter-header">Select Types</div>
+          <div class="filter-options">
+            <label class="filter-option">
+              <input type="checkbox" value="" data-all="true" {% if not type_filter or type_filter == '' %}checked{% endif %}>
+              <span>All types</span>
+            </label>
+            {% for t in ['IN', 'OUT', 'ADJUSTMENT', 'RETURN'] %}
+            <label class="filter-option">
+              <input type="checkbox" name="type" value="{{ t }}" {% if type_filter and t in type_filter %}checked{% endif %}>
+              <span>{{ t }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <input type="hidden" id="mvTypeJson" value='{{ type_filter|tojson if type_filter else "[]" }}'>
+      </div>
+    </label>
+    <label class="inv-filter-label">
+      <span class="visually-hidden">Date from</span>
+      <input type="date" name="date_from" value="{{ filter_args.date_from }}" placeholder="From date">
+    </label>
+    <label class="inv-filter-label">
+      <span class="visually-hidden">Date to</span>
+      <input type="date" name="date_to" value="{{ filter_args.date_to }}" placeholder="To date">
+    </label>
+    <label class="inv-filter-label">
+      <div class="multi-select-wrapper" id="productWrapper">
+        <button type="button" class="filter-button" id="productButton" aria-expanded="false" aria-controls="productMenu">
+          {% if not filter_args.product %}
+            Product (SKU)
+          {% else %}
+            {% set p = products|selectattr('id', 'equalto', filter_args.product|int)|first %}
+            {{ p.sku if p else filter_args.product }}
+          {% endif %}
+        </button>
+        <div class="filter-menu" id="productMenu">
+          <div class="filter-header">Select Product</div>
+          <div class="filter-options">
+            <label class="filter-option">
+              <input type="checkbox" name="product_all" value="" data-all="true" checked>
+              <span>All products</span>
+            </label>
+            {% for p in products %}
+            <label class="filter-option">
+              <input type="radio" name="product" value="{{ p.id }}" {% if filter_args.product == p.id|string %}checked{% endif %}>
+              <span>{{ p.sku }} · {{ p.name }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <input type="hidden" name="product" id="productJson" value='{{ filter_args.product if filter_args.product else "" }}'>
+      </div>
+    </label>
+    <label class="inv-filter-label">
+      <div class="multi-select-wrapper" id="userWrapper">
+        <button type="button" class="filter-button" id="userButton" aria-expanded="false" aria-controls="mvUserMenu">
+          {% if not filter_args.user %}
+            User
+          {% else %}
+            {% set u = users|selectattr('id', 'equalto', filter_args.user|int)|first %}
+            {{ u.username if u else filter_args.user }}
+          {% endif %}
+        </button>
+        <div class="filter-menu" id="userMenu">
+          <div class="filter-header">Select User</div>
+          <div class="filter-options">
+            <label class="filter-option">
+              <input type="checkbox" name="user_all" value="" data-all="true" checked>
+              <span>All users</span>
+            </label>
+            {% for u in users %}
+            <label class="filter-option">
+              <input type="radio" name="user" value="{{ u.id }}" {% if filter_args.user == u.id|string %}checked{% endif %}>
+              <span>{{ u.username }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <input type="hidden" name="user" id="userJson" value='{{ filter_args.user if filter_args.user else "" }}'>
+      </div>
+    </label>
+    <button type="button" class="btn btn-primary" id="mvApplyBtn">Apply</button>
+    <a href="{{ url_for('ui.movements') }}" class="btn btn-secondary">Reset</a>
+  </form>
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead>
+        <tr>
+          {% set sort_fields = ['created_at', 'type', 'quantity', 'product', 'user', 'reference', 'notes'] %}
+          {% set sort_labels = {'created_at': 'Date', 'type': 'Type', 'quantity': 'Qty', 'product': 'Product', 'user': 'User', 'reference': 'Ref', 'notes': 'Notes'} %}
+          {% for field in sort_fields %}
+          <th scope="col">
+            {% set is_current = (filter_args.sort_by == field) %}
+            {% set next_dir = 'asc' if (is_current and filter_args.sort_order == 'desc') else 'desc' %}
+            <a href="{{ url_for('ui.movements', sort_by=field, sort_order=next_dir, **filter_args | dict_filter(['sort_by', 'sort_order'])) }}" 
+               class="sortable-header {% if is_current %}active{% endif %}"
+               aria-sort="{% if is_current %}{{ 'ascending' if filter_args.sort_order == 'asc' else 'descending' }}{% else %}none{% endif %}"
+               data-sort="{{ field }}"
+               data-dir="{{ next_dir }}">
+              {{ sort_labels[field] }}
+              {% if is_current %}
+                <span class="sort-indicator">{{ '▲' if filter_args.sort_order == 'asc' else '▼' }}</span>
+              {% endif %}
+            </a>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for mv in movements %}
+        <tr>
+          <td>{{ mv.created_at.strftime('%d %b %Y %H:%M') if mv.created_at else '' }}</td>
+          <td><span class="badge badge-{{ mv.type|lower }}">{{ mv.type }}</span></td>
+          <td class="number">{{ mv.quantity }}</td>
+          <td>
+            {% if mv.sku %}
+              <a href="{{ url_for('ui.product_detail', product_id=mv.product_id) }}" class="sku-link">
+                {{ mv.sku }}
+              </a>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>{{ mv.user_name or mv.user_id or '—' }}</td>
+          <td>{{ mv.reference or '—' }}</td>
+          <td>{{ mv.notes or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty-state">No movements found</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination">
+    <span>Showing {{ movements|length }} of {{ pagination.total }} movements</span>
+    <div class="pagination-btns">
+      {% set page_args = filter_args.copy() %}
+      {% set _ = page_args.pop('page', none) %}
+      {% if pagination.page > 1 %}
+      <a class="btn btn-outline btn-sm" href="{{ url_for('ui.movements', page=pagination.page - 1, **page_args) }}">&laquo;</a>
+      {% endif %}
+      <span class="btn btn-outline btn-sm" style="cursor:default;opacity:1">{{ pagination.page }} / {{ pagination.pages or 1 }}</span>
+      {% if pagination.page < pagination.pages %}
+      <a class="btn btn-outline btn-sm" href="{{ url_for('ui.movements', page=pagination.page + 1, **page_args) }}">&raquo;</a>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function() {
+  // Multi-select dropdowns (same pattern as inventory/reports pages)
+  function initMultiSelect(wrapperId, buttonId, menuId, jsonInputId, isRadio) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+    var button = document.getElementById(buttonId);
+    var menu = document.getElementById(menuId);
+    var jsonInput = document.getElementById(jsonInputId);
+    var boxes = menu.querySelectorAll('input[type="checkbox"], input[type="radio"]');
+
+    var selected = [];
+    try { selected = JSON.parse(jsonInput.value) || []; } catch (e) { selected = []; }
+    boxes.forEach(function(box) {
+      if (box.type === 'radio') {
+        box.checked = (box.value === selected);
+      } else {
+        box.checked = (box.dataset.all === 'true' ? selected.length === 0 : selected.indexOf(box.value) !== -1);
+      }
+    });
+    syncButtonLabel(wrapper, boxes, isRadio);
+
+    button.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var isOpen = menu.classList.toggle('open');
+      button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      document.querySelectorAll('.filter-menu').forEach(function(m) {
+        if (m !== menu) m.classList.remove('open');
+      });
+    });
+
+    boxes.forEach(function(box) {
+      box.addEventListener('change', function() {
+        if (isRadio) {
+          selected = box.value ? box.value : '';
+        } else {
+          var allBox = menu.querySelector('input[data-all="true"]');
+          if (box === allBox) {
+            if (box.checked) {
+              selected = [];
+            }
+          } else {
+            if (box.checked) {
+              selected.push(box.value);
+            } else {
+              selected = selected.filter(function(v) { return v !== box.value; });
+            }
+            if (allBox) {
+              allBox.checked = selected.length === 0;
+            }
+          }
+        }
+        jsonInput.value = JSON.stringify(selected);
+        syncButtonLabel(wrapper, boxes, isRadio);
+      });
+    });
+
+    document.addEventListener('click', function(e) {
+      if (!menu.contains(e.target) && e.target !== button) {
+        menu.classList.remove('open');
+        button.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  function syncButtonLabel(wrapper, boxes, isRadio) {
+    var button = wrapper.querySelector('.filter-button');
+    var checked = isRadio ? Array.from(boxes).find(function(b) { return b.checked && !b.dataset.all; }) : Array.from(boxes).filter(function(b) { return b.checked && !b.dataset.all; });
+    if (!checked || (Array.isArray(checked) && checked.length === 0)) {
+      button.textContent = isRadio ? 'All' : 'All types';
+    } else if (isRadio) {
+      button.textContent = checked.parentElement.textContent.trim();
+    } else if (checked.length === 1) {
+      button.textContent = checked[0].parentElement.textContent.trim();
+    } else {
+      button.textContent = checked.length + ' selected';
+    }
+  }
+
+  // Initialize all multi-selects
+  initMultiSelect('mvTypeWrapper', 'mvTypeButton', 'mvTypeMenu', 'mvTypeJson', false);
+  initMultiSelect('productWrapper', 'productButton', 'productMenu', 'productJson', true);
+  initMultiSelect('userWrapper', 'userButton', 'userMenu', 'userJson', true);
+
+  // Form submit on Apply
+  document.getElementById('mvApplyBtn').addEventListener('click', function() {
+    document.getElementById('mvFilterForm').submit();
+  });
+
+  // Enter key in date inputs submits form
+  document.querySelectorAll('input[name="date_from"], input[name="date_to"]').forEach(function(inp) {
+    inp.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('mvFilterForm').submit();
+      }
+    });
+  });
+
+  // Sortable headers - click toggles direction
+  document.querySelectorAll('.sortable-header').forEach(function(th) {
+    th.addEventListener('click', function(e) {
+      if (e.target.tagName === 'A' || e.target.tagName === 'SPAN') return; // let link work
+      e.preventDefault();
+      var url = th.querySelector('a').href;
+      window.location.href = url;
+    });
+  });
+});
+</script>
+{% endblock %}

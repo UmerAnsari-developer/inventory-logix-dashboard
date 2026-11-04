@@ -321,12 +321,13 @@ def list_movements():
         type_filter = request.args.getlist("type")
         if type_filter and len(type_filter) == 1 and "," in type_filter[0]:
             type_filter = type_filter[0].split(",")
+        type_filter = [t for t in type_filter if t]
 
-        date_from = request.args.get("date_from")
-        date_to = request.args.get("date_to")
+        date_from = request.args.get("date_from") or None
+        date_to = request.args.get("date_to") or None
         int_args = {}
         for name in ("product_id", "user_id", "page", "per_page"):
-            raw = request.args.get(name)
+            raw = request.args.get(name) or None
             value = request.args.get(name, type=int)
             if raw is not None and value is None:
                 return api_error("VALIDATION_ERROR", f"{name} must be an integer", status=400)
@@ -381,12 +382,13 @@ def list_product_movements(product_id: int):
         type_filter = request.args.getlist("type")
         if type_filter and len(type_filter) == 1 and "," in type_filter[0]:
             type_filter = type_filter[0].split(",")
+        type_filter = [t for t in type_filter if t]
 
-        date_from = request.args.get("date_from")
-        date_to = request.args.get("date_to")
+        date_from = request.args.get("date_from") or None
+        date_to = request.args.get("date_to") or None
         int_args = {}
         for name in ("user_id", "page", "per_page"):
-            raw = request.args.get(name)
+            raw = request.args.get(name) or None
             value = request.args.get(name, type=int)
             if raw is not None and value is None:
                 return api_error("VALIDATION_ERROR", f"{name} must be an integer", status=400)
@@ -427,12 +429,13 @@ def export_movements():
         type_filter = request.args.getlist("type")
         if type_filter and len(type_filter) == 1 and "," in type_filter[0]:
             type_filter = type_filter[0].split(",")
+        type_filter = [t for t in type_filter if t]
 
-        date_from = request.args.get("date_from")
-        date_to = request.args.get("date_to")
+        date_from = request.args.get("date_from") or None
+        date_to = request.args.get("date_to") or None
         int_args = {}
         for name in ("product_id", "user_id", "limit"):
-            raw = request.args.get(name)
+            raw = request.args.get(name) or None
             value = request.args.get(name, type=int)
             if raw is not None and value is None:
                 return api_error("VALIDATION_ERROR", f"{name} must be an integer", status=400)
@@ -484,8 +487,9 @@ def export_movements():
 def export_product_movements(product_id: int):
     """Export movements for a specific product as CSV."""
     try:
-        sort_by = request.args.get("sort_by", default="created_at", type=str)
-        sort_order = request.args.get("sort_order", default="desc", type=str)
+        # Accept both sort/sort_by and dir/sort_order for compatibility
+        sort_by = request.args.get("sort_by", request.args.get("sort", default="created_at"), type=str)
+        sort_order = request.args.get("sort_order", request.args.get("dir", default="desc"), type=str)
         raw_limit = request.args.get("limit")
         limit = request.args.get("limit", default=5000, type=int)
         if raw_limit is not None and limit is None:

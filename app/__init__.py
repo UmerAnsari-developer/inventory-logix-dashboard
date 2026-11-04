@@ -312,6 +312,11 @@ def _register_context(app: Flask) -> None:
             reorder_count = 0
         return {"app_settings": settings, "reorder_count": reorder_count}
 
+    @app.template_filter("dict_filter")
+    def dict_filter(d: dict, exclude: list) -> dict:
+        """Return a new dict excluding specified keys."""
+        return {k: v for k, v in d.items() if k not in exclude}
+
 
 def _fetch_reorder_count() -> int:
     from .database import get_cursor

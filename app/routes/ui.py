@@ -642,6 +642,155 @@ def movement_form():
     return render_template("movement_form.html", products=products, preselect=preselect)
 
 
+@ui_bp.route("/movements", methods=["GET"])
+@login_required
+def movements():
+    """Movement ledger with filtering, sorting, pagination, and export."""
+    from urllib.parse import urlencode
+    from app.services import MovementService
+    from app.utils.cache import api_cache, make_key
+
+    # Parse filter/sort/page params (mirror API /movements endpoint)
+    type_filter = request.args.getlist("type")
+    if type_filter and len(type_filter) == 1 and "," in type_filter[0]:
+        type_filter = type_filter[0].split(",")
+    type_filter = [t for t in type_filter if t]
+
+    date_from = request.args.get("date_from") or None
+    date_to = request.args.get("date_to") or None
+
+    int_args = {}
+    for name in ("product_id", "user_id", "page", "per_page"):
+        raw = request.args.get(name) or None
+        value = request.args.get(name, type=int)
+        if raw is not None and value is None:
+            flash(f"{name} must be an integer", "error")
+            value = None
+        int_args[name] = value
+
+    product_id = int_args["product_id"]
+    user_id = int_args["user_id"]
+    product = request.args.get("product", "").strip() or None
+    user = request.args.get("user", "").strip() or None
+    page = 1 if int_args["page"] is None else int_args["page"]
+    per_page = 20 if int_args["per_page"] is None else min(int_args["per_page"], 100)
+
+    sort_by = request.args.get("sort_by", default="created_at", type=str)
+    sort_order = request.args.get("sort_order", default="desc", type=str)
+
+    # Validate sort_by against allowlist (match API)
+    allowed_sorts = {"created_at", "type", "product", "user", "quantity"}
+    if sort_by not in allowed_sorts:
+        sort_by = "created_at"
+    if sort_order not in ("asc", "desc"):
+        sort_order = "desc"
+
+    # Cache key includes all params
+    cache_key = make_key(
+        prefix="movements",
+        type=",".join(type_filter) if type_filter else "",
+        date_from=date_from or "",
+        date_to=date_to or "",
+        product_id=product_id or 0,
+        user_id=user_id or 0,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page,
+        per_page=per_page,
+    )
+
+    def _load():
+        # Get movements list
+        movements = MovementService.list_movements(
+            type_filter=type_filter if type_filter else None,
+            date_from=date_from,
+            date_to=date_to,
+            product_id=product_id,
+            user_id=user_id,
+            page=page,
+            per_page=per_page,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+        # Get total count for pagination
+        total_count = MovementService.get_movement_count(
+            type_filter=type_filter if type_filter else None,
+            date_from=date_from,
+            date_to=date_to,
+            product_id=product_id,
+            user_id=user_id,
+        )
+        pages = (total_count + per_page - 1) // per_page if per_page > 0 else 1
+        return {
+            "rows": movements,
+            "pagination": {
+                "total": total_count,
+                "page": page,
+                "per_page": per_page,
+                "pages": max(pages, 1),
+            },
+        }
+
+    result = api_cache.get_or_set(cache_key, _load)
+    movements = result["rows"]
+    pagination = result["pagination"]
+
+    # Build filter_args dict for template (for pagination/export links)
+    filter_args = {
+        "type": ",".join(type_filter) if type_filter else "",
+        "date_from": date_from or "",
+        "date_to": date_to or "",
+        "product_id": product_id or "",
+        "product": product or "",
+        "user_id": user_id or "",
+        "user": user or "",
+        "sort_by": sort_by,
+        "sort_order": sort_order,
+    }
+
+    # For export button: use original request params for sort/dir, resolved product_id
+    export_args = {
+        "type": filter_args["type"],
+        "date_from": filter_args["date_from"],
+        "date_to": filter_args["date_to"],
+        "product_id": filter_args["product_id"],
+        "product": filter_args["product"],
+        "user_id": filter_args["user_id"],
+        "user": filter_args["user"],
+        "sort": request.args.get("sort", sort_by),
+        "dir": request.args.get("dir", sort_order),
+    }
+    if product and not product_id:
+        # Try to resolve product search term to product_id
+        with get_cursor() as cur:
+            cur.execute("SELECT id FROM products WHERE sku ILIKE %s OR name ILIKE %s LIMIT 1",
+                       (f"%{product}%", f"%{product}%"))
+            row = cur.fetchone()
+            if row:
+                export_args["product_id"] = row["id"]
+
+    # Get products for product search dropdown
+    with get_cursor() as cur:
+        cur.execute("SELECT id, sku, name FROM products ORDER BY sku")
+        products = list(cur.fetchall())
+
+    # Get users for user search dropdown
+    with get_cursor() as cur:
+        cur.execute("SELECT id, username FROM users ORDER BY username")
+        users = list(cur.fetchall())
+
+    return render_template(
+        "movement_ledger.html",
+        movements=movements,
+        pagination=pagination,
+        filter_args=filter_args,
+        export_args=export_args,
+        products=products,
+        users=users,
+        active_page="movements",
+    )
+
+
 @ui_bp.route("/suppliers", methods=["GET"])
 @login_required
 def suppliers():

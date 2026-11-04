@@ -14,6 +14,7 @@
       <a class="btn btn-secondary" href="{{ url_for('ui.movement_form', product_id=p.id) }}">Record movement</a>
       <a class="btn btn-primary" href="{{ url_for('ui.product_form', product_id=p.id) }}">Edit</a>
       {% endif %}
+      <a class="btn btn-secondary" href="{{ url_for('ui.movements', product_id=p.id) }}">View all movements</a>
     </div>
   </div>
   <div class="metric-grid">
