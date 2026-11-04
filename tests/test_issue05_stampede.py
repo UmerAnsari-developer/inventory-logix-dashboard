@@ -214,15 +214,19 @@ def _force_notif_guard_race(monkeypatch, global_cache, key="notif_monitor_last",
     real_get = global_cache.get
     second_read = threading.Event()
     n = {"count": 0}
+    n_lock = threading.Lock()
 
     def gated_get(k, *args, **kwargs):
         if k != key:
             return real_get(k, *args, **kwargs)
-        n["count"] += 1
-        if n["count"] == 1:
+        # Atomic so contention cannot make two callers take the same branch.
+        with n_lock:
+            n["count"] += 1
+            idx = n["count"]
+        if idx == 1:
             second_read.wait(wait_s)
             return None  # forced miss — widen the race window
-        if n["count"] == 2:
+        if idx == 2:
             result = real_get(k, *args, **kwargs)  # read BEFORE unblocking #1
             second_read.set()
             return result
@@ -590,7 +594,13 @@ def test_t8_run_monitoring_checks_single_flight(monkeypatch):
     monkeypatch.setattr(ns, "clear_stale_notifications", stub("stale"))
     monkeypatch.setattr(ns, "check_reorder_alerts", stub("reorder"))
     monkeypatch.setattr(ns, "check_out_of_stock", stub("out"))
-    _force_notif_guard_race(monkeypatch, ns.global_cache)
+    # Isolate from the shared cache: cache_bust_* in background threads wipes
+    # global_cache, which re-arms notif_monitor_last mid-flight and lets a
+    # second producer run. That is invalidation, not the cold-start herd
+    # this test targets.
+    fresh_cache = TTLCache(ttl=600, max_entries=10)
+    monkeypatch.setattr(ns, "global_cache", fresh_cache)
+    _force_notif_guard_race(monkeypatch, fresh_cache)
 
     errors: list = []
 
