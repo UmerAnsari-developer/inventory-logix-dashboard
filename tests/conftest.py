@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from playwright.sync_api import expect
 from dotenv import dotenv_values
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -148,6 +149,52 @@ def viewer_client(client):
     return client
 
 
+
+@pytest.fixture()
+def auth_page(page, base_url):
+    """Returns a Playwright page logged in as admin."""
+    page.goto(f"{base_url}/auth/login")
+    page.fill('input[name="username"]', "admin")
+    page.fill('input[name="password"]', "Admin@123")
+    page.click('button[type="submit"]')
+    expect(page).to_have_url(f"{base_url}/")
+    return page
+
+
+@pytest.fixture()
+def viewer_page(page, base_url):
+    """Returns a Playwright page logged in as viewer."""
+    page.goto(f"{base_url}/auth/login")
+    page.fill('input[name="username"]', "viewer")
+    page.fill('input[name="password"]', "Viewer@123")
+    page.click('button[type="submit"]')
+    expect(page).to_have_url(f"{base_url}/")
+    return page
+
+
+@pytest.fixture()
+def manager_page(page, base_url):
+    """Returns a Playwright page logged in as manager."""
+    page.goto(f"{base_url}/auth/login")
+    page.fill('input[name="username"]', "manager")
+    page.fill('input[name="password"]', "Manager@123")
+    page.click('button[type="submit"]')
+    expect(page).to_have_url(f"{base_url}/")
+    return page
+
+
+
+@pytest.fixture()
+def manager_client(client):
+    """Returns a logged-in manager test client."""
+    client.post(
+        "/auth/login",
+        data={"username": "manager", "password": "Manager@123"},
+        follow_redirects=False,
+    )
+    return client
+
+
 # ============================================================
 # BATCH 1 FIXTURES — Purchase Orders & Goods Receiving
 # ============================================================
@@ -233,11 +280,10 @@ def sample_po_approved(db_session, sample_po_draft):
 
 @pytest.fixture
 def sample_po_in_transit(db_session, sample_po_approved):
-    """Transition PO to in_transit — PRIMARY FIXTURE for receive tests."""
+    """Transition PO to in_transit – PRIMARY FIXTURE for receive tests."""
     from app.repositories import PurchaseOrderRepository
     PurchaseOrderRepository.transition(sample_po_approved, 'in_transit')
-    po = PurchaseOrderRepository.list_by_status('in_transit')[0]
-    return po['id']
+    return sample_po_approved
 
 
 @pytest.fixture
@@ -269,8 +315,7 @@ def sample_po_partial_received(db_session, sample_po_in_transit, admin_user):
         notes='Partial delivery',
         location='WH1'
     )
-    po = PurchaseOrderRepository.list_by_status('in_transit')[0]
-    return po['id']
+    return sample_po_in_transit
 
 
 @pytest.fixture
@@ -350,3 +395,25 @@ def viewer_user(db_session):
         'viewer'
     )
     return {'id': user_id, 'username': f'viewer_{token}', 'role': 'viewer'}
+
+@pytest.fixture(scope="session")
+def base_url(app):
+    """Live server bound to the *test* app/DB.
+
+    Deliberately not ``http://localhost:5000``: that is the dev server, which
+    reads ``DATABASE_URL`` from ``.env`` and therefore talks to production.
+    E2E must never write to production.
+    """
+    import threading
+
+    from werkzeug.serving import make_server
+
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+

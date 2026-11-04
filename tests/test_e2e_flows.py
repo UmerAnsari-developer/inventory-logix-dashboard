@@ -755,7 +755,7 @@ def test_goods_receipt_query_by_po(app):
 def test_goods_receipt_query_by_date(app):
     """list_receipts(date_from, date_to) filters correctly."""
     from app.repositories import PurchaseOrderRepository
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     client = _session_client_admin(app)
     product_id, po_id = _mk_po_in_transit(app, quantity=10)
@@ -767,16 +767,21 @@ def test_goods_receipt_query_by_date(app):
             "idempotency_key": f"idem-{uuid.uuid4().hex[:12]}"
         })
 
-    today = date.today().isoformat()
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    # Use the receipts' own date (timezone-agnostic)
+    with app.app_context():
+        all_receipts = PurchaseOrderRepository.list_receipts(po_id=po_id)
+        assert len(all_receipts) == 3
+        receipt_date = all_receipts[0]["received_at"].date().isoformat()
+        next_day = (all_receipts[0]["received_at"].date() + timedelta(days=1)).isoformat()
+
     with app.app_context():
         receipts = PurchaseOrderRepository.list_receipts(
-            po_id=po_id, date_from=today, date_to=today
+            po_id=po_id, date_from=receipt_date, date_to=receipt_date
         )
         assert len(receipts) == 3
 
         receipts = PurchaseOrderRepository.list_receipts(
-            po_id=po_id, date_from=tomorrow
+            po_id=po_id, date_from=next_day, date_to=next_day
         )
         assert receipts == []
 
@@ -788,14 +793,15 @@ def test_goods_receipt_query_by_user(app):
 
     product_id, po_id = _mk_po_in_transit(app, quantity=10)
 
-    import uuid
     with app.app_context():
         with get_cursor(commit=True) as cur:
             cur.execute("SELECT id FROM users ORDER BY id LIMIT 1")
             u1 = cur.fetchone()["id"]
             cur.execute("SELECT id FROM users WHERE id <> %s ORDER BY id LIMIT 1", (u1,))
             row = cur.fetchone()
-            u2 = row["id"] if row else u1
+            if row is None:
+                pytest.skip("needs two distinct users")
+            u2 = row["id"]
 
             for uid, qty in ((u1, 5), (u2, 3)):
                 cur.execute("""

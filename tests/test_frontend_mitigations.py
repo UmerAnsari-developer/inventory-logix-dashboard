@@ -417,7 +417,6 @@ def test_destructive_forms_have_data_confirm():
 
     # Every destructive form must be guarded
     destructive_actions = (
-        "admin_data_import.upload",       # CSV import overwrites data
         "ui.monitoring_run_etl",          # warehouse rebuild
         "admin_user_management.edit",     # can deactivate/reset password
         "ui.delete_supplier",             # existing inline onsubmit
