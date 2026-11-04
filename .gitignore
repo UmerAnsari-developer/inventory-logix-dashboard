@@ -1,0 +1,105 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+myvenv/
+venv/
+.venv/
+env/
+
+# Environment / secrets
+.env
+.env.local
+*.env
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Tooling / editor
+.agents/
+.claude/
+.opencode/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Render CLI (render blueprint/preview cache)
+.render/
+
+# Logs & runtime
+*.log
+logs/
+*.sqlite
+*.db
+instance/
+
+# Internal docs
+SESSION_SUMMARY.md
+
+# Data
+datasets/
+
+# Generated artifacts (one-off, not needed in repo)
+graphify-out/
+project_report.pdf
+generate_report.py
+InventoryLogix_Project_Report.docx
+PRODUCT.md
+AGENTS.md
+opencode.json
+
+# Non-project / scratch (keep out of repo)
+Agents_test/
+backups/
+playwright-cli/
+node_modules/
+package.json
+package-lock.json
+PLAN.md
+DB_CONNECTION_FIX_SUMMARY.md
+
+# Untracked from repo (kept locally only) — repo slim-down
+DataCo_Supply_Chain_Dataset/
+synthetic_dataset_output/
+Fix/
+Roles/
+Models/
+Issues/
+.archify/
+.superpowers/
+scripts/
+sample_*.csv
+skills-lock.json
+research_findings.md
+mitigation_plan.md
+architecture_design.md
+ADM-*_IMPLEMENTATION_PLAN.md
+IMPLEMENTATION_PLAN_*.md
+SUPABASE_SETUP.md
+*.bak
+/bump_js_versions.py
+/bump_versions.py
+
+# Local working files (kept in folder, never tracked)
+/TODO.md
+/check_db.py
+/check_db2.py
+/check_detect.py
+/check_warehouses.py
+/cleanup_test_data.py
+/detect_files.py
+/list_tables.py
+/run_ast_extraction.py
+/run_semantic_extraction.py
+/run_semantic_extraction2.py
