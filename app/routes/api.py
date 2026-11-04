@@ -593,30 +593,35 @@ def list_notifications():
 
 # ----- Exports -----
 
+def _csv(response: Response) -> Response:
+    """Keep the request context alive while the CSV generator streams."""
+    response.response = stream_with_context(response.response)
+    return response
+
 @api_bp.route("/export/products", methods=["GET"])
 @login_required
 @write_roles_required
 def export_products():
     from ..services.export_service import ExportService
-    return ExportService.export_products_csv()
+    return _csv(ExportService.export_products())
 
 @api_bp.route("/export/purchase_orders", methods=["GET"])
 @login_required
 @write_roles_required
 def export_purchase_orders():
     from ..services.export_service import ExportService
-    return ExportService.export_purchase_orders_csv()
+    return _csv(ExportService.export_purchase_orders())
 
 @api_bp.route("/export/suppliers", methods=["GET"])
 @login_required
 @write_roles_required
 def export_suppliers():
     from ..services.export_service import ExportService
-    return ExportService.export_suppliers_csv()
+    return _csv(ExportService.export_suppliers())
 
 @api_bp.route("/export/inventory", methods=["GET"])
 @login_required
 @write_roles_required
 def export_inventory():
     from ..services.export_service import ExportService
-    return ExportService.export_inventory_csv()
+    return _csv(ExportService.export_inventory())
