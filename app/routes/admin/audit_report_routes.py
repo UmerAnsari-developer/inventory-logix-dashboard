@@ -333,13 +333,13 @@ def verify_audit_integrity():
         current_app.logger.exception("Audit integrity verification failed")
         return jsonify({"success": False, "error": "Verification failed"}), 500
 
-    intact = (row["broken_links"] or 0) == 0 and (row["bad_hashes"] or 0) == 0
+    intact = (row["broken"] or 0) == 0 and (row["bad_rows"] or 0) == 0
     return jsonify({
         "success": True,
         "intact": intact,
-        "rows_checked": row["rows_checked"],
-        "broken_links": row["broken_links"],
-        "bad_hashes": row["bad_hashes"],
+        "rows_checked": row["checked"],
+        "broken_links": row["broken"],
+        "bad_hashes": row["bad_rows"],
         "first_broken_id": row["first_broken_id"],
         "limit": limit,
     })
