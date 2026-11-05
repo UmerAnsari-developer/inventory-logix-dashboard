@@ -333,13 +333,16 @@ def verify_audit_integrity():
         current_app.logger.exception("Audit integrity verification failed")
         return jsonify({"success": False, "error": "Verification failed"}), 500
 
-    intact = (row["broken"] or 0) == 0 and (row["bad_rows"] or 0) == 0
+    # row is (checked, broken, bad_rows, first_broken_id) - use index access
+    # to be compatible with both RealDictRow and regular tuple cursors
+    checked, broken, bad_rows, first_broken_id = row
+    intact = (broken or 0) == 0 and (bad_rows or 0) == 0
     return jsonify({
         "success": True,
         "intact": intact,
-        "rows_checked": row["checked"],
-        "broken_links": row["broken"],
-        "bad_hashes": row["bad_rows"],
-        "first_broken_id": row["first_broken_id"],
+        "rows_checked": checked,
+        "broken_links": broken,
+        "bad_hashes": bad_rows,
+        "first_broken_id": first_broken_id,
         "limit": limit,
     })
