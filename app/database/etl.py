@@ -712,6 +712,13 @@ def run_etl(force: bool = False) -> dict:
                 summary["warehouse_etl_ok"] = False  # F6
                 LOGGER.error("Warehouse ETL failed (non-fatal): %s", _safe_error(e))
 
+            # Refresh reports materialized view for fast report queries
+            try:
+                cur.execute("SELECT sp_refresh_reports_mv()")
+                LOGGER.info("Reports materialized view refreshed")
+            except Exception as e:
+                LOGGER.warning("Failed to refresh reports MV (non-fatal): %s", _safe_error(e))
+
             # Release advisory lock before returning connection to pool
             # (advisory locks are session-level and persist across pooled connections)
             try:

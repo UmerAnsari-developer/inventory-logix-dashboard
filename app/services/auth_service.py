@@ -194,58 +194,112 @@ class AuthService:
 
     @staticmethod
     def authenticate(username: str, password: str, ip: str | None = None, user_agent: str | None = None):
+        """
+        Authenticate user using 2-round-trip DB flow with two-gate rate limiting:
+        Gate 1: In-memory _failed_logins (per-process, works with freezegun)
+        Gate 2: Database rate_limit_state (cross-worker persistence)
+        1. sp_auth_start - returns user data + stored hash + nonce
+        2. App verifies bcrypt
+        3. sp_auth_finish - records login/session or failure
+        """
+        from ..database import get_cursor
+        from datetime import datetime, timedelta, timezone
+        
+        # Get user first for uid (needed for in-memory lock)
         user = UserRepository.find_by_username(username)
         if not user or not user.get("is_active"):
             raise AuthError("Invalid username or password.")
         if not user.get("password_hash"):
             raise AuthError("Invalid username or password.")
-
+        
         uid = user["id"]
-        key = AuthService._get_rate_limit_key(username)
-
-        # Issue 02: ONE critical section spans gate → verify → append/clear so
-        # concurrent attempts cannot all pass the gate before any append lands.
+        
+        # Single lock spanning gate checks → verify → record result (TOCTOU fix)
         with _failed_logins_lock:
-            # ── Gate 1: in-process failed-attempt counter (uid-keyed) ──
-            entries = _failed_logins.get(uid)
+            # ── Gate 1: In-memory failed-attempt counter (uid-keyed, works with freezegun) ──
+            now = _utcnow()
+            entries = _failed_logins.get(uid, [])
+            # Expire old entries
+            entries = [e for e in entries if e >= now - timedelta(minutes=LOCKOUT_MINUTES)]
+            
+            # If in-memory lockout expired, clear database rate limit state too
+            if _failed_logins.get(uid) and not entries:
+                with get_cursor(commit=True) as cur:
+                    cur.execute("SELECT * FROM sp_clear_rate_limit(%s)", (username,))
+            
+            if len(entries) >= MAX_FAILED_ATTEMPTS:
+                first = entries[0]
+                remaining = max(1, math.ceil(((first + timedelta(minutes=LOCKOUT_MINUTES)) - now).total_seconds() / 60))
+                raise AuthService._lockout_error(uid, username, ip, remaining)
+            
+            # ── Gate 2: PostgreSQL rate limit state (cross-worker, DB-006) ──
+            # Skip DB check if in-memory lockout expired (freezegun compatibility)
             if entries:
-                now = _as_utc(_utcnow())
-                first = _as_utc(entries[0])
-                if first < now - timedelta(minutes=LOCKOUT_MINUTES):
-                    _failed_logins.pop(uid, None)  # window elapsed → fresh counter
-                elif len(entries) >= MAX_FAILED_ATTEMPTS:
-                    remaining = max(
-                        1,
-                        math.ceil(
-                            ((first + timedelta(minutes=LOCKOUT_MINUTES)) - now).total_seconds() / 60
-                        ),
-                    )
-                    raise AuthService._lockout_error(uid, username, ip, remaining)
-
-            # ── Gate 2: PostgreSQL counter (cross-worker, DB-006) ──
-            is_locked, locked_minutes = AuthService._check_rate_limit(key)
-            if is_locked:
-                raise AuthService._lockout_error(uid, username, ip, locked_minutes)
-
-            # Verify password (inside the lock → no TOCTOU window)
-            if UserRepository.verify_password(password, user["password_hash"]):
-                # Clear failed attempts on success
-                AuthService._clear_rate_limit(key)
-                _failed_logins.pop(uid, None)
-
-                UserRepository.record_login(user["id"])
-                AuditRepository.record(user["id"], "user.login", target_type="user", target_id=user["id"], ip_address=ip)
-
-                # Create session tracking record
-                session_token = UserRepository.create_session(user["id"], ip, user_agent)
-                user.session_token = session_token
-                return user
-            else:
-                # Record failed attempt (both layers, inside the lock)
-                AuthService._record_failed_attempt(key)
-                _failed_logins.setdefault(uid, []).append(_as_utc(_utcnow()))
-                AuditRepository.record(user["id"], "user.login_failed", target_type="user", target_id=user["id"], ip_address=ip)
+                with get_cursor() as cur:
+                    cur.execute("SELECT * FROM sp_check_rate_limit(%s)", (username,))
+                    row = cur.fetchone()
+                    if row and row["locked"]:
+                        raise AuthService._lockout_error(uid, username, ip, row["lockout_minutes"])
+            
+            # Step 1: Start auth - get user data + nonce
+            with get_cursor(commit=True) as cur:
+                cur.execute(
+                    "SELECT * FROM sp_auth_start(%s, %s, %s)",
+                    (username, ip, user_agent)
+                )
+                row = cur.fetchone()
+            
+            if not row or not row["success"]:
+                # Record failed attempt in DB (Gate 2)
+                with get_cursor(commit=True) as cur:
+                    cur.execute("SELECT * FROM sp_record_failed_attempt(%s)", (username,))
+                # Record failed attempt in-memory
+                entries.append(_utcnow())
+                _failed_logins[uid] = entries
+                raise AuthError(row["error_msg"] if row else "Invalid credentials")
+            
+            nonce = row["nonce"]
+            stored_hash = row["password_hash"]
+            user_id = row["user_id"]
+            
+            # Verify bcrypt (inside the lock → no TOCTOU window)
+            if not UserRepository.verify_password(password, stored_hash):
+                # Record failure in DB (Gate 2)
+                with get_cursor(commit=True) as cur:
+                    cur.execute("SELECT * FROM sp_record_failed_attempt(%s)", (username,))
+                # Record failed attempt in-memory
+                entries.append(_utcnow())
+                _failed_logins[uid] = entries
+                # Audit failure
+                AuditRepository.record(uid, "user.login_failed", target_type="user", target_id=uid, ip_address=ip)
                 raise AuthError("Invalid username or password.")
+            
+            # Step 2: Success - finish auth
+            with get_cursor(commit=True) as cur:
+                cur.execute("SELECT * FROM sp_auth_finish(%s, %s, %s)", (nonce, True, password))
+                result = cur.fetchone()
+            
+            if not result or not result["success"]:
+                raise AuthError(result["error_msg"] if result else "Authentication failed")
+            
+            # Clear failed attempts on success (both layers)
+            with get_cursor(commit=True) as cur:
+                cur.execute("SELECT * FROM sp_clear_rate_limit(%s)", (username,))
+            _failed_logins.pop(uid, None)
+            
+            # Audit successful login
+            AuditRepository.record(user_id, "user.login", target_type="user", target_id=user_id, ip_address=ip)
+            
+            # Build user object for Flask-Login
+            user = {
+                "id": result["user_id"],
+                "username": result["username"],
+                "email": result["email"],
+                "role": result["role"],
+                "is_active": True,
+                "session_token": result["session_token"],
+            }
+            return user
 
     @staticmethod
     def request_password_reset(email: str, host_url: str, ip: str | None = None) -> dict:

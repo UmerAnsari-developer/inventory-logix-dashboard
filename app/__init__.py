@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from flask import Flask, render_template, request, g, session, abort, redirect, url_for
+from flask import Flask, render_template, request, g, session, abort, redirect, url_for, current_app
 from flask_compress import Compress
 from flask_login import current_user
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -142,6 +142,29 @@ def create_app(config_name: str | None = None) -> Flask:
         # Update last activity on every admin request (sliding window)
         session["admin_last_activity"] = datetime.now(timezone.utc).isoformat()
         return None
+
+    @app.before_request
+    def _warm_caches_on_first_request():
+        """Warm critical caches on the first authenticated request.
+
+        Populates products_cache, suppliers_cache, eoq_cache, and dashboard_cache
+        so subsequent requests hit warm cache instead of cold database queries.
+        """
+        if not current_user.is_authenticated:
+            return None
+        if getattr(g, "_caches_warmed", False):
+            return None
+        g._caches_warmed = True
+        try:
+            from app.services import ProductService, SupplierService, EOQService
+            from app.services.dashboard_service import DashboardService
+
+            ProductService.get_all_cached()  # fills products_cache
+            SupplierService.get_all_cached()  # fills suppliers_cache
+            EOQService.get_eoq_table_cached()  # fills eoq_cache
+            DashboardService.get_dashboard_data()  # fills dashboard_cache
+        except Exception:
+            current_app.logger.debug("Cache warm-up skipped", exc_info=True)
 
     @app.after_request
     def _log_slow(response):

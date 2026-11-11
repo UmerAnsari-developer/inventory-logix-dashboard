@@ -61,3 +61,13 @@ class EOQService:
                 row.append(orders * o + (eoq / 2) * holding_cost)
             z.append(row)
         return {"x": orderings, "y": demands, "z": z}
+
+    @staticmethod
+    def get_eoq_table_cached() -> list[dict]:
+        """Return EOQ per-product table (cached) for warm-up."""
+        from ..utils.cache import eoq_cache
+
+        def _load():
+            return EOQService.per_product_table()
+
+        return eoq_cache.get_or_set("eoq:table", _load)

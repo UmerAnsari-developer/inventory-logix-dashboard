@@ -52,3 +52,13 @@ class SupplierService:
     @staticmethod
     def delete(supplier_id: int) -> None:
         SupplierRepository.delete(supplier_id)
+
+    @staticmethod
+    def get_all_cached() -> list[dict]:
+        """Return all suppliers (cached) for warm-up and dropdowns."""
+        from ..utils.cache import suppliers_cache
+
+        def _load():
+            return SupplierRepository.list_all()
+
+        return suppliers_cache.get_or_set("suppliers:all", _load)

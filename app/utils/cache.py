@@ -123,14 +123,15 @@ class CacheProxy(TTLCache):
 # Writes call cache_bust_* so stale data never outlives a mutation.
 # Each is a CacheProxy: in-process only (single-worker deployment).
 
-products_cache = CacheProxy("products", ttl=300, max_entries=100)      # lists + details (5 min)
-suppliers_cache = CacheProxy("suppliers", ttl=300, max_entries=100)    # lists + details (5 min)
-dashboard_cache = CacheProxy("dashboard", ttl=600, max_entries=20)     # dashboard context (10 min)
-reports_cache = CacheProxy("reports", ttl=7200, max_entries=50)        # heavy report queries (2 hours)
+products_cache = CacheProxy("products", ttl=300, max_entries=128)      # lists + details (5 min)
+suppliers_cache = CacheProxy("suppliers", ttl=300, max_entries=64)     # lists + details (5 min)
+dashboard_cache = CacheProxy("dashboard", ttl=300, max_entries=32)     # dashboard context (5 min)
+reports_cache = CacheProxy("reports", ttl=3600, max_entries=64)        # heavy report queries (1 hour)
 global_cache = CacheProxy("global", ttl=600, max_entries=20)           # reorder count, settings, cross-request (10 min)
 api_cache = CacheProxy("api", ttl=120, max_entries=100)                # REST GET responses (2 min)
 landing_cache = CacheProxy("landing", ttl=600, max_entries=10)         # public landing stats (10 min)
 monitoring_cache = CacheProxy("monitoring", ttl=60, max_entries=10)    # monitoring DB stats (1 min)
+eoq_cache = CacheProxy("eoq", ttl=600, max_entries=16)                 # EOQ table (10 min)
 
 
 # DB-014: busts are intentionally broad (whole-cache invalidates) —
@@ -160,12 +161,13 @@ def cache_bust_suppliers() -> int:
 
 
 def cache_bust_movements() -> int:
-    """Movements change stock → bust product/dashboard/reports/global caches."""
+    """Movements change stock → bust product/dashboard/reports/global/eoq caches."""
     n = products_cache.invalidate("")
     n += dashboard_cache.invalidate("dashboard:")
     n += reports_cache.invalidate("reports:")
     n += global_cache.invalidate("")          # reorder_count changes with stock
     n += api_cache.invalidate("movements")
+    n += eoq_cache.invalidate("")             # stock changes affect EOQ
     # DON'T bust: landing_cache, suppliers_cache
     return n
 
@@ -176,6 +178,7 @@ def cache_bust_purchase_orders() -> int:
     n += reports_cache.invalidate("reports:")
     n += global_cache.invalidate("")           # reorder_count changes with stock
     n += api_cache.invalidate("purchase_orders")
+    n += eoq_cache.invalidate("")              # stock changes affect EOQ
     # Also bust the board key used by purchase_orders() route
     n += api_cache.invalidate("purchase_orders:board")
     return n
@@ -188,7 +191,7 @@ def cache_bust_settings() -> int:
 def cache_bust_all() -> int:
     n = 0
     for c in (products_cache, suppliers_cache, dashboard_cache, reports_cache,
-              global_cache, api_cache, landing_cache, monitoring_cache):
+              global_cache, api_cache, landing_cache, monitoring_cache, eoq_cache):
         n += c.invalidate("")
     return n
 

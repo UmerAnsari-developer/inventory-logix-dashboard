@@ -22,7 +22,7 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         try:
-            user = AuthService.authenticate(
+            auth_result = AuthService.authenticate(
                 username, password,
                 ip=request.remote_addr,
                 user_agent=request.headers.get("User-Agent")
@@ -30,11 +30,16 @@ def login():
         except AuthError as exc:
             flash(str(exc), "error")
             return render_template("auth/login.html", username=username), 401
+        # Get proper User object for Flask-Login
+        user = UserRepository.find_by_id(auth_result["id"])
+        if not user:
+            flash("Authentication failed", "error")
+            return render_template("auth/login.html", username=username), 401
         # No remember cookie: only the browser-session cookie is set, so
         # closing the browser always ends the login.
         login_user(user)
         # Store session_token in Flask session for logout
-        session_token = getattr(user, "session_token", None)
+        session_token = auth_result.get("session_token")
         if session_token:
             from flask import session
             session["session_token"] = session_token
@@ -47,8 +52,8 @@ def login():
             global_cache.invalidate("reorder_count")
         except Exception:
             pass
-        flash(f"Welcome back, {user['username']}!", "success")
-        return redirect(_role_home(user["role"]))
+        flash(f"Welcome back, {user.username}!", "success")
+        return redirect(_role_home(user.role))
     return render_template("auth/login.html")
 
 

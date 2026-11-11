@@ -245,3 +245,40 @@ class ReportService:
                 (status, comment, report_id),
             )
         return {"id": report_id, "status": status, "comment": comment}
+
+    # ── Inventory Movement Reports (uses mv_daily_movement_summary MV) ──
+
+    @staticmethod
+    def get_movement_summary(
+        date_from: date,
+        date_to: date,
+        category: str | None = None,
+        supplier: str | None = None,
+        warehouse: int | None = None,
+    ) -> list[dict]:
+        """Get daily movement summary from materialized view.
+
+        Replaces 7+ joins on fact_movement_daily with a single query on
+        mv_daily_movement_summary which is refreshed by ETL.
+        """
+        sql = """
+            SELECT date_key, sku, product_name, category, supplier_name,
+                   SUM(qty_in) AS total_in, SUM(qty_out) AS total_out,
+                   SUM(daily_net_qty) AS net
+            FROM mv_daily_movement_summary
+            WHERE date_key BETWEEN %s AND %s
+        """
+        params = [date_from, date_to]
+        if category:
+            sql += " AND category = %s"
+            params.append(category)
+        if supplier:
+            sql += " AND supplier_name = %s"
+            params.append(supplier)
+        if warehouse is not None:
+            sql += " AND warehouse_key = %s"
+            params.append(warehouse)
+        sql += " GROUP BY date_key, sku, product_name, category, supplier_name ORDER BY date_key"
+        with get_cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()

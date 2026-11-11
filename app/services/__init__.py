@@ -13,6 +13,7 @@ from .export_service import ExportService
 from .audit_report_service import AuditReportService
 from .po_service import POService, POServiceError
 from .job_queue_service import JobQueueService, Job
+from .dashboard_service import DashboardService
 
 __all__ = [
     "AuthService",
@@ -32,4 +33,5 @@ __all__ = [
     "POServiceError",
     "JobQueueService",
     "Job",
+    "DashboardService",
 ]

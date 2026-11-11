@@ -109,3 +109,14 @@ class ProductService:
     @staticmethod
     def delete(product_id: int) -> None:
         ProductRepository.delete(product_id)
+
+    @staticmethod
+    def get_all_cached() -> list[dict]:
+        """Return all products (cached) for warm-up and dropdowns."""
+        from ..utils.cache import products_cache
+
+        def _load():
+            from ..repositories import ProductRepository
+            return ProductRepository.list(limit=1000, offset=0)[0]
+
+        return products_cache.get_or_set("products:all", _load)
